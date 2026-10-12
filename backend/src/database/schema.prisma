@@ -1,0 +1,89 @@
+// Lược đồ Cơ sở Dữ liệu Hệ thống Quản lý Chung cư
+// Phụ trách: Hiếu
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// 1. Phân quyền: ADMIN, BQL, TECHNICIAN, RESIDENT
+enum Role {
+  ADMIN
+  BQL
+  TECHNICIAN
+  RESIDENT
+}
+
+enum TicketStatus {
+  PENDING      // Mới gửi
+  ASSIGNED     // Đã gán thợ
+  IN_PROGRESS  // Đang sửa
+  COMPLETED    // Đã sửa xong
+  CLOSED       // Cư dân đã nghiệm thu & chấm điểm
+}
+
+enum InvoiceStatus {
+  UNPAID
+  PAID
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  username  String   @unique
+  password  String
+  fullName  String
+  phone     String?
+  role      Role     @default(RESIDENT)
+  roomNumber String?
+  isApproved Boolean @default(false)
+  createdAt DateTime @default(now())
+}
+
+model Ticket {
+  id          Int          @id @default(autoincrement())
+  residentId  Int
+  category    String       // Điện, Nước, Internet, Thang máy...
+  description String
+  mediaUrl    String?
+  status      TicketStatus @default(PENDING)
+  technicianId Int?
+  materials   String?
+  completedMediaUrl String?
+  rating      Int?         // 1 - 5 sao
+  isDuplicate Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+}
+
+model Invoice {
+  id          Int           @id @default(autoincrement())
+  roomNumber  String
+  month       String
+  managementFee Float
+  parkingFee    Float
+  waterFee      Float
+  totalAmount   Float
+  status        InvoiceStatus @default(UNPAID)
+  createdAt     DateTime      @default(now())
+}
+
+model Feedback {
+  id          Int      @id @default(autoincrement())
+  residentId  Int
+  roomNumber  String
+  title       String
+  content     String
+  reply       String?
+  createdAt   DateTime @default(now())
+}
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  title     String
+  content   String
+  targetRoom String? // null = gửi toàn chung cư
+  createdAt DateTime @default(now())
+}
