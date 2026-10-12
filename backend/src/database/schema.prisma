@@ -10,80 +10,159 @@ generator client {
   provider = "prisma-client-js"
 }
 
-// 1. Phân quyền: ADMIN, BQL, TECHNICIAN, RESIDENT
+// =========================================================================
+// CÁC KIỂU LIỆT KÊ (ENUMS) - QUẢN LÝ TRẠNG THÁI & PHÂN QUYỀN TOÀN HỆ THỐNG
+// =========================================================================
+
+// 1. Phân quyền vai trò người dùng trong hệ thống (RBAC)
 enum Role {
-  ADMIN
-  BQL
-  TECHNICIAN
-  RESIDENT
+  ADMIN       // Quản trị viên cao nhất: Tạo và quản lý tài khoản Ban quản lý & Thợ kỹ thuật
+  BQL         // Ban quản lý: Duyệt cư dân mới, điều phối sự cố, lập biểu phí, phát thông báo
+  TECHNICIAN  // Thợ kỹ thuật: Nhận phiếu sửa chữa, cập nhật tiến độ làm việc, kê khai vật tư
+  RESIDENT    // Cư dân: Báo hỏng, tra cứu hóa đơn, quét mã VietQR nộp tiền, gửi hòm thư góp ý
 }
 
+// 2. Vòng đời quy trình xử lý một phiếu báo hỏng sự cố kỹ thuật
 enum TicketStatus {
-  PENDING      // Mới gửi
-  ASSIGNED     // Đã gán thợ
-  IN_PROGRESS  // Đang sửa
-  COMPLETED    // Đã sửa xong
-  CLOSED       // Cư dân đã nghiệm thu & chấm điểm
+  PENDING     // Mới gửi: Cư dân vừa bấm gửi phiếu, đang chờ Ban quản lý tiếp nhận và phân loại
+  ASSIGNED    // Đã gán việc: Ban quản lý đã chỉ định cụ thể một Thợ kỹ thuật phụ trách sửa chữa
+  IN_PROGRESS // Đang sửa: Thợ kỹ thuật đã xác nhận nhận việc và đang tiến hành sửa chữa
+  COMPLETED   // Đã sửa xong: Thợ đã hoàn thành sửa chữa, kê khai vật tư thay thế và chụp ảnh kết quả
+  CLOSED      // Đóng phiếu: Cư dân xác nhận hài lòng, nghiệm thu hoàn tất và chấm điểm 1-5 sao
 }
 
+// 3. Trạng thái thanh toán của hóa đơn dịch vụ định kỳ hàng tháng
 enum InvoiceStatus {
-  UNPAID
-  PAID
+  UNPAID         // Chưa thanh toán: Hóa đơn mới lập, căn hộ chưa nộp tiền
+  PARTIALLY_PAID // Thanh toán một phần: Cư dân mới đóng trước một phần số tiền của hóa đơn
+  PAID           // Đã thanh toán: Căn hộ đã nộp đủ 100% số tiền của hóa đơn
 }
 
+// 4. Tình trạng sử dụng hiện tại của từng căn hộ trong tòa nhà
+enum RoomStatus {
+  VACANT      // Phòng trống: Căn hộ chưa có người vào ở, sẵn sàng đón cư dân mới
+  OCCUPIED    // Đang có người ở: Căn hộ đã có cư dân sinh sống và đang phát sinh chi phí hàng tháng
+  MAINTENANCE // Đang bảo trì / cải tạo: Căn hộ đang sửa chữa, tạm thời chưa thể cho vào ở
+}
+
+// 5. Phương thức thanh toán được cư dân sử dụng để đóng phí
+enum PaymentMethod {
+  VIETQR        // Quét mã VietQR: Chuyển khoản ngân hàng tức thời, tự động điền cú pháp hóa đơn
+  BANK_TRANSFER // Chuyển khoản thông thường: Chuyển khoản qua số tài khoản ngân hàng của BQL
+  CASH          // Tiền mặt: Cư dân nộp tiền trực tiếp tại quầy văn phòng Ban quản lý
+}
+
+// ==========================================
+// 1. BẢNG CĂN HỘ / PHÒNG
+// ==========================================
+model Room {
+  id         Int        @id @default(autoincrement())
+  roomNumber String     @unique // Số phòng: ví dụ "101", "A-201"
+  floor      Int        // Tầng
+  area       Float      // Diện tích (m2) - dùng tính phí quản lý
+  status     RoomStatus @default(VACANT)
+  createdAt  DateTime   @default(now())
+
+  users      User[]
+  invoices   Invoice[]
+  feedbacks  Feedback[]
+}
+
+// ==========================================
+// 2. BẢNG NGƯỜI DÙNG & TÀI KHOẢN
+// ==========================================
 model User {
-  id        Int      @id @default(autoincrement())
-  username  String   @unique
-  password  String
-  fullName  String
-  phone     String?
-  role      Role     @default(RESIDENT)
-  roomNumber String?
-  isApproved Boolean @default(false)
-  createdAt DateTime @default(now())
+  id              Int          @id @default(autoincrement())
+  username        String       @unique
+  password        String
+  fullName        String
+  phone           String?
+  role            Role         @default(RESIDENT)
+  roomId          Int?         // Thuộc căn hộ nào (null nếu là Admin, BQL hoặc Thợ)
+  room            Room?        @relation(fields: [roomId], references: [id])
+  isApproved      Boolean      @default(false)
+  createdAt       DateTime     @default(now())
+
+  // Các quan hệ khóa ngoại:
+  createdTickets  Ticket[]     @relation("ResidentTickets")   // Danh sách phiếu do cư dân này tạo
+  assignedTickets Ticket[]     @relation("TechnicianTickets") // Danh sách việc được giao cho thợ này
+  feedbacks       Feedback[]                                  // Danh sách góp ý do cư dân này gửi
 }
 
+// ==========================================
+// 3. BẢNG BÁO HỎNG & SỰ CỐ
+// ==========================================
 model Ticket {
-  id          Int          @id @default(autoincrement())
-  residentId  Int
-  category    String       // Điện, Nước, Internet, Thang máy...
-  description String
-  mediaUrl    String?
-  status      TicketStatus @default(PENDING)
-  technicianId Int?
-  materials   String?
+  id                Int          @id @default(autoincrement())
+  residentId        Int          // Khóa ngoại liên kết người tạo phiếu
+  resident          User         @relation("ResidentTickets", fields: [residentId], references: [id])
+  category          String       // Điện, Nước, Internet, Thang máy...
+  description       String
+  mediaUrl          String?
+  status            TicketStatus @default(PENDING)
+  technicianId      Int?         // Khóa ngoại liên kết thợ kỹ thuật (null khi mới gửi)
+  technician        User?        @relation("TechnicianTickets", fields: [technicianId], references: [id])
+  materials         String?
   completedMediaUrl String?
-  rating      Int?         // 1 - 5 sao
-  isDuplicate Boolean      @default(false)
-  createdAt   DateTime     @default(now())
+  rating            Int?         // 1 - 5 sao
+  isDuplicate       Boolean      @default(false)
+  createdAt         DateTime     @default(now())
 }
 
+// ==========================================
+// 4. BẢNG HÓA ĐƠN ĐỊNH KỲ HÀNG THÁNG
+// ==========================================
 model Invoice {
-  id          Int           @id @default(autoincrement())
-  roomNumber  String
-  month       String
-  managementFee Float
-  parkingFee    Float
-  waterFee      Float
-  totalAmount   Float
+  id            Int           @id @default(autoincrement())
+  roomId        Int           // Khóa ngoại liên kết căn hộ
+  room          Room          @relation(fields: [roomId], references: [id])
+  month         String        // Ví dụ: "10/2026"
+  managementFee Float         // Phí quản lý chung cư
+  parkingFee    Float         // Phí gửi xe
+  waterFee      Float         // Tiền nước
+  totalAmount   Float         // Tổng tiền phải đóng
   status        InvoiceStatus @default(UNPAID)
   createdAt     DateTime      @default(now())
+
+  payments      Payment[]     // Lịch sử các lần nộp tiền
 }
 
+// ==========================================
+// 5. BẢNG GIAO DỊCH THANH TOÁN
+// ==========================================
+model Payment {
+  id              Int           @id @default(autoincrement())
+  invoiceId       Int           // Thuộc hóa đơn nào
+  invoice         Invoice       @relation(fields: [invoiceId], references: [id])
+  amount          Float         // Số tiền thực tế thanh toán
+  paymentMethod   PaymentMethod @default(VIETQR)
+  transactionCode String?       // Mã giao dịch ngân hàng / mã chuẩn chi VietQR
+  note            String?       // Ghi chú hoặc nội dung chuyển khoản
+  paidAt          DateTime      @default(now())
+}
+
+// ==========================================
+// 6. BẢNG HÒM THƯ GÓP Ý & PHẢN HỒI
+// ==========================================
 model Feedback {
-  id          Int      @id @default(autoincrement())
-  residentId  Int
-  roomNumber  String
-  title       String
-  content     String
-  reply       String?
-  createdAt   DateTime @default(now())
+  id         Int      @id @default(autoincrement())
+  residentId Int      // Khóa ngoại liên kết cư dân gửi góp ý
+  resident   User     @relation(fields: [residentId], references: [id])
+  roomId     Int?     // Thuộc căn hộ nào
+  room       Room?    @relation(fields: [roomId], references: [id])
+  title      String
+  content    String
+  reply      String?
+  createdAt  DateTime @default(now())
 }
 
+// ==========================================
+// 7. BẢNG THÔNG BÁO TÒA NHÀ
+// ==========================================
 model Notification {
-  id        Int      @id @default(autoincrement())
-  title     String
-  content   String
-  targetRoom String? // null = gửi toàn chung cư
-  createdAt DateTime @default(now())
+  id         Int      @id @default(autoincrement())
+  title      String
+  content    String
+  targetRoom String?  // null = gửi toàn chung cư, hoặc tên phòng cụ thể
+  createdAt  DateTime @default(now())
 }
