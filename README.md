@@ -112,9 +112,9 @@ He-thong-quan-ly-va-van-hanh-chung-cu/
   * Phụ trách kiểm tra và duyệt code (Pull Request) cho cả nhóm trên GitHub.
 
 * **• Hiếu (Phụ trách Cơ sở dữ liệu, Luồng Sự cố, Hóa đơn & Góp ý):**
-  * Thiết kế **Bảng lưu trữ dữ liệu (Schema DB)** [`backend/src/database/schema.prisma`]: Thiết kế schema hoàn chỉnh lưu phòng, người dùng, phiếu báo hỏng, vật tư, hóa đơn và góp ý.
+  * Thiết kế **Bảng lưu trữ dữ liệu (Schema DB)** [`backend/src/database/schema.prisma`]: Thiết kế schema hoàn chỉnh gồm bảng căn hộ (`Room`), tài khoản (`User`), phiếu báo hỏng (`Ticket`), hóa đơn (`Invoice`), giao dịch thanh toán (`Payment`) và góp ý (`Feedback`).
   * Lập trình **Module Luồng Báo hỏng sự cố** [`backend/src/modules/tickets/`]: API tạo phiếu, thuật toán lọc phiếu bị gửi trùng, đổi trạng thái phiếu, gán việc cho thợ, kê khai vật tư thay thế, và lưu chấm điểm đánh giá (1-5 sao).
-  * Lập trình **Module Hóa đơn & Phí dịch vụ** [`backend/src/modules/invoices/`]: API lập biểu phí định kỳ hàng tháng, xem danh sách hóa đơn theo căn hộ, cập nhật trạng thái Đã nộp/Chưa nộp, tạo mã VietQR thanh toán.
+  * Lập trình **Module Hóa đơn & Phí dịch vụ** [`backend/src/modules/invoices/`]: API lập biểu phí định kỳ hàng tháng, xem danh sách hóa đơn theo căn hộ, cập nhật trạng thái Đã nộp/Chưa nộp, tạo mã VietQR thanh toán và lưu lịch sử giao dịch.
   * Lập trình **Module Hòm thư góp ý** [`backend/src/modules/feedback/`]: API tiếp nhận phản ánh nội quy từ cư dân và API lưu phản hồi từ Ban quản lý.
 
 ---
@@ -124,7 +124,7 @@ He-thong-quan-ly-va-van-hanh-chung-cu/
 
 * **• Nguyệt (Phụ trách Cụm Màn hình Tài khoản, Thông báo & Hóa đơn phí):**
   * Thiết kế UI chung và bộ điều hướng (Navigation) của App Cư dân [`mobile/src/navigation/AppNavigator.tsx`].
-  * Lập trình **Màn hình Đăng nhập & Đổi mật khẩu** [`mobile/src/screens/AuthScreen.tsx`].
+  * Lập trình **Màn hình Đăng nhập & Đổi mật khẩu / Đăng ký** [`mobile/src/screens/AuthScreen.tsx`]: Form đăng ký/chọn phòng cho cư dân **bắt buộc chọn theo danh sách phòng có sẵn (Dropdown/Picker từ bảng Room)**, tuyệt đối không cho tự nhập tay số phòng để tránh sai lệch dữ liệu.
   * Lập trình **Màn hình Trang chủ & Thông tin phòng của mình** [`mobile/src/screens/ProfileScreen.tsx`].
   * Lập trình **Màn hình Xem thông báo & Nhận thông báo đẩy tức thời** [`mobile/src/screens/NotificationScreen.tsx`]: Hiển thị danh sách tin tức BQL gửi và bắt sự kiện pop-up thông báo đẩy.
   * Lập trình **Màn hình Tra cứu phí dịch vụ & Hóa đơn định kỳ** [`mobile/src/screens/InvoiceScreen.tsx`]: Danh sách hóa đơn hàng tháng, chi tiết từng khoản phí, trạng thái Đã nộp/Chưa nộp và hiển thị mã VietQR chuyển khoản.
@@ -146,7 +146,7 @@ He-thong-quan-ly-va-van-hanh-chung-cu/
   * Lập trình **Trang Quản trị của Admin** [`web/src/pages/AdminAccountsPage.tsx`]: Xem danh sách, tạo mới tài khoản và phân quyền cho nhân viên Ban quản lý, tạo tài khoản cho Thợ kỹ thuật.
 
 * **• Đức (Phụ trách Phân hệ Quản lý Cư dân, Điều phối sự cố & Hóa đơn phí):**
-  * Lập trình **Trang Quản lý Căn hộ & Cư dân** [`web/src/pages/ResidentsPage.tsx`]: Danh sách cư dân theo phòng, nút duyệt tài khoản cư dân mới.
+  * Lập trình **Trang Quản lý Căn hộ & Cư dân** [`web/src/pages/ResidentsPage.tsx`]: Quản lý danh mục căn hộ theo bảng `Room` (số phòng, tầng, diện tích $m^2$), xem danh sách cư dân theo từng phòng, nút duyệt tài khoản cư dân mới đăng ký (`isApproved`).
   * Lập trình **Trang Bảng chia việc - Điều phối sự cố** [`web/src/pages/TicketDispatchPage.tsx`]: Tiếp nhận danh sách phiếu báo hỏng, hiển thị cảnh báo phiếu trùng, popup chọn gán việc cho Thợ kỹ thuật.
   * Lập trình **Trang Quản lý Hóa đơn & Phí dịch vụ** [`web/src/pages/BillingManagerPage.tsx`]: Lập biểu phí định kỳ hàng tháng, theo dõi tình trạng thanh toán của từng căn hộ, xuất mã QR chuyển khoản.
 
