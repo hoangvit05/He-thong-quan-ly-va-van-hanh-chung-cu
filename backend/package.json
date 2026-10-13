@@ -4,9 +4,15 @@
   "description": "Backend API Server for Apartment Management",
   "scripts": {
     "dev": "nodemon src/main.ts",
-    "build": "tsc"
+    "build": "tsc",
+    "prisma:generate": "prisma generate --schema=src/database/schema.prisma",
+    "prisma:migrate": "prisma migrate dev --schema=src/database/schema.prisma",
+    "prisma:push": "prisma db push --schema=src/database/schema.prisma",
+    "prisma:studio": "prisma studio --schema=src/database/schema.prisma"
   },
   "dependencies": {
+    "@prisma/client": "^5.14.0",
+    "bcryptjs": "^2.4.3",
     "express": "^4.19.2",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
@@ -14,11 +20,13 @@
     "socket.io": "^4.7.5"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/jsonwebtoken": "^9.0.6",
     "@types/node": "^20.14.0",
     "nodemon": "^3.1.2",
+    "prisma": "^5.14.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.4.5"
   }
