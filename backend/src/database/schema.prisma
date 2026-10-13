@@ -62,10 +62,12 @@ model Room {
   area       Float      // Diện tích (m2) - dùng tính phí quản lý
   status     RoomStatus @default(VACANT)
   createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
 
   users      User[]
   invoices   Invoice[]
   feedbacks  Feedback[]
+  tickets    Ticket[]
 }
 
 // ==========================================
@@ -74,19 +76,25 @@ model Room {
 model User {
   id              Int          @id @default(autoincrement())
   username        String       @unique
-  password        String
+  password        String       // Mật khẩu đã mã hóa (Bcrypt hash)
   fullName        String
   phone           String?
+  email           String?      @unique
   role            Role         @default(RESIDENT)
   roomId          Int?         // Thuộc căn hộ nào (null nếu là Admin, BQL hoặc Thợ)
   room            Room?        @relation(fields: [roomId], references: [id])
   isApproved      Boolean      @default(false)
   createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
 
   // Các quan hệ khóa ngoại:
-  createdTickets  Ticket[]     @relation("ResidentTickets")   // Danh sách phiếu do cư dân này tạo
-  assignedTickets Ticket[]     @relation("TechnicianTickets") // Danh sách việc được giao cho thợ này
-  feedbacks       Feedback[]                                  // Danh sách góp ý do cư dân này gửi
+  createdTickets  Ticket[]       @relation("ResidentTickets")   // Danh sách phiếu do cư dân này tạo
+  assignedTickets Ticket[]       @relation("TechnicianTickets") // Danh sách việc được giao cho thợ này
+  feedbacks       Feedback[]                                    // Danh sách góp ý do cư dân này gửi
+  notifications   Notification[] @relation("AuthorNotifications") // Thông báo do Admin/BQL này tạo
+
+  @@index([role, isApproved])
+  @@index([roomId])
 }
 
 // ==========================================
@@ -94,19 +102,34 @@ model User {
 // ==========================================
 model Ticket {
   id                Int          @id @default(autoincrement())
+  title             String?      // Tiêu đề ngắn gọn của sự cố (dùng hiển thị bảng điều phối/Kanban)
+  category          String       // Phân loại: Điện, Nước, Internet, Thang máy...
+  description       String       // Mô tả chi tiết sự cố
+  mediaUrl          String?      // Đường dẫn ảnh/video sự cố cư dân tải lên (Cloudinary/S3)
+  status            TicketStatus @default(PENDING)
+
+  roomId            Int?         // Căn hộ phát sinh sự cố (dùng cho thuật toán lọc trùng và tra cứu)
+  room              Room?        @relation(fields: [roomId], references: [id])
+
   residentId        Int          // Khóa ngoại liên kết người tạo phiếu
   resident          User         @relation("ResidentTickets", fields: [residentId], references: [id])
-  category          String       // Điện, Nước, Internet, Thang máy...
-  description       String
-  mediaUrl          String?
-  status            TicketStatus @default(PENDING)
+
   technicianId      Int?         // Khóa ngoại liên kết thợ kỹ thuật (null khi mới gửi)
   technician        User?        @relation("TechnicianTickets", fields: [technicianId], references: [id])
-  materials         String?
-  completedMediaUrl String?
-  rating            Int?         // 1 - 5 sao
-  isDuplicate       Boolean      @default(false)
+
+  materials         String?      // Kê khai vật tư đã thay thế (JSON hoặc văn bản mô tả)
+  completedMediaUrl String?      // Đường dẫn ảnh chụp nghiệm thu sau khi sửa xong
+  rating            Int?         // Đánh giá 1 - 5 sao
+  ratingComment     String?      // Nhận xét chi tiết của cư dân khi nghiệm thu
+  isDuplicate       Boolean      @default(false) // Cờ đánh dấu phiếu gửi trùng lặp
+
   createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  @@index([status, createdAt])
+  @@index([residentId])
+  @@index([technicianId])
+  @@index([roomId, category])
 }
 
 // ==========================================
@@ -117,14 +140,22 @@ model Invoice {
   roomId        Int           // Khóa ngoại liên kết căn hộ
   room          Room          @relation(fields: [roomId], references: [id])
   month         String        // Ví dụ: "10/2026"
-  managementFee Float         // Phí quản lý chung cư
-  parkingFee    Float         // Phí gửi xe
-  waterFee      Float         // Tiền nước
-  totalAmount   Float         // Tổng tiền phải đóng
+  managementFee Float         @default(0) // Phí quản lý chung cư
+  parkingFee    Float         @default(0) // Phí gửi xe
+  waterFee      Float         @default(0) // Tiền nước
+  otherFee      Float         @default(0) // Phí phát sinh khác
+  totalAmount   Float         // Tổng tiền phải đóng (chốt snapshot cố định khi lập)
+  paidAmount    Float         @default(0) // Tổng số tiền thực tế đã thanh toán lũy kế
+  dueDate       DateTime?     // Hạn nộp tiền
   status        InvoiceStatus @default(UNPAID)
   createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 
   payments      Payment[]     // Lịch sử các lần nộp tiền
+
+  @@unique([roomId, month])   // BẮT BUỘC: Chống tạo trùng lặp hóa đơn cho cùng một phòng trong một tháng
+  @@index([roomId, status])
+  @@index([month, status])
 }
 
 // ==========================================
@@ -134,26 +165,35 @@ model Payment {
   id              Int           @id @default(autoincrement())
   invoiceId       Int           // Thuộc hóa đơn nào
   invoice         Invoice       @relation(fields: [invoiceId], references: [id])
-  amount          Float         // Số tiền thực tế thanh toán
+  amount          Float         // Số tiền thực tế thanh toán trong lần này
   paymentMethod   PaymentMethod @default(VIETQR)
   transactionCode String?       // Mã giao dịch ngân hàng / mã chuẩn chi VietQR
   note            String?       // Ghi chú hoặc nội dung chuyển khoản
   paidAt          DateTime      @default(now())
+
+  @@index([invoiceId])
+  @@index([transactionCode])
 }
 
 // ==========================================
 // 6. BẢNG HÒM THƯ GÓP Ý & PHẢN HỒI
 // ==========================================
 model Feedback {
-  id         Int      @id @default(autoincrement())
-  residentId Int      // Khóa ngoại liên kết cư dân gửi góp ý
-  resident   User     @relation(fields: [residentId], references: [id])
-  roomId     Int?     // Thuộc căn hộ nào
-  room       Room?    @relation(fields: [roomId], references: [id])
-  title      String
-  content    String
-  reply      String?
-  createdAt  DateTime @default(now())
+  id         Int       @id @default(autoincrement())
+  residentId Int       // Khóa ngoại liên kết cư dân gửi góp ý
+  resident   User      @relation(fields: [residentId], references: [id])
+  roomId     Int?      // Thuộc căn hộ nào
+  room       Room?     @relation(fields: [roomId], references: [id])
+  title      String    // Tiêu đề phản ánh
+  content    String    // Nội dung chi tiết
+  reply      String?   // Nội dung phản hồi từ Ban quản lý
+  isResolved Boolean   @default(false) // Đã giải quyết / Đã phản hồi chưa
+  repliedAt  DateTime? // Thời điểm Ban quản lý gửi câu trả lời
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([residentId])
+  @@index([isResolved])
 }
 
 // ==========================================
@@ -161,8 +201,12 @@ model Feedback {
 // ==========================================
 model Notification {
   id         Int      @id @default(autoincrement())
-  title      String
-  content    String
-  targetRoom String?  // null = gửi toàn chung cư, hoặc tên phòng cụ thể
+  title      String   // Tiêu đề thông báo
+  content    String   // Nội dung thông báo
+  targetRoom String?  // null = gửi toàn chung cư, hoặc tên phòng cụ thể (ví dụ: "101")
+  authorId   Int?     // Người tạo thông báo (BQL/Admin)
+  author     User?    @relation("AuthorNotifications", fields: [authorId], references: [id])
   createdAt  DateTime @default(now())
+
+  @@index([targetRoom])
 }
