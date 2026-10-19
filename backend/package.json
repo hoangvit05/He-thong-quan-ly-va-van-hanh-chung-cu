@@ -11,7 +11,8 @@
     "prisma:studio": "prisma studio --schema=src/database/schema.prisma",
     "test:tickets": "ts-node src/modules/tickets/tickets.test.ts",
     "test:feedback": "ts-node src/modules/feedback/feedback.test.ts",
-    "test": "npm run test:tickets && npm run test:feedback"
+    "test:invoices": "ts-node src/modules/invoices/invoices.test.ts",
+    "test": "npm run test:tickets && npm run test:feedback && npm run test:invoices"
   },
   "dependencies": {
     "@prisma/client": "^5.14.0",

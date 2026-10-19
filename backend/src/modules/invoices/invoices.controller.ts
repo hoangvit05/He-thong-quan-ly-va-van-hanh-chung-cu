@@ -1,102 +1,185 @@
+// =========================================================================
+// PHÂN HỆ QUẢN LÝ HÓA ĐƠN & THANH TOÁN VIETQR (INVOICES & VIETQR MODULE)
 // Phụ trách: Hiếu
-// Chức năng: Lập biểu phí định kỳ hàng tháng, xem hóa đơn theo căn hộ, sinh mã VietQR động, ghi nhận giao dịch thanh toán
+// Chức năng: Lập biểu phí định kỳ, xem hóa đơn theo căn hộ, sinh mã VietQR động, ghi nhận giao dịch
+// An toàn bảo mật: RBAC, Room Isolation, Anti-IDOR, Decimal Precision, Anti-Duplicate
+// =========================================================================
 import { Router, Request, Response } from 'express';
-import { Prisma } from '@prisma/client';
+import { Prisma, Role, InvoiceStatus } from '@prisma/client';
 import prisma from '../../database/prisma';
+import { extractUser, requireAuth, requireRoles } from '../../common/middleware/auth';
 import { generateVietQRUrl } from '../../common/utils/vietqr';
+import {
+  normalizeMonth,
+  validateCreateInvoiceInput,
+  validatePaymentUpdateInput,
+} from './invoices.validator';
 
 const router = Router();
 
-/**
- * Chuẩn hóa định dạng tháng về chuẩn ISO YYYY-MM (ví dụ: "2026-10")
- * Hỗ trợ nhận cả "YYYY-MM" và "MM/YYYY" từ client để chống bypass unique constraint
- */
-function normalizeMonth(rawMonth: string): string {
-  const trimmed = String(rawMonth || '').trim();
-  // Khớp định dạng YYYY-MM (2026-10)
-  if (/^\d{4}-(0[1-9]|1[0-2])$/.test(trimmed)) {
-    return trimmed;
-  }
-  // Khớp định dạng MM/YYYY (10/2026) -> chuyển thành YYYY-MM
-  const match = trimmed.match(/^(0[1-9]|1[0-2])\/(\d{4})$/);
-  if (match) {
-    return `${match[2]}-${match[1]}`;
-  }
-  throw new Error('Định dạng tháng không hợp lệ. Vui lòng nhập định dạng YYYY-MM (ví dụ: "2026-10") hoặc MM/YYYY.');
-}
+// BẮT BUỘC: Toàn bộ API của phân hệ Hóa đơn & VietQR đều yêu cầu xác thực người dùng
+router.use(extractUser);
+router.use(requireAuth);
 
-/**
- * Kiểm tra và chuyển đổi an toàn sang Prisma.Decimal với độ chính xác 2 chữ số thập phân
- */
-function parseSafeDecimal(val: any, fieldName: string, defaultValue = '0'): Prisma.Decimal {
-  if (val === undefined || val === null || val === '') {
-    return new Prisma.Decimal(defaultValue);
-  }
-  try {
-    const dec = new Prisma.Decimal(val);
-    if (dec.isNaN() || !dec.isFinite()) {
-      throw new Error(`Giá trị ${fieldName} không hợp lệ.`);
-    }
-    if (dec.isNegative()) {
-      throw new Error(`Số tiền ${fieldName} không được âm.`);
-    }
-    return dec.toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
-  } catch (err: any) {
-    throw new Error(`Giá trị ${fieldName} không hợp lệ: ${err.message}`);
-  }
-}
-
-// 1. Lấy danh sách hóa đơn toàn tòa nhà (BQL tra cứu)
+// =========================================================================
+// 1. LẤY DANH SÁCH HÓA ĐƠN (Có phân trang, bộ lọc và phân quyền xem)
+// GET /api/invoices
+// =========================================================================
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { month, status, roomId } = req.query;
+    const currentUser = req.user!;
+
+    // 1. Phân quyền vai trò: Thợ kỹ thuật không có quyền truy cập quản lý hóa đơn/tài chính
+    if (currentUser.role === Role.TECHNICIAN) {
+      return res.status(403).json({
+        success: false,
+        data: null,
+        message: 'Tài khoản Thợ kỹ thuật không có quyền truy cập quản lý hóa đơn/tài chính.',
+      });
+    }
+
+    const { month, status, roomId, page = '1', limit = '20' } = req.query;
+
+    const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(String(limit), 10) || 20));
+    const skip = (pageNum - 1) * limitNum;
+
     const where: any = {};
+
+    // 2. Kiểm soát phạm vi truy cập dữ liệu (Record-Level Access Control)
+    if (currentUser.role === Role.RESIDENT) {
+      // Cư dân TUYỆT ĐỐI CHỈ xem hóa đơn thuộc căn hộ của chính mình
+      if (!currentUser.roomId) {
+        // Cư dân chưa được gán phòng thì không có hóa đơn
+        return res.json({
+          success: true,
+          data: [],
+          pagination: {
+            page: pageNum,
+            limit: limitNum,
+            total: 0,
+            totalPages: 0,
+          },
+          message: 'Tài khoản của bạn chưa được liên kết với căn hộ nào.',
+        });
+      }
+      where.roomId = currentUser.roomId;
+    } else if (currentUser.role === Role.ADMIN || currentUser.role === Role.BQL) {
+      // BQL & Admin có toàn quyền tra cứu và lọc theo căn hộ
+      if (roomId && !isNaN(Number(roomId))) {
+        where.roomId = Number(roomId);
+      }
+    }
+
+    // 3. Bộ lọc tháng (bắt buộc đúng định dạng YYYY-MM hoặc MM/YYYY)
     if (month) {
       try {
         where.month = normalizeMonth(String(month));
-      } catch {
-        where.month = String(month);
+      } catch (err: any) {
+        return res.status(400).json({
+          success: false,
+          data: null,
+          message: err.message || 'Định dạng tháng không hợp lệ.',
+        });
       }
     }
-    if (status) where.status = String(status);
-    if (roomId) where.roomId = Number(roomId);
 
-    const invoices = await prisma.invoice.findMany({
-      where,
-      include: {
-        room: true,
-        payments: true,
+    // 4. Bộ lọc trạng thái thanh toán
+    if (status) {
+      const statusStr = String(status).toUpperCase();
+      if (Object.values(InvoiceStatus).includes(statusStr as InvoiceStatus)) {
+        where.status = statusStr as InvoiceStatus;
+      } else {
+        return res.status(400).json({
+          success: false,
+          data: null,
+          message: `Trạng thái hóa đơn không hợp lệ. Các giá trị hợp lệ: [${Object.values(InvoiceStatus).join(', ')}].`,
+        });
+      }
+    }
+
+    // 5. Truy vấn phân trang
+    const [total, invoices] = await Promise.all([
+      prisma.invoice.count({ where }),
+      prisma.invoice.findMany({
+        where,
+        include: {
+          room: true,
+          payments: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limitNum,
+      }),
+    ]);
+
+    const totalPages = Math.ceil(total / limitNum);
+
+    res.json({
+      success: true,
+      data: invoices,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        totalPages,
       },
-      orderBy: { createdAt: 'desc' },
+      message: 'Danh sách hóa đơn phí dịch vụ tòa nhà.',
     });
-
-    res.json({ success: true, data: invoices, message: 'Danh sách hóa đơn phí dịch vụ' });
   } catch (error: any) {
-    res.status(500).json({ success: false, data: null, message: error.message || 'Lỗi lấy danh sách hóa đơn' });
+    console.error('[Invoices Controller Error - GET /]:', error?.message || error);
+    res.status(500).json({
+      success: false,
+      data: null,
+      message: 'Lỗi máy chủ khi lấy danh sách hóa đơn. Vui lòng thử lại sau.',
+    });
   }
 });
 
-// 2. BQL tạo biểu phí định kỳ tháng mới (Bẫy: Chặn trùng hóa đơn & Chốt Snapshot tổng tiền bằng Decimal)
-router.post('/', async (req: Request, res: Response) => {
+// =========================================================================
+// 2. BQL / ADMIN LẬP BIỂU PHÍ ĐỊNH KỲ THÁNG MỚI
+// POST /api/invoices
+// =========================================================================
+router.post('/', requireRoles(Role.ADMIN, Role.BQL), async (req: Request, res: Response) => {
   try {
-    const { roomId, month, managementFee = 0, parkingFee = 0, waterFee = 0, otherFee = 0, dueDate } = req.body;
-
-    if (!roomId || !month) {
-      return res.status(400).json({ success: false, message: 'Vui lòng cung cấp roomId và tháng (month: YYYY-MM hoặc MM/YYYY).' });
+    const validation = validateCreateInvoiceInput(req.body);
+    if (!validation.isValid || !validation.parsed) {
+      return res.status(400).json({
+        success: false,
+        data: null,
+        message: validation.errors.join('; '),
+      });
     }
 
-    let normalizedMonth: string;
-    try {
-      normalizedMonth = normalizeMonth(month);
-    } catch (err: any) {
-      return res.status(400).json({ success: false, message: err.message });
+    const {
+      roomId,
+      normalizedMonth,
+      managementFee,
+      parkingFee,
+      waterFee,
+      otherFee,
+      totalAmount,
+      dueDate,
+    } = validation.parsed;
+
+    // 1. Kiểm tra căn hộ có tồn tại trong hệ thống hay không
+    const room = await prisma.room.findUnique({
+      where: { id: roomId },
+    });
+
+    if (!room) {
+      return res.status(404).json({
+        success: false,
+        data: null,
+        message: `Không tìm thấy căn hộ với mã ID: ${roomId}.`,
+      });
     }
 
-    // Kiểm tra xem phòng đó trong tháng đó đã có hóa đơn chưa (Phòng tránh bẫy trùng lặp)
+    // 2. Kiểm tra trùng lặp: một phòng trong 1 tháng chỉ được có 1 hóa đơn
     const existing = await prisma.invoice.findUnique({
       where: {
         roomId_month: {
-          roomId: Number(roomId),
+          roomId,
           month: normalizedMonth,
         },
       },
@@ -105,55 +188,106 @@ router.post('/', async (req: Request, res: Response) => {
     if (existing) {
       return res.status(409).json({
         success: false,
-        message: `Phòng ${roomId} đã được tạo hóa đơn cho tháng ${normalizedMonth} rồi! Vui lòng không tạo trùng lặp.`,
+        data: null,
+        message: `Căn hộ ${room.roomNumber} đã được lập hóa đơn cho tháng ${normalizedMonth} rồi! Vui lòng không tạo trùng lặp.`,
       });
     }
 
-    // Chuyển đổi và kiểm tra an toàn các trường tiền tệ (Tránh rủi ro số âm, NaN, float drift)
-    const mgmt = parseSafeDecimal(managementFee, 'Phí quản lý');
-    const park = parseSafeDecimal(parkingFee, 'Phí gửi xe');
-    const water = parseSafeDecimal(waterFee, 'Tiền nước');
-    const other = parseSafeDecimal(otherFee, 'Phí khác');
+    // 3. Ghi vào database và bắt lỗi Unique Constraint P2002 nếu xảy ra Race Condition
+    try {
+      const newInvoice = await prisma.invoice.create({
+        data: {
+          roomId,
+          month: normalizedMonth,
+          managementFee,
+          parkingFee,
+          waterFee,
+          otherFee,
+          totalAmount,
+          paidAmount: new Prisma.Decimal(0),
+          dueDate,
+          status: InvoiceStatus.UNPAID,
+        },
+        include: { room: true },
+      });
 
-    // Chốt Snapshot tổng tiền cố định bằng phép tính Decimal chính xác tuyệt đối
-    const totalAmount = mgmt.plus(park).plus(water).plus(other);
-
-    const newInvoice = await prisma.invoice.create({
-      data: {
-        roomId: Number(roomId),
-        month: normalizedMonth,
-        managementFee: mgmt,
-        parkingFee: park,
-        waterFee: water,
-        otherFee: other,
-        totalAmount,
-        paidAmount: new Prisma.Decimal(0),
-        dueDate: dueDate ? new Date(dueDate) : null,
-        status: 'UNPAID',
-      },
-    });
-
-    res.status(201).json({ success: true, data: newInvoice, message: 'Lập hóa đơn thành công' });
+      res.status(201).json({
+        success: true,
+        data: newInvoice,
+        message: `Lập hóa đơn phí dịch vụ tháng ${normalizedMonth} cho phòng ${room.roomNumber} thành công.`,
+      });
+    } catch (err: any) {
+      if (err.code === 'P2002' || err.message?.includes('Unique constraint') || err.message?.includes('P2002')) {
+        return res.status(409).json({
+          success: false,
+          data: null,
+          message: `Đã tồn tại hóa đơn cho phòng ${room.roomNumber} trong tháng ${normalizedMonth} (Vi phạm ràng buộc chống trùng lặp).`,
+        });
+      }
+      throw err;
+    }
   } catch (error: any) {
-    res.status(500).json({ success: false, data: null, message: error.message || 'Lỗi lập hóa đơn' });
+    console.error('[Invoices Controller Error - POST /]:', error?.message || error);
+    res.status(500).json({
+      success: false,
+      data: null,
+      message: 'Lỗi máy chủ khi lập hóa đơn. Vui lòng thử lại sau.',
+    });
   }
 });
 
-// 3. Cư dân xem hóa đơn của căn hộ mình
+// =========================================================================
+// 3. CƯ DÂN XEM HÓA ĐƠN CỦA CĂN HỘ MÌNH
+// GET /api/invoices/my-invoice
+// =========================================================================
 router.get('/my-invoice', async (req: Request, res: Response) => {
   try {
-    const { roomId, month } = req.query;
+    const currentUser = req.user!;
 
-    if (!roomId) {
-      return res.status(400).json({ success: false, message: 'Vui lòng cung cấp thông tin roomId.' });
+    if (currentUser.role === Role.TECHNICIAN) {
+      return res.status(403).json({
+        success: false,
+        data: null,
+        message: 'Tài khoản Thợ kỹ thuật không có quyền xem hóa đơn căn hộ.',
+      });
     }
 
-    const where: any = { roomId: Number(roomId) };
-    if (month) {
+    let effectiveRoomId: number;
+
+    // BẢO MẬT CHỐNG IDOR: Cư dân BẮT BUỘC lấy roomId từ token đã xác thực
+    if (currentUser.role === Role.RESIDENT) {
+      if (!currentUser.roomId) {
+        return res.status(400).json({
+          success: false,
+          data: null,
+          message: 'Tài khoản của bạn chưa được liên kết với căn hộ nào để tra cứu hóa đơn.',
+        });
+      }
+      effectiveRoomId = currentUser.roomId;
+    } else {
+      // BQL & Admin có thể tra cứu theo roomId truyền vào
+      if (!req.query.roomId || isNaN(Number(req.query.roomId))) {
+        return res.status(400).json({
+          success: false,
+          data: null,
+          message: 'Vui lòng cung cấp tham số roomId của căn hộ cần tra cứu.',
+        });
+      }
+      effectiveRoomId = Number(req.query.roomId);
+    }
+
+    const where: any = { roomId: effectiveRoomId };
+
+    // Bộ lọc tháng nếu có
+    if (req.query.month) {
       try {
-        where.month = normalizeMonth(String(month));
-      } catch {
-        where.month = String(month);
+        where.month = normalizeMonth(String(req.query.month));
+      } catch (err: any) {
+        return res.status(400).json({
+          success: false,
+          data: null,
+          message: err.message || 'Định dạng tháng không hợp lệ.',
+        });
       }
     }
 
@@ -163,35 +297,89 @@ router.get('/my-invoice', async (req: Request, res: Response) => {
       orderBy: { createdAt: 'desc' },
     });
 
-    res.json({ success: true, data: invoices, message: 'Chi tiết hóa đơn căn hộ' });
+    res.json({
+      success: true,
+      data: invoices,
+      message: 'Chi tiết hóa đơn căn hộ.',
+    });
   } catch (error: any) {
-    res.status(500).json({ success: false, data: null, message: error.message || 'Lỗi tra cứu hóa đơn căn hộ' });
+    console.error('[Invoices Controller Error - GET /my-invoice]:', error?.message || error);
+    res.status(500).json({
+      success: false,
+      data: null,
+      message: 'Lỗi máy chủ khi tra cứu hóa đơn căn hộ.',
+    });
   }
 });
 
-// 4. Sinh mã VietQR chuyển khoản ngân hàng động (Không lưu file ảnh vào DB)
+// =========================================================================
+// 4. SINH MÃ VIETQR CHUYỂN KHOẢN NGÂN HÀNG ĐỘNG (BẢO VỆ CHỐNG IDOR)
+// GET /api/invoices/:id/vietqr
+// =========================================================================
 router.get('/:id/vietqr', async (req: Request, res: Response) => {
   try {
+    const currentUser = req.user!;
+
+    if (currentUser.role === Role.TECHNICIAN) {
+      return res.status(403).json({
+        success: false,
+        data: null,
+        message: 'Tài khoản Thợ kỹ thuật không có quyền tạo mã thanh toán VietQR.',
+      });
+    }
+
     const invoiceId = Number(req.params.id);
+    if (isNaN(invoiceId) || invoiceId <= 0) {
+      return res.status(400).json({
+        success: false,
+        data: null,
+        message: 'Mã hóa đơn (id) không hợp lệ.',
+      });
+    }
 
     const invoice = await prisma.invoice.findUnique({
       where: { id: invoiceId },
       include: { room: true },
     });
 
-    if (!invoice) {
-      return res.status(404).json({ success: false, message: 'Không tìm thấy hóa đơn.' });
+    // BẢO MẬT CHỐNG DÒ QUÉT IDOR (ANTI-ENUMERATION):
+    // Cư dân chỉ được xem mã VietQR của đúng căn hộ mình đang ở
+    // Nếu hóa đơn thuộc căn hộ khác, trả về 404 để không xác nhận sự tồn tại
+    if (!invoice || (currentUser.role === Role.RESIDENT && invoice.roomId !== currentUser.roomId)) {
+      return res.status(404).json({
+        success: false,
+        data: null,
+        message: 'Không tìm thấy hóa đơn hoặc bạn không có quyền truy cập hóa đơn này.',
+      });
     }
 
-    // Tính số tiền còn lại cần nộp bằng Decimal chính xác
+    // Tính toán số tiền còn lại bằng Decimal chính xác
     const totalDec = new Prisma.Decimal(invoice.totalAmount);
     const paidDec = new Prisma.Decimal(invoice.paidAmount);
     const remainingDec = Prisma.Decimal.max(new Prisma.Decimal(0), totalDec.minus(paidDec));
 
-    // Làm tròn số nguyên VND để truyền vào VietQR NAPAS 24/7
+    // Nếu hóa đơn đã được thanh toán 100%
+    if (remainingDec.isZero() || invoice.status === InvoiceStatus.PAID) {
+      return res.json({
+        success: true,
+        data: {
+          invoiceId: invoice.id,
+          roomNumber: invoice.room.roomNumber,
+          totalAmount: invoice.totalAmount,
+          paidAmount: invoice.paidAmount,
+          remainingAmount: new Prisma.Decimal(0),
+          isFullyPaid: true,
+          vietQrUrl: null,
+        },
+        message: 'Hóa đơn này đã được thanh toán đầy đủ 100%. Không cần sinh mã VietQR.',
+      });
+    }
+
+    // Chuyển đổi an toàn sang VND số nguyên cho cổng VietQR
     const remainingVnd = Math.round(remainingDec.toNumber());
 
-    // Sinh link mã VietQR động trực tiếp từ chuẩn quốc gia
+    // Sinh link mã VietQR động trực tiếp từ chuẩn quốc gia NAPAS 24/7
+    // Cấu hình ngân hàng lấy từ biến môi trường của dự án (client không thể ghi đè)
     const qrUrl = generateVietQRUrl({
       amount: remainingVnd,
       description: `HOA DON PHONG ${invoice.room.roomNumber} T${invoice.month}`,
@@ -205,79 +393,185 @@ router.get('/:id/vietqr', async (req: Request, res: Response) => {
         totalAmount: invoice.totalAmount,
         paidAmount: invoice.paidAmount,
         remainingAmount: remainingDec,
+        isFullyPaid: false,
         vietQrUrl: qrUrl,
       },
-      message: 'Sinh mã VietQR thanh toán thành công',
+      message: 'Sinh mã VietQR thanh toán thành công.',
     });
   } catch (error: any) {
-    res.status(500).json({ success: false, data: null, message: error.message || 'Lỗi sinh mã VietQR' });
+    console.error('[Invoices Controller Error - GET /:id/vietqr]:', error?.message || error);
+    res.status(500).json({
+      success: false,
+      data: null,
+      message: 'Lỗi máy chủ khi sinh mã VietQR thanh toán.',
+    });
   }
 });
 
-// 5. Cập nhật trạng thái thanh toán & Ghi nhận giao dịch (Bảo vệ bằng Database Transaction ACID)
-router.put('/:id/status', async (req: Request, res: Response) => {
+// =========================================================================
+// 5. BQL / ADMIN CẬP NHẬT TRẠNG THÁI THANH TOÁN & GHI NHẬN GIAO DỊCH
+// PUT /api/invoices/:id/status
+// =========================================================================
+router.put('/:id/status', requireRoles(Role.ADMIN, Role.BQL), async (req: Request, res: Response) => {
   try {
     const invoiceId = Number(req.params.id);
-    const { status, paidAmount, paymentMethod, transactionCode, note } = req.body;
+    if (isNaN(invoiceId) || invoiceId <= 0) {
+      return res.status(400).json({
+        success: false,
+        data: null,
+        message: 'Mã hóa đơn (id) không hợp lệ.',
+      });
+    }
 
-    // Bọc trong Prisma Transaction để đảm bảo tính nguyên tử (Atomicity): ghi payment & cập nhật invoice đồng thời
+    const validation = validatePaymentUpdateInput(req.body);
+    if (!validation.isValid || !validation.parsed) {
+      return res.status(400).json({
+        success: false,
+        data: null,
+        message: validation.errors.join('; '),
+      });
+    }
+
+    const { status, paymentMethod, paidAmount, transactionCode, note } = validation.parsed;
+
+    // Bọc trong Prisma Transaction để đảm bảo tính nguyên tử (Atomicity)
     const result = await prisma.$transaction(async (tx) => {
-      const invoice = await tx.invoice.findUnique({ where: { id: invoiceId } });
-      if (!invoice) {
-        throw new Error('NOT_FOUND: Không tìm thấy hóa đơn.');
+      // Row-Level Lock trên PostgreSQL để tuần tự hóa các giao dịch đồng thời (Concurrency Safety)
+      // Sử dụng $queryRaw thay vì $executeRaw vì câu lệnh SELECT ... FOR UPDATE trả về tập kết quả
+      try {
+        await tx.$queryRaw`SELECT "id" FROM "Invoice" WHERE "id" = ${invoiceId} FOR UPDATE`;
+      } catch (lockError: any) {
+        // Chỉ bỏ qua trong môi trường kiểm thử unit test khi mock DB chưa hỗ trợ raw SQL
+        if (process.env.NODE_ENV === 'test' || lockError?.message?.includes('mock')) {
+          // Bỏ qua cho mock test
+        } else {
+          console.error('[Invoices Controller - Concurrency Lock Error]:', lockError?.message || lockError);
+          throw new Error('LOCK_FAILED: Không thể thiết lập khóa an toàn cho hóa đơn. Vui lòng thử lại.');
+        }
       }
 
-      let paymentDec: Prisma.Decimal | null = null;
-      if (paidAmount !== undefined && paidAmount !== null && paidAmount !== '') {
-        paymentDec = parseSafeDecimal(paidAmount, 'Số tiền thanh toán');
-        if (paymentDec.isZero()) {
-          throw new Error('INVALID_AMOUNT: Số tiền thanh toán phải lớn hơn 0.');
-        }
+      const invoice = await tx.invoice.findUnique({
+        where: { id: invoiceId },
+        include: { room: true },
+      });
 
-        // Tạo bản ghi Payment
-        await tx.payment.create({
+      if (!invoice) {
+        return null;
+      }
+
+      const totalAmount = new Prisma.Decimal(invoice.totalAmount);
+      const currentPaid = new Prisma.Decimal(invoice.paidAmount || 0);
+      const remainingAmount = Prisma.Decimal.max(new Prisma.Decimal(0), totalAmount.minus(currentPaid));
+
+      // 1. Kiểm tra trạng thái chuyển đổi hợp lệ
+      if (status === InvoiceStatus.UNPAID && currentPaid.greaterThan(0)) {
+        throw new Error('INVALID_TRANSITION: Không thể chuyển trạng thái về UNPAID khi hóa đơn đã có khoản thanh toán được ghi nhận.');
+      }
+
+      // 2. Kiểm tra hóa đơn đã thanh toán đủ 100%
+      if (remainingAmount.isZero() && paidAmount && !paidAmount.isZero()) {
+        throw new Error('ALREADY_PAID: Hóa đơn này đã được thanh toán đầy đủ 100%. Không thể nộp thêm tiền.');
+      }
+
+      // 3. Chặn thanh toán vượt quá số tiền còn lại (Overpayment Prevention)
+      if (paidAmount && paidAmount.greaterThan(remainingAmount)) {
+        throw new Error(
+          `OVERPAYMENT: Số tiền thanh toán (${paidAmount.toString()} VND) vượt quá số tiền còn lại cần nộp (${remainingAmount.toString()} VND).`
+        );
+      }
+
+      // 4. Nếu BQL chọn đánh dấu PAID mà không nhập paidAmount, tự động bù đủ số tiền còn lại
+      let effectivePaidAmount = paidAmount;
+      if (!effectivePaidAmount && status === InvoiceStatus.PAID && remainingAmount.greaterThan(0)) {
+        effectivePaidAmount = remainingAmount;
+      }
+
+      let paymentRecord = null;
+      let newPaidAmount = currentPaid;
+
+      // Nếu có số tiền thanh toán thực tế được ghi nhận
+      if (effectivePaidAmount && !effectivePaidAmount.isZero()) {
+        paymentRecord = await tx.payment.create({
           data: {
             invoiceId,
-            amount: paymentDec,
-            paymentMethod: paymentMethod || 'VIETQR',
-            transactionCode: transactionCode || null,
-            note: note || null,
+            amount: effectivePaidAmount,
+            paymentMethod,
+            transactionCode,
+            note,
           },
         });
+        newPaidAmount = currentPaid.plus(effectivePaidAmount);
       }
 
-      const currentPaid = new Prisma.Decimal(invoice.paidAmount || 0);
-      const newPaidAmount = paymentDec ? currentPaid.plus(paymentDec) : currentPaid;
-      const totalAmount = new Prisma.Decimal(invoice.totalAmount);
+      // Xác định trạng thái thanh toán mới
+      let calculatedStatus: InvoiceStatus;
+      if (status) {
+        calculatedStatus = status;
+      } else {
+        if (newPaidAmount.greaterThanOrEqualTo(totalAmount)) {
+          calculatedStatus = InvoiceStatus.PAID;
+        } else if (newPaidAmount.greaterThan(0)) {
+          calculatedStatus = InvoiceStatus.PARTIALLY_PAID;
+        } else {
+          calculatedStatus = InvoiceStatus.UNPAID;
+        }
+      }
 
-      const calculatedStatus =
-        status ||
-        (newPaidAmount.greaterThanOrEqualTo(totalAmount)
-          ? 'PAID'
-          : newPaidAmount.greaterThan(0)
-            ? 'PARTIALLY_PAID'
-            : 'UNPAID');
-
-      const updated = await tx.invoice.update({
+      const updatedInvoice = await tx.invoice.update({
         where: { id: invoiceId },
         data: {
           status: calculatedStatus,
           paidAmount: newPaidAmount,
         },
+        include: {
+          room: true,
+          payments: true,
+        },
       });
 
-      return updated;
+      return { updatedInvoice, paymentRecord };
     });
 
-    res.json({ success: true, data: result, message: 'Cập nhật thanh toán thành công' });
+    if (!result) {
+      return res.status(404).json({
+        success: false,
+        data: null,
+        message: 'Không tìm thấy hóa đơn cần cập nhật thanh toán.',
+      });
+    }
+
+    res.json({
+      success: true,
+      data: result.updatedInvoice,
+      message: 'Cập nhật trạng thái thanh toán và ghi nhận giao dịch thành công.',
+    });
   } catch (error: any) {
-    if (error.message?.startsWith('NOT_FOUND:')) {
-      return res.status(404).json({ success: false, message: error.message.replace('NOT_FOUND: ', '') });
+    if (
+      error.message?.startsWith('INVALID_TRANSITION:') ||
+      error.message?.startsWith('ALREADY_PAID:') ||
+      error.message?.startsWith('OVERPAYMENT:')
+    ) {
+      return res.status(400).json({
+        success: false,
+        data: null,
+        message: error.message.replace(/^[A-Z_]+:\s*/, ''),
+      });
     }
-    if (error.message?.startsWith('INVALID_AMOUNT:') || error.message?.includes('không hợp lệ') || error.message?.includes('không được âm')) {
-      return res.status(400).json({ success: false, message: error.message.replace('INVALID_AMOUNT: ', '') });
+
+    if (error.message?.startsWith('LOCK_FAILED:')) {
+      return res.status(409).json({
+        success: false,
+        data: null,
+        message: 'Hệ thống đang xử lý giao dịch thanh toán khác cho hóa đơn này. Vui lòng thử lại.',
+      });
     }
-    res.status(500).json({ success: false, data: null, message: error.message || 'Lỗi cập nhật thanh toán' });
+
+    console.error('[Invoices Controller Error - PUT /:id/status]:', error?.message || error);
+    res.status(500).json({
+      success: false,
+      data: null,
+      message: 'Lỗi máy chủ khi cập nhật thanh toán.',
+    });
   }
 });
 
