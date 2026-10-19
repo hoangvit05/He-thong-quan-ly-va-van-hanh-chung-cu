@@ -40,7 +40,7 @@ export function extractUser(req: Request, res: Response, next: NextFunction): vo
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.substring(7).trim();
       const secret = getJwtSecret();
-      const decoded = jwt.verify(token, secret) as any;
+      const decoded = jwt.verify(token, secret, { algorithms: ['HS256'] }) as any;
       if (decoded && decoded.id && decoded.role) {
         req.user = {
           id: Number(decoded.id),
