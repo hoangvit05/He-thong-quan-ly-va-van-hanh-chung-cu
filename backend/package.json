@@ -8,7 +8,10 @@
     "prisma:generate": "prisma generate --schema=src/database/schema.prisma",
     "prisma:migrate": "prisma migrate dev --schema=src/database/schema.prisma",
     "prisma:push": "prisma db push --schema=src/database/schema.prisma",
-    "prisma:studio": "prisma studio --schema=src/database/schema.prisma"
+    "prisma:studio": "prisma studio --schema=src/database/schema.prisma",
+    "test:tickets": "ts-node src/modules/tickets/tickets.test.ts",
+    "test:feedback": "ts-node src/modules/feedback/feedback.test.ts",
+    "test": "npm run test:tickets && npm run test:feedback"
   },
   "dependencies": {
     "@prisma/client": "^5.14.0",
