@@ -185,6 +185,132 @@ assert(!validateRatingInput(6).isValid, 'Chặn đánh giá 6 sao');
 assert(!validateRatingInput(3.5).isValid, 'Chặn đánh giá số thập phân');
 assert(!validateRatingInput('năm sao').isValid, 'Chặn đánh giá chuỗi không phải số');
 
+// Chặn URL media quá dài (> 1000 ký tự)
+assert(
+  !isValidMediaUrl('https://example.com/' + 'a'.repeat(1050)),
+  'Chặn URL media quá dài (> 1000 ký tự) để chống DoS/Tràn bộ nhớ'
+);
+
+// -------------------------------------------------------------------------
+// 4. KIỂM THỬ BẢO MẬT XÁC THỰC (AUTHENTICATION & RBAC SECURITY GATE)
+// -------------------------------------------------------------------------
+console.log('\n4. Kiểm thử Bảo mật Xác thực (Security Gate & Privilege Escalation Prevention):');
+import jwt from 'jsonwebtoken';
+import { extractUser, requireAuth, requireRoles } from '../../common/middleware/auth';
+
+const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-jwt-key';
+
+// Test 4.1: JWT hợp lệ được giải mã chính xác
+const validToken = jwt.sign({ id: 10, role: Role.RESIDENT, roomId: 101 }, JWT_SECRET, { expiresIn: '1h' });
+const mockReqValid: any = { headers: { authorization: `Bearer ${validToken}` } };
+const mockRes: any = {
+  statusCode: 200,
+  status(code: number) { this.statusCode = code; return this; },
+  json(data: any) { this.body = data; return this; }
+};
+let nextCalled = false;
+extractUser(mockReqValid, mockRes, () => { nextCalled = true; });
+assert(nextCalled && mockReqValid.user?.id === 10 && mockReqValid.user?.role === Role.RESIDENT, 'Xác minh chữ ký JWT và trích xuất đúng danh tính');
+
+// Test 4.2: JWT giả mạo chữ ký (tampered token) bị từ chối
+nextCalled = false;
+const tamperedToken = validToken.slice(0, -5) + 'xxxxx';
+const mockReqTampered: any = { headers: { authorization: `Bearer ${tamperedToken}` } };
+extractUser(mockReqTampered, mockRes, () => { nextCalled = true; });
+assert(nextCalled && !mockReqTampered.user, 'Từ chối token bị giả mạo hoặc sai chữ ký (không cấp req.user)');
+
+// Test 4.3: Chặn TUYỆT ĐỐI header x-user-id / x-user-role khi ở môi trường Production
+const originalEnv = process.env.NODE_ENV;
+process.env.NODE_ENV = 'production';
+const mockReqProdSpoof: any = {
+  headers: {
+    'x-user-id': '999',
+    'x-user-role': 'ADMIN',
+  }
+};
+nextCalled = false;
+extractUser(mockReqProdSpoof, mockRes, () => { nextCalled = true; });
+assert(!mockReqProdSpoof.user, 'CHẶN ĐỨNG lỗ hổng giả mạo Header x-user-* khi NODE_ENV=production');
+process.env.NODE_ENV = originalEnv; // Phục hồi môi trường
+
+// Test 4.4: requireAuth từ chối request ẩn danh (401 Unauthorized)
+const mockReqAnonymous: any = { headers: {} };
+let authBlocked = false;
+const mockRes401: any = {
+  status(code: number) {
+    if (code === 401) authBlocked = true;
+    return this;
+  },
+  json() { return this; }
+};
+requireAuth(mockReqAnonymous, mockRes401, () => {});
+assert(authBlocked, 'requireAuth trả về 401 Unauthorized khi không có phiên đăng nhập');
+
+// Test 4.5: requireRoles chặn sai vai trò (403 Forbidden)
+let roleForbidden = false;
+const mockRes403: any = {
+  status(code: number) {
+    if (code === 403) roleForbidden = true;
+    return this;
+  },
+  json() { return this; }
+};
+const mockReqResident: any = { user: { id: 10, role: Role.RESIDENT } };
+requireRoles(Role.ADMIN, Role.BQL)(mockReqResident, mockRes403, () => {});
+assert(roleForbidden, 'requireRoles trả về 403 Forbidden khi Cư dân cố truy cập API gán việc của BQL');
+
+// Test 4.6: Chặn header x-user-* ở dev nếu không có cấu hình tường minh ALLOW_DEV_AUTH_HEADERS=true
+const prevAllow = process.env.ALLOW_DEV_AUTH_HEADERS;
+delete process.env.ALLOW_DEV_AUTH_HEADERS;
+const prevNodeEnv = process.env.NODE_ENV;
+process.env.NODE_ENV = 'development';
+
+const mockReqDevUnconfigured: any = {
+  headers: {
+    'x-user-id': '888',
+    'x-user-role': 'RESIDENT',
+  }
+};
+extractUser(mockReqDevUnconfigured, mockRes, () => {});
+assert(!mockReqDevUnconfigured.user, 'Chặn header x-user-* ở dev khi KHÔNG có cấu hình tường minh ALLOW_DEV_AUTH_HEADERS=true');
+
+process.env.NODE_ENV = prevNodeEnv;
+if (prevAllow) process.env.ALLOW_DEV_AUTH_HEADERS = prevAllow;
+
+// Test 4.7: Token hết hạn (TokenExpiredError) bị từ chối
+const expiredToken = jwt.sign({ id: 10, role: Role.RESIDENT }, JWT_SECRET, { expiresIn: '-1s' });
+const mockReqExpired: any = { headers: { authorization: `Bearer ${expiredToken}` } };
+let expiredBlocked = false;
+extractUser(mockReqExpired, mockRes, () => {});
+const mockResExpired: any = {
+  status(code: number) {
+    if (code === 401) expiredBlocked = true;
+    return this;
+  },
+  json(body: any) {
+    if (body.message?.includes('hết hạn')) expiredBlocked = true;
+    return this;
+  }
+};
+requireAuth(mockReqExpired, mockResExpired, () => {});
+assert(expiredBlocked, 'Token hết hạn bị từ chối với mã lỗi 401 Unauthorized (Token Expired)');
+
+// Test 4.8: Từ chối khởi động ở Production nếu JWT_SECRET dùng giá trị mặc định không an toàn
+import { getJwtSecret } from '../../common/middleware/auth';
+process.env.NODE_ENV = 'production';
+process.env.JWT_SECRET = 'super-secret-jwt-key';
+let startupFailed = false;
+try {
+  getJwtSecret();
+} catch (err: any) {
+  if (err.message?.includes('FATAL SECURITY ERROR')) {
+    startupFailed = true;
+  }
+}
+assert(startupFailed, 'Fail-Fast: Ứng dụng từ chối khởi động ở Production khi JWT_SECRET là giá trị mặc định');
+process.env.NODE_ENV = prevNodeEnv; // Phục hồi môi trường
+process.env.JWT_SECRET = JWT_SECRET;
+
 console.log('\n======================================================');
 console.log(`📊 TỔNG KẾT KIỂM THỬ: ${passCount} ĐẠT (PASS) | ${failCount} THẤT BẠI (FAIL)`);
 console.log('======================================================\n');

@@ -2,8 +2,12 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import rootRouter from './app.module';
+import { validateJwtSecretAtStartup } from './common/middleware/auth';
 
 dotenv.config();
+
+// Kiểm tra tính bảo mật của JWT Secret khi khởi động (Từ chối khởi động ở Production nếu secret yếu)
+validateJwtSecretAtStartup();
 
 const app = express();
 const PORT = process.env.PORT || 5000;

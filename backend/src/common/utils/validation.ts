@@ -10,6 +10,9 @@
 export function isValidMediaUrl(url: unknown): boolean {
   if (!url || typeof url !== 'string') return false;
   
+  // Giới hạn độ dài tối đa 1000 ký tự để chống DoS và tràn bộ nhớ
+  if (url.length > 1000) return false;
+
   // Phát hiện và chặn ngay lập tức nếu là chuỗi Base64
   if (url.startsWith('data:') || url.includes(';base64,')) {
     return false;

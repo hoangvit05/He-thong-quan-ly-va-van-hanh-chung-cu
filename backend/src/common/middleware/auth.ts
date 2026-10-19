@@ -3,18 +3,44 @@ import jwt from 'jsonwebtoken';
 import { Role } from '@prisma/client';
 import '../types/auth';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-jwt-key';
+const INSECURE_DEFAULT_SECRETS = ['super-secret-jwt-key', 'secret', '123456', 'jwt-secret', 'default', 'password'];
 
 /**
- * Middleware trích xuất thông tin người dùng từ JWT Token hoặc Headers thử nghiệm
- * Gắn vào req.user nếu hợp lệ
+ * Lấy JWT Secret động và kiểm tra tính an toàn nghiêm ngặt
+ */
+export function getJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  if (isProduction) {
+    if (!secret || INSECURE_DEFAULT_SECRETS.includes(secret.toLowerCase()) || secret.length < 32) {
+      throw new Error(
+        '[FATAL SECURITY ERROR] Ứng dụng từ chối khởi động ở môi trường Production: JWT_SECRET bị thiếu, quá ngắn (< 32 ký tự), hoặc đang dùng giá trị mặc định không an toàn! Vui lòng cấu hình JWT_SECRET mạnh trong biến môi trường.'
+      );
+    }
+    return secret;
+  }
+
+  return secret || 'super-secret-jwt-key';
+}
+
+/**
+ * Kiểm tra tính hợp lệ của JWT Secret khi khởi động ứng dụng (Fail-Fast)
+ */
+export function validateJwtSecretAtStartup(): void {
+  getJwtSecret();
+}
+
+/**
+ * Middleware trích xuất và xác thực thông tin người dùng từ JWT Token
  */
 export function extractUser(req: Request, res: Response, next: NextFunction): void {
   try {
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
-      const token = authHeader.substring(7);
-      const decoded = jwt.verify(token, JWT_SECRET) as any;
+      const token = authHeader.substring(7).trim();
+      const secret = getJwtSecret();
+      const decoded = jwt.verify(token, secret) as any;
       if (decoded && decoded.id && decoded.role) {
         req.user = {
           id: Number(decoded.id),
@@ -27,26 +53,42 @@ export function extractUser(req: Request, res: Response, next: NextFunction): vo
       }
     }
 
-    // Hỗ trợ header kiểm thử phát triển cục bộ khi module Auth chưa hoàn tất seed DB
-    const devUserId = req.headers['x-user-id'];
-    const devUserRole = req.headers['x-user-role'];
-    const devRoomId = req.headers['x-user-room-id'];
+    // BẢO MẬT: Header giả lập danh tính (x-user-id, x-user-role)
+    // 1. Tuyệt đối KHÔNG được bật chỉ vì NODE_ENV !== 'production'
+    // 2. Tuyệt đối BỊ CẤM ở môi trường Production bất kể cờ nào
+    // 3. Chỉ bật khi có cấu hình tường minh ALLOW_DEV_AUTH_HEADERS=true hoặc trong môi trường test (NODE_ENV=test)
+    const isProduction = process.env.NODE_ENV === 'production';
+    const isExplicitlyEnabled =
+      !isProduction &&
+      (process.env.ALLOW_DEV_AUTH_HEADERS === 'true' || process.env.NODE_ENV === 'test');
 
-    if (devUserId && devUserRole) {
-      const roleStr = String(devUserRole).toUpperCase();
-      if (Object.values(Role).includes(roleStr as Role)) {
-        req.user = {
-          id: Number(devUserId),
-          role: roleStr as Role,
-          roomId: devRoomId ? Number(devRoomId) : null,
-        };
-        return next();
+    if (isExplicitlyEnabled) {
+      const devUserId = req.headers['x-user-id'];
+      const devUserRole = req.headers['x-user-role'];
+      const devRoomId = req.headers['x-user-room-id'];
+
+      if (devUserId && devUserRole) {
+        const roleStr = String(devUserRole).toUpperCase();
+        if (Object.values(Role).includes(roleStr as Role)) {
+          req.user = {
+            id: Number(devUserId),
+            role: roleStr as Role,
+            roomId: devRoomId ? Number(devRoomId) : null,
+          };
+          return next();
+        }
       }
     }
 
     next();
-  } catch (error) {
-    // Token không hợp lệ hoặc hết hạn -> tiếp tục không có req.user
+  } catch (error: any) {
+    if (error.name === 'TokenExpiredError') {
+      req.authError = 'TOKEN_EXPIRED';
+    } else if (error.name === 'JsonWebTokenError') {
+      req.authError = 'INVALID_SIGNATURE';
+    } else {
+      req.authError = 'AUTH_ERROR';
+    }
     next();
   }
 }
@@ -55,16 +97,38 @@ export function extractUser(req: Request, res: Response, next: NextFunction): vo
  * Bắt buộc người dùng phải đăng nhập (yêu cầu req.user)
  */
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {
+  if (req.user) {
+    return next();
+  }
+
   extractUser(req, res, () => {
-    if (!req.user) {
+    if (req.user) {
+      return next();
+    }
+
+    if (req.authError === 'TOKEN_EXPIRED') {
       res.status(401).json({
         success: false,
         data: null,
-        message: 'Yêu cầu đăng nhập. Vui lòng cung cấp Authorization Bearer Token hoặc x-user-id header.',
+        message: 'Phiên đăng nhập đã hết hạn (Token Expired). Vui lòng đăng nhập lại.',
       });
       return;
     }
-    next();
+
+    if (req.authError === 'INVALID_SIGNATURE') {
+      res.status(401).json({
+        success: false,
+        data: null,
+        message: 'Mã xác thực không hợp lệ (Invalid Token Signature hoặc sai chữ ký bí mật).',
+      });
+      return;
+    }
+
+    res.status(401).json({
+      success: false,
+      data: null,
+      message: 'Yêu cầu đăng nhập. Vui lòng cung cấp Authorization Bearer Token hợp lệ.',
+    });
   });
 }
 
@@ -73,8 +137,16 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
  */
 export function requireRoles(...allowedRoles: Role[]) {
   return (req: Request, res: Response, next: NextFunction): void => {
-    extractUser(req, res, () => {
+    const handleAuthorization = () => {
       if (!req.user) {
+        if (req.authError === 'TOKEN_EXPIRED') {
+          res.status(401).json({
+            success: false,
+            data: null,
+            message: 'Phiên đăng nhập đã hết hạn (Token Expired). Vui lòng đăng nhập lại.',
+          });
+          return;
+        }
         res.status(401).json({
           success: false,
           data: null,
@@ -93,6 +165,12 @@ export function requireRoles(...allowedRoles: Role[]) {
       }
 
       next();
-    });
+    };
+
+    if (req.user) {
+      handleAuthorization();
+    } else {
+      extractUser(req, res, handleAuthorization);
+    }
   };
 }
