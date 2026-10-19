@@ -16,40 +16,40 @@ generator client {
 
 // 1. Phân quyền vai trò người dùng trong hệ thống (RBAC)
 enum Role {
-  ADMIN       // Quản trị viên cao nhất: Tạo và quản lý tài khoản Ban quản lý & Thợ kỹ thuật
-  BQL         // Ban quản lý: Duyệt cư dân mới, điều phối sự cố, lập biểu phí, phát thông báo
-  TECHNICIAN  // Thợ kỹ thuật: Nhận phiếu sửa chữa, cập nhật tiến độ làm việc, kê khai vật tư
-  RESIDENT    // Cư dân: Báo hỏng, tra cứu hóa đơn, quét mã VietQR nộp tiền, gửi hòm thư góp ý
+  ADMIN // Quản trị viên cao nhất: Tạo và quản lý tài khoản Ban quản lý & Thợ kỹ thuật
+  BQL // Ban quản lý: Duyệt cư dân mới, điều phối sự cố, lập biểu phí, phát thông báo
+  TECHNICIAN // Thợ kỹ thuật: Nhận phiếu sửa chữa, cập nhật tiến độ làm việc, kê khai vật tư
+  RESIDENT // Cư dân: Báo hỏng, tra cứu hóa đơn, quét mã VietQR nộp tiền, gửi hòm thư góp ý
 }
 
 // 2. Vòng đời quy trình xử lý một phiếu báo hỏng sự cố kỹ thuật
 enum TicketStatus {
-  PENDING     // Mới gửi: Cư dân vừa bấm gửi phiếu, đang chờ Ban quản lý tiếp nhận và phân loại
-  ASSIGNED    // Đã gán việc: Ban quản lý đã chỉ định cụ thể một Thợ kỹ thuật phụ trách sửa chữa
+  PENDING // Mới gửi: Cư dân vừa bấm gửi phiếu, đang chờ Ban quản lý tiếp nhận và phân loại
+  ASSIGNED // Đã gán việc: Ban quản lý đã chỉ định cụ thể một Thợ kỹ thuật phụ trách sửa chữa
   IN_PROGRESS // Đang sửa: Thợ kỹ thuật đã xác nhận nhận việc và đang tiến hành sửa chữa
-  COMPLETED   // Đã sửa xong: Thợ đã hoàn thành sửa chữa, kê khai vật tư thay thế và chụp ảnh kết quả
-  CLOSED      // Đóng phiếu: Cư dân xác nhận hài lòng, nghiệm thu hoàn tất và chấm điểm 1-5 sao
+  COMPLETED // Đã sửa xong: Thợ đã hoàn thành sửa chữa, kê khai vật tư thay thế và chụp ảnh kết quả
+  CLOSED // Đóng phiếu: Cư dân xác nhận hài lòng, nghiệm thu hoàn tất và chấm điểm 1-5 sao
 }
 
 // 3. Trạng thái thanh toán của hóa đơn dịch vụ định kỳ hàng tháng
 enum InvoiceStatus {
-  UNPAID         // Chưa thanh toán: Hóa đơn mới lập, căn hộ chưa nộp tiền
+  UNPAID // Chưa thanh toán: Hóa đơn mới lập, căn hộ chưa nộp tiền
   PARTIALLY_PAID // Thanh toán một phần: Cư dân mới đóng trước một phần số tiền của hóa đơn
-  PAID           // Đã thanh toán: Căn hộ đã nộp đủ 100% số tiền của hóa đơn
+  PAID // Đã thanh toán: Căn hộ đã nộp đủ 100% số tiền của hóa đơn
 }
 
 // 4. Tình trạng sử dụng hiện tại của từng căn hộ trong tòa nhà
 enum RoomStatus {
-  VACANT      // Phòng trống: Căn hộ chưa có người vào ở, sẵn sàng đón cư dân mới
-  OCCUPIED    // Đang có người ở: Căn hộ đã có cư dân sinh sống và đang phát sinh chi phí hàng tháng
+  VACANT // Phòng trống: Căn hộ chưa có người vào ở, sẵn sàng đón cư dân mới
+  OCCUPIED // Đang có người ở: Căn hộ đã có cư dân sinh sống và đang phát sinh chi phí hàng tháng
   MAINTENANCE // Đang bảo trì / cải tạo: Căn hộ đang sửa chữa, tạm thời chưa thể cho vào ở
 }
 
 // 5. Phương thức thanh toán được cư dân sử dụng để đóng phí
 enum PaymentMethod {
-  VIETQR        // Quét mã VietQR: Chuyển khoản ngân hàng tức thời, tự động điền cú pháp hóa đơn
+  VIETQR // Quét mã VietQR: Chuyển khoản ngân hàng tức thời, tự động điền cú pháp hóa đơn
   BANK_TRANSFER // Chuyển khoản thông thường: Chuyển khoản qua số tài khoản ngân hàng của BQL
-  CASH          // Tiền mặt: Cư dân nộp tiền trực tiếp tại quầy văn phòng Ban quản lý
+  CASH // Tiền mặt: Cư dân nộp tiền trực tiếp tại quầy văn phòng Ban quản lý
 }
 
 // ==========================================
@@ -58,39 +58,39 @@ enum PaymentMethod {
 model Room {
   id         Int        @id @default(autoincrement())
   roomNumber String     @unique // Số phòng: ví dụ "101", "A-201"
-  floor      Int        // Tầng
-  area       Float      // Diện tích (m2) - dùng tính phí quản lý
+  floor      Int // Tầng
+  area       Float // Diện tích (m2) - dùng tính phí quản lý
   status     RoomStatus @default(VACANT)
   createdAt  DateTime   @default(now())
   updatedAt  DateTime   @updatedAt
 
-  users      User[]
-  invoices   Invoice[]
-  feedbacks  Feedback[]
-  tickets    Ticket[]
+  users     User[]
+  invoices  Invoice[]
+  feedbacks Feedback[]
+  tickets   Ticket[]
 }
 
 // ==========================================
 // 2. BẢNG NGƯỜI DÙNG & TÀI KHOẢN
 // ==========================================
 model User {
-  id              Int          @id @default(autoincrement())
-  username        String       @unique
-  password        String       // Mật khẩu đã mã hóa (Bcrypt hash)
-  fullName        String
-  phone           String?
-  email           String?      @unique
-  role            Role         @default(RESIDENT)
-  roomId          Int?         // Thuộc căn hộ nào (null nếu là Admin, BQL hoặc Thợ)
-  room            Room?        @relation(fields: [roomId], references: [id])
-  isApproved      Boolean      @default(false)
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
+  id         Int      @id @default(autoincrement())
+  username   String   @unique
+  password   String // Mật khẩu đã mã hóa (Bcrypt hash)
+  fullName   String
+  phone      String?
+  email      String?  @unique
+  role       Role     @default(RESIDENT)
+  roomId     Int? // Thuộc căn hộ nào (null nếu là Admin, BQL hoặc Thợ)
+  room       Room?    @relation(fields: [roomId], references: [id])
+  isApproved Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   // Các quan hệ khóa ngoại:
-  createdTickets  Ticket[]       @relation("ResidentTickets")   // Danh sách phiếu do cư dân này tạo
+  createdTickets  Ticket[]       @relation("ResidentTickets") // Danh sách phiếu do cư dân này tạo
   assignedTickets Ticket[]       @relation("TechnicianTickets") // Danh sách việc được giao cho thợ này
-  feedbacks       Feedback[]                                    // Danh sách góp ý do cư dân này gửi
+  feedbacks       Feedback[] // Danh sách góp ý do cư dân này gửi
   notifications   Notification[] @relation("AuthorNotifications") // Thông báo do Admin/BQL này tạo
 
   @@index([role, isApproved])
@@ -101,30 +101,30 @@ model User {
 // 3. BẢNG BÁO HỎNG & SỰ CỐ
 // ==========================================
 model Ticket {
-  id                Int          @id @default(autoincrement())
-  title             String?      // Tiêu đề ngắn gọn của sự cố (dùng hiển thị bảng điều phối/Kanban)
-  category          String       // Phân loại: Điện, Nước, Internet, Thang máy...
-  description       String       // Mô tả chi tiết sự cố
-  mediaUrl          String?      // Đường dẫn ảnh/video sự cố cư dân tải lên (Cloudinary/S3)
-  status            TicketStatus @default(PENDING)
+  id          Int          @id @default(autoincrement())
+  title       String? // Tiêu đề ngắn gọn của sự cố (dùng hiển thị bảng điều phối/Kanban)
+  category    String // Phân loại: Điện, Nước, Internet, Thang máy...
+  description String // Mô tả chi tiết sự cố
+  mediaUrl    String? // Đường dẫn ảnh/video sự cố cư dân tải lên (Cloudinary/S3)
+  status      TicketStatus @default(PENDING)
 
-  roomId            Int?         // Căn hộ phát sinh sự cố (dùng cho thuật toán lọc trùng và tra cứu)
-  room              Room?        @relation(fields: [roomId], references: [id])
+  roomId Int? // Căn hộ phát sinh sự cố (dùng cho thuật toán lọc trùng và tra cứu)
+  room   Room? @relation(fields: [roomId], references: [id])
 
-  residentId        Int          // Khóa ngoại liên kết người tạo phiếu
-  resident          User         @relation("ResidentTickets", fields: [residentId], references: [id])
+  residentId Int // Khóa ngoại liên kết người tạo phiếu
+  resident   User @relation("ResidentTickets", fields: [residentId], references: [id])
 
-  technicianId      Int?         // Khóa ngoại liên kết thợ kỹ thuật (null khi mới gửi)
-  technician        User?        @relation("TechnicianTickets", fields: [technicianId], references: [id])
+  technicianId Int? // Khóa ngoại liên kết thợ kỹ thuật (null khi mới gửi)
+  technician   User? @relation("TechnicianTickets", fields: [technicianId], references: [id])
 
-  materials         String?      // Kê khai vật tư đã thay thế (JSON hoặc văn bản mô tả)
-  completedMediaUrl String?      // Đường dẫn ảnh chụp nghiệm thu sau khi sửa xong
-  rating            Int?         // Đánh giá 1 - 5 sao
-  ratingComment     String?      // Nhận xét chi tiết của cư dân khi nghiệm thu
-  isDuplicate       Boolean      @default(false) // Cờ đánh dấu phiếu gửi trùng lặp
+  materials         String? // Kê khai vật tư đã thay thế (JSON hoặc văn bản mô tả)
+  completedMediaUrl String? // Đường dẫn ảnh chụp nghiệm thu sau khi sửa xong
+  rating            Int? // Đánh giá 1 - 5 sao
+  ratingComment     String? // Nhận xét chi tiết của cư dân khi nghiệm thu
+  isDuplicate       Boolean @default(false) // Cờ đánh dấu phiếu gửi trùng lặp
 
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([status, createdAt])
   @@index([residentId])
@@ -137,23 +137,23 @@ model Ticket {
 // ==========================================
 model Invoice {
   id            Int           @id @default(autoincrement())
-  roomId        Int           // Khóa ngoại liên kết căn hộ
+  roomId        Int // Khóa ngoại liên kết căn hộ
   room          Room          @relation(fields: [roomId], references: [id])
-  month         String        // Ví dụ: "10/2026"
-  managementFee Float         @default(0) // Phí quản lý chung cư
-  parkingFee    Float         @default(0) // Phí gửi xe
-  waterFee      Float         @default(0) // Tiền nước
-  otherFee      Float         @default(0) // Phí phát sinh khác
-  totalAmount   Float         // Tổng tiền phải đóng (chốt snapshot cố định khi lập)
-  paidAmount    Float         @default(0) // Tổng số tiền thực tế đã thanh toán lũy kế
-  dueDate       DateTime?     // Hạn nộp tiền
+  month         String // Định dạng chuẩn: YYYY-MM (ví dụ: "2026-10")
+  managementFee Decimal       @default(0) @db.Decimal(12, 2) // Phí quản lý chung cư
+  parkingFee    Decimal       @default(0) @db.Decimal(12, 2) // Phí gửi xe
+  waterFee      Decimal       @default(0) @db.Decimal(12, 2) // Tiền nước
+  otherFee      Decimal       @default(0) @db.Decimal(12, 2) // Phí phát sinh khác
+  totalAmount   Decimal       @db.Decimal(12, 2) // Tổng tiền phải đóng (chốt snapshot cố định khi lập)
+  paidAmount    Decimal       @default(0) @db.Decimal(12, 2) // Tổng số tiền thực tế đã thanh toán lũy kế
+  dueDate       DateTime? // Hạn nộp tiền
   status        InvoiceStatus @default(UNPAID)
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
-  payments      Payment[]     // Lịch sử các lần nộp tiền
+  payments Payment[] // Lịch sử các lần nộp tiền
 
-  @@unique([roomId, month])   // BẮT BUỘC: Chống tạo trùng lặp hóa đơn cho cùng một phòng trong một tháng
+  @@unique([roomId, month]) // BẮT BUỘC: Chống tạo trùng lặp hóa đơn cho cùng một phòng trong một tháng
   @@index([roomId, status])
   @@index([month, status])
 }
@@ -163,12 +163,12 @@ model Invoice {
 // ==========================================
 model Payment {
   id              Int           @id @default(autoincrement())
-  invoiceId       Int           // Thuộc hóa đơn nào
+  invoiceId       Int // Thuộc hóa đơn nào
   invoice         Invoice       @relation(fields: [invoiceId], references: [id])
-  amount          Float         // Số tiền thực tế thanh toán trong lần này
+  amount          Decimal       @db.Decimal(12, 2) // Số tiền thực tế thanh toán trong lần này
   paymentMethod   PaymentMethod @default(VIETQR)
-  transactionCode String?       // Mã giao dịch ngân hàng / mã chuẩn chi VietQR
-  note            String?       // Ghi chú hoặc nội dung chuyển khoản
+  transactionCode String? // Mã giao dịch ngân hàng / mã chuẩn chi VietQR
+  note            String? // Ghi chú hoặc nội dung chuyển khoản
   paidAt          DateTime      @default(now())
 
   @@index([invoiceId])
@@ -180,13 +180,13 @@ model Payment {
 // ==========================================
 model Feedback {
   id         Int       @id @default(autoincrement())
-  residentId Int       // Khóa ngoại liên kết cư dân gửi góp ý
+  residentId Int // Khóa ngoại liên kết cư dân gửi góp ý
   resident   User      @relation(fields: [residentId], references: [id])
-  roomId     Int?      // Thuộc căn hộ nào
+  roomId     Int? // Thuộc căn hộ nào
   room       Room?     @relation(fields: [roomId], references: [id])
-  title      String    // Tiêu đề phản ánh
-  content    String    // Nội dung chi tiết
-  reply      String?   // Nội dung phản hồi từ Ban quản lý
+  title      String // Tiêu đề phản ánh
+  content    String // Nội dung chi tiết
+  reply      String? // Nội dung phản hồi từ Ban quản lý
   isResolved Boolean   @default(false) // Đã giải quyết / Đã phản hồi chưa
   repliedAt  DateTime? // Thời điểm Ban quản lý gửi câu trả lời
   createdAt  DateTime  @default(now())
@@ -201,10 +201,10 @@ model Feedback {
 // ==========================================
 model Notification {
   id         Int      @id @default(autoincrement())
-  title      String   // Tiêu đề thông báo
-  content    String   // Nội dung thông báo
-  targetRoom String?  // null = gửi toàn chung cư, hoặc tên phòng cụ thể (ví dụ: "101")
-  authorId   Int?     // Người tạo thông báo (BQL/Admin)
+  title      String // Tiêu đề thông báo
+  content    String // Nội dung thông báo
+  targetRoom String? // null = gửi toàn chung cư, hoặc tên phòng cụ thể (ví dụ: "101")
+  authorId   Int? // Người tạo thông báo (BQL/Admin)
   author     User?    @relation("AuthorNotifications", fields: [authorId], references: [id])
   createdAt  DateTime @default(now())
 
