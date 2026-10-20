@@ -1,0 +1,403 @@
+name: CI Pipeline
+
+'on':
+  push:
+    branches: [ "Hiếu", "main" ]
+  pull_request:
+    branches: [ "Hiếu", "main" ]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Backend Typecheck, Unit & Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      COMPOSE_PROJECT_NAME: ci-${{ github.run_id }}-${{ github.run_attempt }}
+      POSTGRES_PORT: 5432
+
+    steps:
+      - name: 1. Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: 2. Check Git Whitespace Errors
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          COMMIT_SHA: ${{ github.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          echo "Starting Git Whitespace Check..."
+          echo "Event: $EVENT_NAME, Commit: $COMMIT_SHA"
+
+          EMPTY_TREE=$(git hash-object -t tree /dev/null)
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            if [ -z "$PR_BASE_SHA" ] || [ -z "$PR_HEAD_SHA" ]; then
+              echo "::error::PR Base SHA or PR Head SHA is missing in event payload!"
+              exit 1
+            fi
+            echo "Validating PR commit range: base $PR_BASE_SHA ... head $PR_HEAD_SHA"
+            if ! MERGE_BASE=$(git merge-base "$PR_BASE_SHA" "$PR_HEAD_SHA"); then
+              echo "::error::Failed to determine merge-base between $PR_BASE_SHA and $PR_HEAD_SHA!"
+              exit 1
+            fi
+            echo "Calculated merge-base: $MERGE_BASE"
+            git diff --check "$MERGE_BASE" "$PR_HEAD_SHA"
+          elif [ "$EVENT_NAME" = "push" ]; then
+            ZERO_SHA="0000000000000000000000000000000000000000"
+            if [ -z "$BEFORE_SHA" ] || [ "$BEFORE_SHA" = "$ZERO_SHA" ]; then
+              echo "Initial push or newly created branch detected (before SHA is empty/zero)."
+              if git rev-parse --verify origin/main >/dev/null 2>&1; then
+                if MERGE_BASE=$(git merge-base origin/main "$COMMIT_SHA"); then
+                  # Explicit prevention of empty diff (false PASS) when newly created branch is main
+                  if [ "$MERGE_BASE" = "$COMMIT_SHA" ]; then
+                    echo "Newly created branch or initial main push detected where merge-base equals COMMIT_SHA ($COMMIT_SHA)."
+                    echo "Comparing commit to itself would yield an empty diff (false PASS)."
+                    echo "Conservative fail-closed policy: validating entire repository snapshot against empty tree..."
+                    git diff --check "$EMPTY_TREE" "$COMMIT_SHA"
+                  else
+                    echo "Branch diverged from origin/main at $MERGE_BASE (strictly before $COMMIT_SHA)."
+                    echo "Validating net branch diff: $MERGE_BASE .. $COMMIT_SHA"
+                    git diff --check "$MERGE_BASE" "$COMMIT_SHA"
+                  fi
+                else
+                  echo "No common ancestor with origin/main found. Fail-closed: checking entire tree against empty tree..."
+                  git diff --check "$EMPTY_TREE" "$COMMIT_SHA"
+                fi
+              else
+                if ! git rev-parse --verify "${COMMIT_SHA}^" >/dev/null 2>&1; then
+                  echo "Root commit detected without parents. Validating entire tree against empty tree..."
+                  git diff --check "$EMPTY_TREE" "$COMMIT_SHA"
+                else
+                  echo "::error::origin/main is unavailable to determine divergence point for new branch. Fail-closed: comparison base cannot be established!"
+                  exit 1
+                fi
+              fi
+            else
+              echo "Validating pushed commit range: $BEFORE_SHA .. $COMMIT_SHA"
+              if ! git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
+                echo "::error::Before commit $BEFORE_SHA is not available in local Git history!"
+                exit 1
+              fi
+              git diff --check "$BEFORE_SHA" "$COMMIT_SHA"
+            fi
+          else
+            echo "::error::Unsupported trigger event: $EVENT_NAME"
+            exit 1
+          fi
+          echo "Git whitespace check passed for the selected comparison range."
+
+      - name: 3. Setup Node.js 24 LTS
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: 4. Install Dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: 5. Generate Prisma Client
+        working-directory: backend
+        run: npm run prisma:generate
+
+      - name: 6. TypeScript Compile Check
+        working-directory: backend
+        run: npx tsc --noEmit
+
+      - name: 7. Run Unit Tests (Mocked)
+        working-directory: backend
+        run: npm test
+
+      - name: 8. Start Isolated PostgreSQL Test Container
+        run: |
+          set -euo pipefail
+          echo "POSTGRES_SETUP_STARTED=true" >> "$GITHUB_ENV"
+
+          ADMIN_PW=$(openssl rand -hex 16)
+          APP_PW=$(openssl rand -hex 16)
+
+          echo "::add-mask::$ADMIN_PW"
+          echo "::add-mask::$APP_PW"
+          echo "POSTGRES_PASSWORD=$ADMIN_PW" >> "$GITHUB_ENV"
+          echo "POSTGRES_APP_PASSWORD=$APP_PW" >> "$GITHUB_ENV"
+
+          POSTGRES_PORT="$POSTGRES_PORT" POSTGRES_PASSWORD="$ADMIN_PW" POSTGRES_APP_PASSWORD="$APP_PW" \
+            docker compose -f docker-compose.test.yml -p "$COMPOSE_PROJECT_NAME" up -d
+
+      - name: 9. Wait for PostgreSQL Healthcheck
+        run: |
+          set -euo pipefail
+          CONTAINER_ID=$(docker compose -f docker-compose.test.yml -p "$COMPOSE_PROJECT_NAME" ps -q postgres-test)
+          if [ -z "$CONTAINER_ID" ]; then
+            echo "::error::Could not resolve container ID for service postgres-test in project $COMPOSE_PROJECT_NAME"
+            exit 1
+          fi
+          echo "Resolved container ID: $CONTAINER_ID. Polling healthcheck..."
+          for i in {1..30}; do
+            STATUS=$(docker inspect --format '{{json .State.Health.Status}}' "$CONTAINER_ID" 2>/dev/null || echo '"unknown"')
+            if [ "$STATUS" = '"healthy"' ]; then
+              echo "PostgreSQL container is healthy!"
+              break
+            fi
+            echo "Waiting for healthcheck (attempt $i/30, status: $STATUS)..."
+            sleep 2
+          done
+          if [ "$STATUS" != '"healthy"' ]; then
+            echo "::error::Container failed to become healthy within timeout!"
+            docker logs "$CONTAINER_ID" >&2
+            exit 1
+          fi
+
+      - name: 10. Verify Init Script Execution
+        run: |
+          set -euo pipefail
+          CONTAINER_ID=$(docker compose -f docker-compose.test.yml -p "$COMPOSE_PROJECT_NAME" ps -q postgres-test)
+          docker logs "$CONTAINER_ID" 2>&1 | grep "Least privilege role 'test_app_user' successfully initialized."
+
+      - name: 11. Push Schema via Admin Role
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          DATABASE_URL="postgresql://test_user:${POSTGRES_PASSWORD}@127.0.0.1:${POSTGRES_PORT}/apartment_test?schema=public" \
+            npx prisma db push --schema=src/database/schema.prisma
+
+      - name: 12. Run PL/pgSQL ACL Assertions (Fail-Closed)
+        run: |
+          set -euo pipefail
+          PGPASSWORD="${POSTGRES_PASSWORD}" psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -p "${POSTGRES_PORT}" -U test_user -d apartment_test <<-'EOSQL'
+          DO $$
+          DECLARE
+            rec RECORD;
+            table_count INT;
+            seq_count INT;
+            extra_tables INT;
+            extra_seqs INT;
+            inbound_members INT;
+            outbound_members INT;
+            expected_tables TEXT[] := ARRAY['Feedback', 'Invoice', 'Notification', 'Payment', 'Room', 'Ticket', 'User'];
+            expected_seqs TEXT[] := ARRAY['Feedback_id_seq', 'Invoice_id_seq', 'Notification_id_seq', 'Payment_id_seq', 'Room_id_seq', 'Ticket_id_seq', 'User_id_seq'];
+            elem TEXT;
+            tbl_owner TEXT;
+            seq_owner TEXT;
+            schema_owner TEXT;
+            db_owner TEXT;
+            has_invalid_direct_grant BOOLEAN;
+          BEGIN
+            -- 1. Database name check
+            IF current_database() <> 'apartment_test' THEN
+              RAISE EXCEPTION 'ACL CHECK FAILED: current_database is %, expected apartment_test', current_database();
+            END IF;
+
+            -- 2. Database owner check
+            SELECT pg_get_userbyid(datdba) INTO db_owner FROM pg_database WHERE datname = 'apartment_test';
+            IF db_owner = 'test_app_user' THEN
+              RAISE EXCEPTION 'ACL CHECK FAILED: database apartment_test must not be owned by test_app_user (owner: %)', db_owner;
+            END IF;
+
+            -- 3. App Role attributes check
+            SELECT * INTO rec FROM pg_roles WHERE rolname = 'test_app_user';
+            IF NOT FOUND THEN
+              RAISE EXCEPTION 'ACL CHECK FAILED: role test_app_user does not exist';
+            END IF;
+            IF NOT rec.rolcanlogin THEN
+              RAISE EXCEPTION 'ACL CHECK FAILED: test_app_user must have LOGIN';
+            END IF;
+            IF rec.rolsuper OR rec.rolcreatedb OR rec.rolcreaterole OR rec.rolreplication OR rec.rolbypassrls THEN
+              RAISE EXCEPTION 'ACL CHECK FAILED: test_app_user has elevated privileges (super:%, createdb:%, createrole:%, repl:%, bypassrls:%)',
+                rec.rolsuper, rec.rolcreatedb, rec.rolcreaterole, rec.rolreplication, rec.rolbypassrls;
+            END IF;
+
+            -- 4. Bidirectional membership check
+            -- Inbound: test_app_user must NOT be member of any other role
+            SELECT COUNT(*) INTO inbound_members
+            FROM pg_auth_members am
+            JOIN pg_roles r ON am.member = r.oid
+            WHERE r.rolname = 'test_app_user';
+            IF inbound_members > 0 THEN
+              RAISE EXCEPTION 'ACL CHECK FAILED: test_app_user inherits membership from % role(s)', inbound_members;
+            END IF;
+
+            -- Outbound: no other role can be member of test_app_user
+            SELECT COUNT(*) INTO outbound_members
+            FROM pg_auth_members am
+            JOIN pg_roles r ON am.roleid = r.oid
+            WHERE r.rolname = 'test_app_user';
+            IF outbound_members > 0 THEN
+              RAISE EXCEPTION 'ACL CHECK FAILED: % role(s) are members of test_app_user', outbound_members;
+            END IF;
+
+            -- 5. Database privileges & direct datacl check
+            IF NOT has_database_privilege('test_app_user', 'apartment_test', 'CONNECT') THEN
+              RAISE EXCEPTION 'ACL CHECK FAILED: test_app_user must have CONNECT on apartment_test';
+            END IF;
+            IF has_database_privilege('test_app_user', 'apartment_test', 'CREATE') THEN
+              RAISE EXCEPTION 'ACL CHECK FAILED: test_app_user must NOT have CREATE on database apartment_test';
+            END IF;
+            -- Effective TEMP is true due to PostgreSQL default grant to PUBLIC (=Tc)
+            IF NOT has_database_privilege('test_app_user', 'apartment_test', 'TEMP') THEN
+              RAISE EXCEPTION 'ACL CHECK FAILED: expected effective TEMP privilege inherited from PUBLIC on apartment_test';
+            END IF;
+
+            -- Verify direct datacl: test_app_user direct privileges must ONLY be CONNECT (c)
+            SELECT EXISTS (
+              SELECT 1
+              FROM pg_database AS d
+              CROSS JOIN LATERAL unnest(d.datacl) AS u(item)
+              WHERE d.datname = 'apartment_test'
+                AND split_part(u.item::text, '=', 1) = 'test_app_user'
+                AND split_part(
+                      split_part(u.item::text, '=', 2),
+                      '/',
+                      1
+                    ) <> 'c'
+            ) INTO has_invalid_direct_grant;
+
+            IF has_invalid_direct_grant THEN
+              RAISE EXCEPTION 'ACL CHECK FAILED: test_app_user direct datacl must be strictly CONNECT (c)';
+            END IF;
+
+            -- 6. Schema public privileges & ownership check
+            IF NOT has_schema_privilege('test_app_user', 'public', 'USAGE') THEN
+              RAISE EXCEPTION 'ACL CHECK FAILED: test_app_user must have USAGE on schema public';
+            END IF;
+            IF has_schema_privilege('test_app_user', 'public', 'CREATE') THEN
+              RAISE EXCEPTION 'ACL CHECK FAILED: test_app_user must NOT have CREATE on schema public';
+            END IF;
+            SELECT pg_get_userbyid(nspowner) INTO schema_owner FROM pg_namespace WHERE nspname = 'public';
+            IF schema_owner = 'test_app_user' THEN
+              RAISE EXCEPTION 'ACL CHECK FAILED: schema public must not be owned by test_app_user (owner: %)', schema_owner;
+            END IF;
+
+            -- 7. Application Tables catalog & privilege checks
+            SELECT COUNT(*) INTO table_count FROM pg_tables WHERE schemaname = 'public' AND tablename = ANY(expected_tables);
+            IF table_count <> 7 THEN
+              RAISE EXCEPTION 'ACL CHECK FAILED: expected 7 application tables, found %', table_count;
+            END IF;
+
+            SELECT COUNT(*) INTO extra_tables FROM pg_tables WHERE schemaname = 'public' AND NOT (tablename = ANY(expected_tables));
+            IF extra_tables > 0 THEN
+              RAISE EXCEPTION 'ACL CHECK FAILED: found % unexpected table(s) in schema public', extra_tables;
+            END IF;
+
+            FOREACH elem IN ARRAY expected_tables LOOP
+              IF NOT has_table_privilege('test_app_user', 'public.' || quote_ident(elem), 'SELECT') THEN
+                RAISE EXCEPTION 'ACL CHECK FAILED: missing SELECT on table %', elem;
+              END IF;
+              IF NOT has_table_privilege('test_app_user', 'public.' || quote_ident(elem), 'INSERT') THEN
+                RAISE EXCEPTION 'ACL CHECK FAILED: missing INSERT on table %', elem;
+              END IF;
+              IF NOT has_table_privilege('test_app_user', 'public.' || quote_ident(elem), 'UPDATE') THEN
+                RAISE EXCEPTION 'ACL CHECK FAILED: missing UPDATE on table %', elem;
+              END IF;
+              IF NOT has_table_privilege('test_app_user', 'public.' || quote_ident(elem), 'DELETE') THEN
+                RAISE EXCEPTION 'ACL CHECK FAILED: missing DELETE on table %', elem;
+              END IF;
+              IF has_table_privilege('test_app_user', 'public.' || quote_ident(elem), 'TRUNCATE') THEN
+                RAISE EXCEPTION 'ACL CHECK FAILED: test_app_user must NOT have TRUNCATE on table %', elem;
+              END IF;
+              IF has_table_privilege('test_app_user', 'public.' || quote_ident(elem), 'REFERENCES') THEN
+                RAISE EXCEPTION 'ACL CHECK FAILED: test_app_user must NOT have REFERENCES on table %', elem;
+              END IF;
+              IF has_table_privilege('test_app_user', 'public.' || quote_ident(elem), 'TRIGGER') THEN
+                RAISE EXCEPTION 'ACL CHECK FAILED: test_app_user must NOT have TRIGGER on table %', elem;
+              END IF;
+
+              SELECT pg_get_userbyid(relowner) INTO tbl_owner FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = elem;
+              IF tbl_owner = 'test_app_user' THEN
+                RAISE EXCEPTION 'ACL CHECK FAILED: table % must not be owned by test_app_user (owner: %)', elem, tbl_owner;
+              END IF;
+              IF tbl_owner <> 'test_user' THEN
+                RAISE EXCEPTION 'ACL CHECK FAILED: table % expected owner test_user, found %', elem, tbl_owner;
+              END IF;
+            END LOOP;
+
+            -- 8. Application Sequences catalog & privilege checks
+            SELECT COUNT(*) INTO seq_count FROM pg_sequences WHERE schemaname = 'public' AND sequencename = ANY(expected_seqs);
+            IF seq_count <> 7 THEN
+              RAISE EXCEPTION 'ACL CHECK FAILED: expected 7 application sequences, found %', seq_count;
+            END IF;
+
+            SELECT COUNT(*) INTO extra_seqs FROM pg_sequences WHERE schemaname = 'public' AND NOT (sequencename = ANY(expected_seqs));
+            IF extra_seqs > 0 THEN
+              RAISE EXCEPTION 'ACL CHECK FAILED: found % unexpected sequence(s) in schema public', extra_seqs;
+            END IF;
+
+            FOREACH elem IN ARRAY expected_seqs LOOP
+              IF NOT has_sequence_privilege('test_app_user', 'public.' || quote_ident(elem), 'USAGE') THEN
+                RAISE EXCEPTION 'ACL CHECK FAILED: missing USAGE on sequence %', elem;
+              END IF;
+              IF NOT has_sequence_privilege('test_app_user', 'public.' || quote_ident(elem), 'SELECT') THEN
+                RAISE EXCEPTION 'ACL CHECK FAILED: missing SELECT on sequence %', elem;
+              END IF;
+              IF NOT has_sequence_privilege('test_app_user', 'public.' || quote_ident(elem), 'UPDATE') THEN
+                RAISE EXCEPTION 'ACL CHECK FAILED: missing UPDATE on sequence %', elem;
+              END IF;
+
+              SELECT pg_get_userbyid(relowner) INTO seq_owner FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = elem;
+              IF seq_owner = 'test_app_user' THEN
+                RAISE EXCEPTION 'ACL CHECK FAILED: sequence % must not be owned by test_app_user (owner: %)', elem, seq_owner;
+              END IF;
+              IF seq_owner <> 'test_user' THEN
+                RAISE EXCEPTION 'ACL CHECK FAILED: sequence % expected owner test_user, found %', elem, seq_owner;
+              END IF;
+            END LOOP;
+
+            RAISE NOTICE 'SUCCESS: All PostgreSQL Least-Privilege ACL Assertions PASSED.';
+          END $$;
+          EOSQL
+
+      - name: 13. Verify Live App Role Connection & Read
+        run: |
+          set -euo pipefail
+          PGPASSWORD="${POSTGRES_APP_PASSWORD}" psql -v ON_ERROR_STOP=1 \
+            -h 127.0.0.1 -p "${POSTGRES_PORT}" -U test_app_user -d apartment_test \
+            -c "SELECT current_user, current_database(); SELECT COUNT(*) AS user_count FROM \"User\";"
+
+      - name: 14. Run Integration Tests (Least Privilege App Role)
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          DATABASE_URL="postgresql://test_app_user:${POSTGRES_APP_PASSWORD}@127.0.0.1:${POSTGRES_PORT}/apartment_test?schema=public" \
+            npm run test:integration
+
+      - name: 15. Teardown Isolated Test Container
+        if: always()
+        run: |
+          set -euo pipefail
+          echo "Evaluating teardown for project '$COMPOSE_PROJECT_NAME'..."
+
+          # Case 1 & 2: Kiểm tra xem setup đã từng được bắt đầu hay chưa
+          if [ "${POSTGRES_SETUP_STARTED:-false}" != "true" ]; then
+            echo "PostgreSQL container setup was never initiated (earlier step failed or skipped)."
+            echo "No resources were allocated for project '$COMPOSE_PROJECT_NAME'. Teardown is not required."
+            exit 0
+          fi
+
+          # Setup đã được bắt đầu: kiểm tra sự tồn tại của file docker-compose.test.yml
+          if [ ! -f "docker-compose.test.yml" ]; then
+            echo "::error::Setup was initiated but docker-compose.test.yml is missing during teardown!"
+            exit 1
+          fi
+
+          # Case 5: Kiểm tra Docker daemon có sẵn sàng phản hồi hay không
+          if ! docker info >/dev/null 2>&1; then
+            echo "::error::Docker daemon is not responsive or unreachable during teardown!"
+            exit 1
+          fi
+
+          # Case 3, 4, 6: Dọn dẹp tài nguyên thuộc project name của job hiện tại
+          # Lệnh compose down -v an toàn cho cả container tạo dở (Case 3) và tạo đủ (Case 4).
+          # Không dùng error suppression để nếu teardown thất bại (Case 6), step sẽ báo lỗi exit 1.
+          echo "Executing project-scoped teardown for '$COMPOSE_PROJECT_NAME'..."
+          docker compose -f docker-compose.test.yml -p "$COMPOSE_PROJECT_NAME" down -v --remove-orphans
+          echo "Teardown completed successfully for project '$COMPOSE_PROJECT_NAME'."
