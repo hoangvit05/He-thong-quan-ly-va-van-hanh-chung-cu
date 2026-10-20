@@ -31,7 +31,7 @@ npm ci
 1. **`POSTGRES_PASSWORD`**: Mật khẩu cho tài khoản quản trị `test_user` (dùng khi khởi động Docker Compose và đồng bộ Prisma schema).
 2. **`POSTGRES_APP_PASSWORD`**: Mật khẩu cho tài khoản ứng dụng Least Privilege `test_app_user` (dùng khi khởi động Docker Compose).
 3. **`DATABASE_URL`**: Connection string cho tiến trình test runner (phải trỏ vào `apartment_test` với user `test_app_user`).
-4. **`POSTGRES_PORT`** *(Tùy chọn)*: Cổng host map vào container (mặc định là `5432`). Nếu cổng 5432 trên máy đang được sử dụng bởi dịch vụ khác, bạn có thể chỉ định cổng khác (ví dụ: `5433`).
+4. **`POSTGRES_PORT`**: Cổng host map vào container (mặc định là `5432`). Safety Guard của bộ kiểm thử tích hợp hiện tại bắt buộc kết nối database phải sử dụng cổng `5432`. Nếu cổng 5432 trên máy đang bị chiếm dụng bởi dịch vụ khác, bạn cần giải phóng hoặc dừng dịch vụ đó để giải quyết xung đột cổng trước khi chạy kiểm thử tích hợp.
 
 > [!IMPORTANT]
 > **Quy tắc bảo mật & Cô lập:**
@@ -49,7 +49,7 @@ Khởi động container kiểm thử bằng tệp `docker-compose.test.yml` v�
 # Đứng tại thư mục gốc repository
 export POSTGRES_PASSWORD="<YOUR_SECURE_ADMIN_PASSWORD>"
 export POSTGRES_APP_PASSWORD="<YOUR_SECURE_APP_PASSWORD>"
-# (Tùy chọn nếu cổng 5432 bị chiếm): export POSTGRES_PORT="5433"
+# Lưu ý: Safety Guard của test runner yêu cầu cổng 5432; không đổi sang cổng khác khi chạy integration test
 
 # Khởi chạy container với tên project riêng biệt
 docker compose -f docker-compose.test.yml -p apartment-test up -d
@@ -60,7 +60,7 @@ docker compose -f docker-compose.test.yml -p apartment-test up -d
 # Đứng tại thư mục gốc repository
 $env:POSTGRES_PASSWORD = "<YOUR_SECURE_ADMIN_PASSWORD>"
 $env:POSTGRES_APP_PASSWORD = "<YOUR_SECURE_APP_PASSWORD>"
-# (Tùy chọn nếu cổng 5432 bị chiếm): $env:POSTGRES_PORT = "5433"
+# Lưu ý: Safety Guard của test runner yêu cầu cổng 5432; không đổi sang cổng khác khi chạy integration test
 
 # Khởi chạy container với tên project riêng biệt
 docker compose -f docker-compose.test.yml -p apartment-test up -d
@@ -160,7 +160,7 @@ docker compose -f docker-compose.test.yml -p apartment-test down -v
 | :--- | :--- | :--- |
 | `[SAFETY GUARD FAILED]: DATABASE_URL chưa được thiết lập` | Chưa export biến `DATABASE_URL` trong terminal hiện tại. | Chạy lệnh export `DATABASE_URL` trước khi thực hiện `npm run test:integration`. |
 | `[SAFETY GUARD FAILED]: Username hợp lệ (test_app_user): false` | Đang dùng tài khoản `test_user` hoặc `postgres` để chạy integration test. | Đổi username trong `DATABASE_URL` thành `test_app_user`. Safety Guard cố tình chặn superuser để đảm bảo Least Privilege. |
-| `[SAFETY GUARD FAILED]: Hostname / Port / Database không hợp lệ` | Chuỗi kết nối trỏ sai cổng (không phải 5432) hoặc sai database (không phải `/apartment_test`). | Kiểm tra lại URL, đảm bảo đúng định dạng: `postgresql://test_app_user:<PASS>@127.0.0.1:5432/apartment_test?schema=public`. |
+| `[SAFETY GUARD FAILED]: Hostname / Port / Database không hợp lệ` | Chuỗi kết nối trỏ sai cổng (không phải 5432) hoặc sai database (không phải `/apartment_test`). Safety Guard hiện tại yêu cầu cổng 5432. | Kiểm tra lại URL, đảm bảo đúng định dạng: `postgresql://test_app_user:<PASS>@127.0.0.1:5432/apartment_test?schema=public`. Nếu cổng 5432 bị chiếm, cần giải phóng xung đột cổng trên máy trước khi chạy test. |
 | `ERROR: permission denied for table ...` | `prisma db push` được chạy bằng một role khác không phải `test_user`, hoặc init script chưa chạy xong trước khi push schema. | Khởi tạo lại container sạch và đảm bảo bước `prisma db push` sử dụng tài khoản `test_user` để default privileges có hiệu lực cho `test_app_user`. |
 | `pg_isready` báo container chưa sẵn sàng | Docker daemon đang quá tải hoặc container đang trong quá trình init ban đầu. | Đợi 5–10 giây và kiểm tra log: `docker compose -f docker-compose.test.yml -p apartment-test logs`. |
 | `[SAFETY CLEANUP FAILURE]` | Có lỗi ràng buộc khóa ngoại khi xóa fixture sau test. | Kiểm tra log chi tiết mã lỗi Prisma trong console; kiểm tra xem có bản ghi con nào chưa được đăng ký qua `ResourceTracker`. |

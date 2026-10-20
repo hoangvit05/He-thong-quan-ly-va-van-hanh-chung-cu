@@ -120,13 +120,13 @@ He-thong-quan-ly-va-van-hanh-chung-cu/
 
 #### 1. 👤 VIỆT HOÀNG (Trưởng nhóm — Phụ trách Khung Server & Xác thực) / ĐĂNG HOÀNG (Phụ trách Web Admin)
 * **📁 Vị trí file phụ trách:**
-  * **Backend — Việt Hoàng:** [`backend/src/main.ts`](file:///backend/src/main.ts), [`backend/src/modules/auth/`](file:///backend/src/modules/auth/), [`backend/src/modules/users/`](file:///backend/src/modules/users/), [`backend/src/modules/notifications/`](file:///backend/src/modules/notifications/)
-  * **Web — Đăng Hoàng:** [`web/src/components/Layout/`](file:///web/src/components/Layout/), [`web/src/routes/AppRoutes.tsx`](file:///web/src/routes/AppRoutes.tsx), [`web/src/pages/LoginPage.tsx`](file:///web/src/pages/LoginPage.tsx), [`web/src/pages/AdminAccountsPage.tsx`](file:///web/src/pages/AdminAccountsPage.tsx)
+  * **Backend — Việt Hoàng:** [`backend/src/main.ts`](backend/src/main.ts), [`backend/src/modules/auth/`](backend/src/modules/auth/), [`backend/src/modules/users/`](backend/src/modules/users/), [`backend/src/modules/notifications/`](backend/src/modules/notifications/)
+  * **Web — Đăng Hoàng:** [`web/src/components/Layout/`](web/src/components/Layout/), [`web/src/routes/AppRoutes.tsx`](web/src/routes/AppRoutes.tsx), [`web/src/pages/LoginPage.tsx`](web/src/pages/LoginPage.tsx), [`web/src/pages/AdminAccountsPage.tsx`](web/src/pages/AdminAccountsPage.tsx)
 * **🎯 Nhiệm vụ chính:**
   * **Việt Hoàng:** Dựng khung máy chủ Backend; viết API Đăng nhập, Đổi mật khẩu, cấp JWT token cho 4 nhóm vai trò (Admin, BQL, Thợ, Cư dân); viết API Admin tạo tài khoản BQL & Thợ kỹ thuật và API duyệt tài khoản cư dân mới; xây dựng hệ thống Push Notification và Socket.IO real-time; kiểm tra code và duyệt Pull Request (PR) toàn dự án trên GitHub.
   * **Đăng Hoàng:** Dựng khung Layout Web chung (Sidebar, Header, AppLayout) và phụ trách các trang đăng nhập, quản lý tài khoản Admin.
 * **⚠️ Lưu ý kỹ thuật bắt buộc:**
-  * 🔒 **Bẫy mật khẩu:** Bắt buộc dùng `hashPassword()` trong [`backend/src/common/utils/security.ts`](file:///backend/src/common/utils/security.ts) hoặc `bcryptjs.hash()` trước khi lưu vào DB. **Tuyệt đối không lưu plain-text password**.
+  * 🔒 **Bẫy mật khẩu:** Bắt buộc dùng `hashPassword()` trong [`backend/src/common/utils/security.ts`](backend/src/common/utils/security.ts) hoặc `bcryptjs.hash()` trước khi lưu vào DB. **Tuyệt đối không lưu plain-text password**.
   * ⚡ **Bẫy Socket.IO:** Quản lý danh sách socket trên bộ nhớ RAM (`Map`), **không lưu Socket ID vào PostgreSQL** gây nghẽn I/O.
   * 🎟️ **Bẫy Token:** JWT Token là phi trạng thái (Stateless), không cần lưu access token vào database.
 
@@ -134,9 +134,9 @@ He-thong-quan-ly-va-van-hanh-chung-cu/
 
 #### 2. 👤 HIẾU (Kỹ sư Dữ liệu & Nghiệp vụ Cốt lõi — DB, Sự cố, Hóa đơn & Góp ý)
 * **📁 Vị trí file phụ trách:**
-  * **Cơ sở dữ liệu:** [`backend/src/database/schema.prisma`](file:///backend/src/database/schema.prisma), [`backend/src/database/prisma.ts`](file:///backend/src/database/prisma.ts)
-  * **Bộ tiện ích chung:** [`backend/src/common/utils/`](file:///backend/src/common/utils/) (`validation.ts`, `security.ts`, `vietqr.ts`)
-  * **Modules API:** [`backend/src/modules/tickets/`](file:///backend/src/modules/tickets/), [`backend/src/modules/invoices/`](file:///backend/src/modules/invoices/), [`backend/src/modules/feedback/`](file:///backend/src/modules/feedback/)
+  * **Cơ sở dữ liệu:** [`backend/src/database/schema.prisma`](backend/src/database/schema.prisma), [`backend/src/database/prisma.ts`](backend/src/database/prisma.ts)
+  * **Bộ tiện ích chung:** [`backend/src/common/utils/`](backend/src/common/utils/) (`validation.ts`, `security.ts`, `vietqr.ts`)
+  * **Modules API:** [`backend/src/modules/tickets/`](backend/src/modules/tickets/), [`backend/src/modules/invoices/`](backend/src/modules/invoices/), [`backend/src/modules/feedback/`](backend/src/modules/feedback/)
 * **🎯 Nhiệm vụ chính:**
   * Thiết kế schema hoàn chỉnh 7 bảng CSDL, quan hệ hai chiều, ràng buộc `@@unique([roomId, month])` và chỉ mục `@@index`.
   * Khởi tạo kết nối Prisma Singleton và xây dựng bộ công cụ lá chắn bảo vệ dữ liệu dùng chung.
@@ -150,8 +150,8 @@ He-thong-quan-ly-va-van-hanh-chung-cu/
 
 #### 3. 👤 NGUYỆT (Lập trình Mobile — Tài khoản, Bảng tin & Hóa đơn phí)
 * **📁 Vị trí file phụ trách:**
-  * **Navigation:** [`mobile/src/navigation/AppNavigator.tsx`](file:///mobile/src/navigation/AppNavigator.tsx)
-  * **Màn hình:** [`mobile/src/screens/AuthScreen.tsx`](file:///mobile/src/screens/AuthScreen.tsx), [`mobile/src/screens/ProfileScreen.tsx`](file:///mobile/src/screens/ProfileScreen.tsx), [`mobile/src/screens/NotificationScreen.tsx`](file:///mobile/src/screens/NotificationScreen.tsx), [`mobile/src/screens/InvoiceScreen.tsx`](file:///mobile/src/screens/InvoiceScreen.tsx)
+  * **Navigation:** [`mobile/src/navigation/AppNavigator.tsx`](mobile/src/navigation/AppNavigator.tsx)
+  * **Màn hình:** [`mobile/src/screens/AuthScreen.tsx`](mobile/src/screens/AuthScreen.tsx), [`mobile/src/screens/ProfileScreen.tsx`](mobile/src/screens/ProfileScreen.tsx), [`mobile/src/screens/NotificationScreen.tsx`](mobile/src/screens/NotificationScreen.tsx), [`mobile/src/screens/InvoiceScreen.tsx`](mobile/src/screens/InvoiceScreen.tsx)
 * **🎯 Nhiệm vụ chính:**
   * Thiết kế giao diện chung và bộ điều hướng (Tabs/Stack) của App Cư dân.
   * Lập trình màn hình Đăng ký/Đăng nhập: Form đăng ký **bắt buộc chọn số phòng từ Dropdown/Picker có sẵn từ bảng Room**, tuyệt đối không nhập tay.
@@ -165,7 +165,7 @@ He-thong-quan-ly-va-van-hanh-chung-cu/
 
 #### 4. 👤 THUẦN (Lập trình Mobile — Luồng Báo hỏng sự cố & Hòm thư góp ý)
 * **📁 Vị trí file phụ trách:**
-  * **Màn hình:** [`mobile/src/screens/CreateTicketScreen.tsx`](file:///mobile/src/screens/CreateTicketScreen.tsx), [`mobile/src/screens/TicketTimelineScreen.tsx`](file:///mobile/src/screens/TicketTimelineScreen.tsx), [`mobile/src/screens/RatingScreen.tsx`](file:///mobile/src/screens/RatingScreen.tsx), [`mobile/src/screens/FeedbackScreen.tsx`](file:///mobile/src/screens/FeedbackScreen.tsx)
+  * **Màn hình:** [`mobile/src/screens/CreateTicketScreen.tsx`](mobile/src/screens/CreateTicketScreen.tsx), [`mobile/src/screens/TicketTimelineScreen.tsx`](mobile/src/screens/TicketTimelineScreen.tsx), [`mobile/src/screens/RatingScreen.tsx`](mobile/src/screens/RatingScreen.tsx), [`mobile/src/screens/FeedbackScreen.tsx`](mobile/src/screens/FeedbackScreen.tsx)
 * **🎯 Nhiệm vụ chính:**
   * Lập trình màn hình Gửi phiếu báo hỏng: Chọn loại sự cố (Điện/Nước/Internet...), viết mô tả, chụp ảnh hoặc quay video đính kèm gửi đi.
   * Lập trình màn hình Tiến độ sửa chữa: Dòng thời gian trực quan (Mới gửi $\rightarrow$ Đã gán thợ $\rightarrow$ Đang sửa $\rightarrow$ Đã xong).
@@ -178,7 +178,7 @@ He-thong-quan-ly-va-van-hanh-chung-cu/
 
 #### 5. 👤 ĐỨC (Lập trình Web Quản lý — Cư dân, Điều phối sự cố & Quản lý Hóa đơn)
 * **📁 Vị trí file phụ trách:**
-  * **Trang Web:** [`web/src/pages/ResidentsPage.tsx`](file:///web/src/pages/ResidentsPage.tsx), [`web/src/pages/TicketDispatchPage.tsx`](file:///web/src/pages/TicketDispatchPage.tsx), [`web/src/pages/BillingManagerPage.tsx`](file:///web/src/pages/BillingManagerPage.tsx)
+  * **Trang Web:** [`web/src/pages/ResidentsPage.tsx`](web/src/pages/ResidentsPage.tsx), [`web/src/pages/TicketDispatchPage.tsx`](web/src/pages/TicketDispatchPage.tsx), [`web/src/pages/BillingManagerPage.tsx`](web/src/pages/BillingManagerPage.tsx)
 * **🎯 Nhiệm vụ chính:**
   * Lập trình trang Quản lý Căn hộ & Cư dân: Quản lý danh mục phòng (số phòng, tầng, diện tích $m^2$), xem cư dân theo phòng, nút duyệt tài khoản cư dân mới (`isApproved`).
   * Lập trình trang Bảng chia việc - Điều phối sự cố: Tiếp nhận danh sách phiếu báo hỏng, **hiển thị cảnh báo phiếu trùng (`isDuplicate`)**, popup chọn gán việc cho Thợ kỹ thuật.
@@ -191,7 +191,7 @@ He-thong-quan-ly-va-van-hanh-chung-cu/
 
 #### 6. 👤 OANH (Lập trình Web Vận hành — Thợ kỹ thuật, Thông báo & Góp ý)
 * **📁 Vị trí file phụ trách:**
-  * **Trang Web:** [`web/src/pages/TechnicianTasksPage.tsx`](file:///web/src/pages/TechnicianTasksPage.tsx), [`web/src/pages/AnnouncementsPage.tsx`](file:///web/src/pages/AnnouncementsPage.tsx), [`web/src/pages/FeedbackManagementPage.tsx`](file:///web/src/pages/FeedbackManagementPage.tsx)
+  * **Trang Web:** [`web/src/pages/TechnicianTasksPage.tsx`](web/src/pages/TechnicianTasksPage.tsx), [`web/src/pages/AnnouncementsPage.tsx`](web/src/pages/AnnouncementsPage.tsx), [`web/src/pages/FeedbackManagementPage.tsx`](web/src/pages/FeedbackManagementPage.tsx)
 * **🎯 Nhiệm vụ chính:**
   * Lập trình trang dành riêng cho Thợ kỹ thuật: Danh sách phiếu được giao, nút thao tác đổi trạng thái ('Nhận việc' $\rightarrow$ 'Đang sửa' $\rightarrow$ 'Hoàn thành'), form kê khai vật tư thay thế và tải ảnh sau khi sửa xong.
   * Lập trình trang Soạn & Gửi thông báo: Soạn tin tức gửi toàn chung cư hoặc từng căn hộ, kích hoạt gửi thông báo đẩy.
@@ -205,14 +205,14 @@ He-thong-quan-ly-va-van-hanh-chung-cu/
 ## III. 🛡️ BỘ CÔNG CỤ TIỆN ÍCH DÙNG CHUNG CỦA HỆ THỐNG (DO HIẾU XÂY DỰNG)
 
 Tất cả thành viên khi code Backend gọi trực tiếp các bộ tiện ích đã được viết sẵn tại:
-1. [`backend/src/database/prisma.ts`](file:///backend/src/database/prisma.ts): Instance kết nối cơ sở dữ liệu dùng chung (Singleton) cho toàn bộ các module.
-2. [`backend/src/common/utils/validation.ts`](file:///backend/src/common/utils/validation.ts): Bộ lọc `isValidMediaUrl()` và `sanitizeMaterials()` tự động ngăn chặn toàn bộ dữ liệu Base64 rác.
-3. [`backend/src/common/utils/security.ts`](file:///backend/src/common/utils/security.ts): Bộ băm mật khẩu an toàn theo chuẩn OWASP (`hashPassword()` và `comparePassword()`).
-4. [`backend/src/common/utils/vietqr.ts`](file:///backend/src/common/utils/vietqr.ts): Bộ sinh mã VietQR động chuẩn quốc gia NAPAS 24/7 (`generateVietQRUrl()`).
+1. [`backend/src/database/prisma.ts`](backend/src/database/prisma.ts): Instance kết nối cơ sở dữ liệu dùng chung (Singleton) cho toàn bộ các module.
+2. [`backend/src/common/utils/validation.ts`](backend/src/common/utils/validation.ts): Bộ lọc `isValidMediaUrl()` và `sanitizeMaterials()` tự động ngăn chặn toàn bộ dữ liệu Base64 rác.
+3. [`backend/src/common/utils/security.ts`](backend/src/common/utils/security.ts): Bộ băm mật khẩu an toàn theo chuẩn OWASP (`hashPassword()` và `comparePassword()`).
+4. [`backend/src/common/utils/vietqr.ts`](backend/src/common/utils/vietqr.ts): Bộ sinh mã VietQR động chuẩn quốc gia NAPAS 24/7 (`generateVietQRUrl()`).
 
 ---
 
 ## IV. 🚀 HƯỚNG DẪN KHỞI CHẠY & KIỂM THỬ TÍCH HỢP (CLEAN-ROOM)
 
 Xem chi tiết hướng dẫn thiết lập môi trường sạch, khởi tạo PostgreSQL test container cô lập, chạy 197 unit tests và 178 integration tests tại:
-👉 [**backend/README.md**](file:///backend/README.md)
+👉 [**backend/README.md**](backend/README.md)
