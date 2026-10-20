@@ -209,3 +209,10 @@ Tất cả thành viên khi code Backend gọi trực tiếp các bộ tiện í
 2. [`backend/src/common/utils/validation.ts`](file:///backend/src/common/utils/validation.ts): Bộ lọc `isValidMediaUrl()` và `sanitizeMaterials()` tự động ngăn chặn toàn bộ dữ liệu Base64 rác.
 3. [`backend/src/common/utils/security.ts`](file:///backend/src/common/utils/security.ts): Bộ băm mật khẩu an toàn theo chuẩn OWASP (`hashPassword()` và `comparePassword()`).
 4. [`backend/src/common/utils/vietqr.ts`](file:///backend/src/common/utils/vietqr.ts): Bộ sinh mã VietQR động chuẩn quốc gia NAPAS 24/7 (`generateVietQRUrl()`).
+
+---
+
+## IV. 🚀 HƯỚNG DẪN KHỞI CHẠY & KIỂM THỬ TÍCH HỢP (CLEAN-ROOM)
+
+Xem chi tiết hướng dẫn thiết lập môi trường sạch, khởi tạo PostgreSQL test container cô lập, chạy 197 unit tests và 178 integration tests tại:
+👉 [**backend/README.md**](file:///backend/README.md)
