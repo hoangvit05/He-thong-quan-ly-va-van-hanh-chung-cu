@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  postgres-test:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: test_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Vui lòng thiết lập biến môi trường POSTGRES_PASSWORD trước khi khởi chạy test container}
+      POSTGRES_DB: apartment_test
+      POSTGRES_APP_USER: ${POSTGRES_APP_USER:-test_app_user}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?Vui lòng thiết lập biến môi trường POSTGRES_APP_PASSWORD trước khi khởi chạy test container}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - apartment_postgres_test_data:/var/lib/postgresql/data
+      - ./docker/test-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test_user -d apartment_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: "no"
+
+volumes:
+  apartment_postgres_test_data:

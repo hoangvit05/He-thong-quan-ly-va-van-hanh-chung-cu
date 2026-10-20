@@ -441,13 +441,8 @@ router.put('/:id/status', requireRoles(Role.ADMIN, Role.BQL), async (req: Reques
       try {
         await tx.$queryRaw`SELECT "id" FROM "Invoice" WHERE "id" = ${invoiceId} FOR UPDATE`;
       } catch (lockError: any) {
-        // Chỉ bỏ qua trong môi trường kiểm thử unit test khi mock DB chưa hỗ trợ raw SQL
-        if (process.env.NODE_ENV === 'test' || lockError?.message?.includes('mock')) {
-          // Bỏ qua cho mock test
-        } else {
-          console.error('[Invoices Controller - Concurrency Lock Error]:', lockError?.message || lockError);
-          throw new Error('LOCK_FAILED: Không thể thiết lập khóa an toàn cho hóa đơn. Vui lòng thử lại.');
-        }
+        console.error('[Invoices Controller - Concurrency Lock Error]:', lockError?.message || lockError);
+        throw new Error('LOCK_FAILED: Không thể thiết lập khóa an toàn cho hóa đơn. Vui lòng thử lại.');
       }
 
       const invoice = await tx.invoice.findUnique({

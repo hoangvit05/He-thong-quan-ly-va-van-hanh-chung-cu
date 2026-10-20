@@ -13,6 +13,7 @@
     "test:feedback": "ts-node src/modules/feedback/feedback.test.ts",
     "test:invoices": "ts-node src/modules/invoices/invoices.test.ts",
     "test:auth": "ts-node src/modules/auth/auth.test.ts",
+    "test:integration": "ts-node src/test/run-all-integration.ts",
     "test": "npm run test:tickets && npm run test:feedback && npm run test:invoices && npm run test:auth"
   },
   "dependencies": {
