@@ -10,7 +10,7 @@
 ```text
 He-thong-quan-ly-va-van-hanh-chung-cu/
 │
-├── backend/                       # MÁY CHỦ & DỮ LIỆU (Đặng Hoàng & Hiếu)
+├── backend/                       # MÁY CHỦ & DỮ LIỆU (Việt Hoàng & Hiếu)
 │   ├── src/
 │   │   ├── app.module.ts          # ĐÃ LINK SẴN TẤT CẢ MODULES (Leader quản lý)
 │   │   ├── main.ts                # Server entry point (Port 5000)
@@ -22,27 +22,27 @@ He-thong-quan-ly-va-van-hanh-chung-cu/
 │   │   │   ├── schema.prisma      # [Hiếu] Thiết kế bảng CSDL toàn hệ thống
 │   │   │   └── prisma.ts          # [Hiếu] Kết nối PrismaClient dùng chung
 │   │   └── modules/
-│   │       ├── auth/              # [Đặng Hoàng] Đăng nhập, đổi mật khẩu, cấp JWT
-│   │       ├── users/             # [Đặng Hoàng] Admin quản lý tài khoản BQL & Thợ, duyệt cư dân
-│   │       ├── notifications/     # [Đặng Hoàng] Thông báo đẩy tức thời & Socket.IO
+│   │       ├── auth/              # [Việt Hoàng] Đăng nhập, đổi mật khẩu, cấp JWT
+│   │       ├── users/             # [Việt Hoàng] Admin quản lý tài khoản BQL & Thợ, duyệt cư dân
+│   │       ├── notifications/     # [Việt Hoàng] Thông báo đẩy tức thời & Socket.IO
 │   │       ├── tickets/           # [Hiếu] Luồng Báo hỏng, lọc trùng, gán thợ, kê khai vật tư, chấm sao
 │   │       ├── invoices/          # [Hiếu] Biểu phí định kỳ hàng tháng & mã VietQR
 │   │       └── feedback/          # [Hiếu] Hòm thư góp ý & phản hồi nội quy
 │   ├── package.json
 │   └── tsconfig.json
 │
-├── web/                           # CỔNG QUẢN LÝ WEB (Đặng Hoàng, Đức, Oanh)
+├── web/                           # CỔNG QUẢN LÝ WEB (Đăng Hoàng, Đức, Oanh)
 │   ├── src/
 │   │   ├── api/
 │   │   │   ├── endpoints.ts       # Danh mục API dùng chung
 │   │   │   └── axiosClient.ts     # Axios client cấu hình sẵn JWT Token
 │   │   ├── constants/menu.ts      # Cấu hình danh sách Menu link sẵn
-│   │   ├── components/Layout/     # [Đặng Hoàng] Khung Web chung: Sidebar, Header, AppLayout
+│   │   ├── components/Layout/     # [Đăng Hoàng] Khung Web chung: Sidebar, Header, AppLayout
 │   │   ├── routes/
 │   │   │   └── AppRoutes.tsx      # ĐÃ LINK SẴN TẤT CẢ TRANG VÀO ROUTER (Leader quản lý)
 │   │   └── pages/
-│   │       ├── LoginPage.tsx              # [Đặng Hoàng] Đăng nhập Web
-│   │       ├── AdminAccountsPage.tsx      # [Đặng Hoàng] Admin quản lý tài khoản BQL & Thợ
+│   │       ├── LoginPage.tsx              # [Đăng Hoàng] Đăng nhập Web
+│   │       ├── AdminAccountsPage.tsx      # [Đăng Hoàng] Admin quản lý tài khoản BQL & Thợ
 │   │       ├── ResidentsPage.tsx          # [Đức] Quản lý căn hộ & duyệt cư dân mới
 │   │       ├── TicketDispatchPage.tsx     # [Đức] Bảng chia việc sự cố & lọc trùng
 │   │       ├── BillingManagerPage.tsx     # [Đức] Quản lý hóa đơn phí định kỳ
@@ -107,7 +107,7 @@ He-thong-quan-ly-va-van-hanh-chung-cu/
 
 | Thành viên | Phân hệ | Vị trí File / Thư mục chính | Nhiệm vụ chính & Chức năng |
 | :--- | :--- | :--- | :--- |
-| **Đặng Hoàng** *(Leader)* | 🖥️ Backend & Web | `backend/src/modules/auth/`, `users/`, `notifications/`<br>`web/src/pages/LoginPage.tsx`, `AdminAccountsPage.tsx` | Khung server & Layout web, Xác thực JWT, Quản lý tài khoản BQL & Thợ, Socket.IO realtime, Duyệt PR |
+| **Việt Hoàng** *(Leader, Backend)* / **Đăng Hoàng** *(Web)* | 🖥️ Backend & Web | `backend/src/modules/auth/`, `users/`, `notifications/`<br>`web/src/pages/LoginPage.tsx`, `AdminAccountsPage.tsx` | Việt Hoàng: Khung server, Xác thực JWT, Quản lý tài khoản BQL & Thợ, Socket.IO realtime, Duyệt PR; Đăng Hoàng: Layout web |
 | **Hiếu** | 🗄️ Backend & DB | `backend/src/database/schema.prisma`<br>`backend/src/modules/tickets/`, `invoices/`, `feedback/` | Thiết kế CSDL toàn hệ thống, Luồng sự cố & lọc trùng 24h, Lập hóa đơn & VietQR động, Hòm thư góp ý |
 | **Nguyệt** | 📱 Mobile App | `mobile/src/screens/AuthScreen.tsx`, `ProfileScreen.tsx`<br>`NotificationScreen.tsx`, `InvoiceScreen.tsx` | Đăng nhập chọn phòng theo danh mục, Hồ sơ căn hộ, Bảng tin tòa nhà, Tra cứu hóa đơn & quét VietQR |
 | **Thuần** | 📱 Mobile App | `mobile/src/screens/CreateTicketScreen.tsx`, `RatingScreen.tsx`<br>`TicketTimelineScreen.tsx`, `FeedbackScreen.tsx` | Báo hỏng (ảnh/video), Tiến độ sửa chữa (Timeline), Nghiệm thu & chấm 1-5 sao, Gửi góp ý nội quy |
@@ -118,16 +118,13 @@ He-thong-quan-ly-va-van-hanh-chung-cu/
 
 ### 👥 CHI TIẾT CÔNG VIỆC CỦA TỪNG THÀNH VIÊN
 
-#### 1. 👤 ĐẶNG HOÀNG (Trưởng nhóm — Phụ trách Khung Server, Xác thực & Web Admin)
+#### 1. 👤 VIỆT HOÀNG (Trưởng nhóm — Phụ trách Khung Server & Xác thực) / ĐĂNG HOÀNG (Phụ trách Web Admin)
 * **📁 Vị trí file phụ trách:**
-  * **Backend:** [`backend/src/main.ts`](file:///backend/src/main.ts), [`backend/src/modules/auth/`](file:///backend/src/modules/auth/), [`backend/src/modules/users/`](file:///backend/src/modules/users/), [`backend/src/modules/notifications/`](file:///backend/src/modules/notifications/)
-  * **Web:** [`web/src/components/Layout/`](file:///web/src/components/Layout/), [`web/src/routes/AppRoutes.tsx`](file:///web/src/routes/AppRoutes.tsx), [`web/src/pages/LoginPage.tsx`](file:///web/src/pages/LoginPage.tsx), [`web/src/pages/AdminAccountsPage.tsx`](file:///web/src/pages/AdminAccountsPage.tsx)
+  * **Backend — Việt Hoàng:** [`backend/src/main.ts`](file:///backend/src/main.ts), [`backend/src/modules/auth/`](file:///backend/src/modules/auth/), [`backend/src/modules/users/`](file:///backend/src/modules/users/), [`backend/src/modules/notifications/`](file:///backend/src/modules/notifications/)
+  * **Web — Đăng Hoàng:** [`web/src/components/Layout/`](file:///web/src/components/Layout/), [`web/src/routes/AppRoutes.tsx`](file:///web/src/routes/AppRoutes.tsx), [`web/src/pages/LoginPage.tsx`](file:///web/src/pages/LoginPage.tsx), [`web/src/pages/AdminAccountsPage.tsx`](file:///web/src/pages/AdminAccountsPage.tsx)
 * **🎯 Nhiệm vụ chính:**
-  * Dựng khung máy chủ Backend và khung Layout Web chung (Sidebar, Header, AppLayout).
-  * Viết API Đăng nhập, Đổi mật khẩu, cấp JWT token cho 4 nhóm vai trò (Admin, BQL, Thợ, Cư dân).
-  * Viết API Admin tạo tài khoản BQL & Thợ kỹ thuật; API duyệt tài khoản cư dân mới.
-  * Xây dựng hệ thống Push Notification và Socket.IO real-time thông báo tức thời.
-  * Phụ trách kiểm tra code và duyệt Pull Request (PR) toàn dự án trên GitHub.
+  * **Việt Hoàng:** Dựng khung máy chủ Backend; viết API Đăng nhập, Đổi mật khẩu, cấp JWT token cho 4 nhóm vai trò (Admin, BQL, Thợ, Cư dân); viết API Admin tạo tài khoản BQL & Thợ kỹ thuật và API duyệt tài khoản cư dân mới; xây dựng hệ thống Push Notification và Socket.IO real-time; kiểm tra code và duyệt Pull Request (PR) toàn dự án trên GitHub.
+  * **Đăng Hoàng:** Dựng khung Layout Web chung (Sidebar, Header, AppLayout) và phụ trách các trang đăng nhập, quản lý tài khoản Admin.
 * **⚠️ Lưu ý kỹ thuật bắt buộc:**
   * 🔒 **Bẫy mật khẩu:** Bắt buộc dùng `hashPassword()` trong [`backend/src/common/utils/security.ts`](file:///backend/src/common/utils/security.ts) hoặc `bcryptjs.hash()` trước khi lưu vào DB. **Tuyệt đối không lưu plain-text password**.
   * ⚡ **Bẫy Socket.IO:** Quản lý danh sách socket trên bộ nhớ RAM (`Map`), **không lưu Socket ID vào PostgreSQL** gây nghẽn I/O.
