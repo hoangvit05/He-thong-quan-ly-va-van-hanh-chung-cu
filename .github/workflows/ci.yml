@@ -184,8 +184,8 @@ jobs:
             extra_seqs INT;
             inbound_members INT;
             outbound_members INT;
-            expected_tables TEXT[] := ARRAY['Feedback', 'Invoice', 'Notification', 'Payment', 'Room', 'Ticket', 'User'];
-            expected_seqs TEXT[] := ARRAY['Feedback_id_seq', 'Invoice_id_seq', 'Notification_id_seq', 'Payment_id_seq', 'Room_id_seq', 'Ticket_id_seq', 'User_id_seq'];
+            expected_tables TEXT[] := ARRAY['Feedback', 'Invoice', 'MediaAsset', 'Notification', 'Payment', 'Room', 'Ticket', 'User'];
+            expected_seqs TEXT[] := ARRAY['Feedback_id_seq', 'Invoice_id_seq', 'MediaAsset_id_seq', 'Notification_id_seq', 'Payment_id_seq', 'Room_id_seq', 'Ticket_id_seq', 'User_id_seq'];
             elem TEXT;
             tbl_owner TEXT;
             seq_owner TEXT;
@@ -280,8 +280,8 @@ jobs:
 
             -- 7. Application Tables catalog & privilege checks
             SELECT COUNT(*) INTO table_count FROM pg_tables WHERE schemaname = 'public' AND tablename = ANY(expected_tables);
-            IF table_count <> 7 THEN
-              RAISE EXCEPTION 'ACL CHECK FAILED: expected 7 application tables, found %', table_count;
+            IF table_count <> 8 THEN
+              RAISE EXCEPTION 'ACL CHECK FAILED: expected 8 application tables, found %', table_count;
             END IF;
 
             SELECT COUNT(*) INTO extra_tables FROM pg_tables WHERE schemaname = 'public' AND NOT (tablename = ANY(expected_tables));
@@ -323,8 +323,8 @@ jobs:
 
             -- 8. Application Sequences catalog & privilege checks
             SELECT COUNT(*) INTO seq_count FROM pg_sequences WHERE schemaname = 'public' AND sequencename = ANY(expected_seqs);
-            IF seq_count <> 7 THEN
-              RAISE EXCEPTION 'ACL CHECK FAILED: expected 7 application sequences, found %', seq_count;
+            IF seq_count <> 8 THEN
+              RAISE EXCEPTION 'ACL CHECK FAILED: expected 8 application sequences, found %', seq_count;
             END IF;
 
             SELECT COUNT(*) INTO extra_seqs FROM pg_sequences WHERE schemaname = 'public' AND NOT (sequencename = ANY(expected_seqs));
