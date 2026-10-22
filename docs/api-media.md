@@ -178,11 +178,56 @@ const uploadResult = await uploadResponse.json();
 
 ---
 
-### 4.4. Lấy đường dẫn truy cập có chữ ký có thời hạn (`GET /api/media/access/:publicId`)
-- **URL:** `/api/media/access/:publicId`
+### 4.4. Lấy đường dẫn truy cập có chữ ký có thời hạn (`GET /api/media/access/:publicId(*)`)
+- **Route Backend:** `/api/media/access/:publicId(*)`
 - **Method:** `GET`
-- **Query Params:** `resourceType=image|video`
-- Dùng cho các tài sản riêng tư (private/authenticated assets) cần thời hạn hiệu lực (TTL 1 giờ).
+- **Headers:** `Authorization: Bearer <JWT_TOKEN>`
+- **Query Params:** `resourceType=image|video` (mặc định là `image` nếu không truyền)
+- **Mục đích:** Cấp URL tạm thời có chữ ký bảo mật từ Cloudinary (`cloudinary.utils.private_download_url`) cho các tài sản riêng tư (private/authenticated assets) với thời hạn hiệu lực (TTL) cố định là **1 giờ** (3600 giây).
+
+#### Cách truyền `publicId` chứa dấu gạch chéo (`/`):
+Do `publicId` trên Cloudinary được tổ chức theo cấu trúc thư mục (ví dụ: `apartment/tickets/ticket_12/tickets_u42_1729600000_3a8b9c1d2e`), Backend sử dụng cú pháp route wildcard của Express `/:publicId(*)` để tiếp nhận toàn bộ chuỗi đường dẫn phân cấp:
+
+- **Cách 1 (Khuyến nghị chuẩn REST / Wildcard):** Truyền trực tiếp chuỗi `publicId` vào path segments:
+  ```http
+  GET /api/media/access/apartment/tickets/ticket_12/tickets_u42_1729600000_3a8b9c1d2e?resourceType=image
+  ```
+  Express sẽ tự động gán toàn bộ chuỗi `apartment/tickets/ticket_12/...` vào `req.params.publicId`. Đây là cách tương thích tự nhiên nhất với route wildcard hiện tại.
+
+- **Cách 2 (Mã hóa URL qua HTTP Client):**
+  Nếu client sử dụng `encodeURIComponent(publicId)`:
+  ```http
+  GET /api/media/access/apartment%2Ftickets%2Fticket_12%2Ftickets_u42_1729600000_3a8b9c1d2e?resourceType=image
+  ```
+  *Lưu ý kiến trúc mạng:* Trong môi trường Node.js/Express, ký tự `%2F` trong path có thể được giải mã trước khi khớp route. Tuy nhiên, nếu hệ thống được triển khai đằng sau Reverse Proxy (như Nginx, AWS CloudFront, Cloudflare), một số proxy có cấu hình mặc định từ chối hoặc chuẩn hóa ký tự `%2F` trong URL path. Do đó, nếu môi trường proxy gặp lỗi định tuyến khi mã hóa `%2F`, client nên chuyển sang **Cách 1** (truyền path trực tiếp không encode dấu `/`).
+
+#### Ma trận phân quyền truy cập (Record-Level Access Control):
+Backend kiểm tra quyền xem tài sản ngay tại controller trước khi cấp URL:
+1. `ADMIN` và `BQL`: Toàn quyền lấy link truy cập tất cả tài sản trong tòa nhà.
+2. Tài sản thông báo chung (`announcements`): Cho phép mọi người dùng đã đăng nhập (`RESIDENT`, `TECHNICIAN`) truy cập.
+3. Tài sản sự cố (`tickets`) và vật tư (`materials`):
+   - `RESIDENT`: Chỉ được truy cập nếu là chủ tạo phiếu hoặc cùng thuộc căn hộ (`roomId`) của phiếu đó.
+   - `TECHNICIAN`: Chỉ được truy cập nếu phiếu sự cố được phân công trực tiếp cho mình (`ticket.technicianId === currentUser.id`).
+   - Nếu `publicId` chưa gắn với `ticketId` cụ thể: Kiểm tra `uploaderId` trích xuất từ tên file (`u<userId>`) có trùng với `currentUser.id` hay không.
+
+#### Response Thành công (HTTP 200 OK):
+```json
+{
+  "success": true,
+  "data": {
+    "publicId": "apartment/tickets/ticket_12/tickets_u42_1729600000_3a8b9c1d2e",
+    "accessUrl": "https://res.cloudinary.com/apartment_cloud/image/authenticated/s--signature_hash--/v1729600000/apartment/tickets/ticket_12/tickets_u42_1729600000_3a8b9c1d2e.jpg"
+  },
+  "message": "Tạo đường dẫn truy cập có chữ ký thành công."
+}
+```
+
+#### Các mã lỗi thường gặp:
+- `400 Bad Request`: Thiếu định danh `publicId`.
+- `401 Unauthorized`: Thiếu Bearer Token hoặc token không hợp lệ.
+- `403 Forbidden`: Người dùng không có quyền truy cập tài sản của căn hộ/thợ khác.
+- `404 Not Found`: Không tìm thấy phiếu sự cố liên quan trong CSDL.
+- `500 Internal Error`: Lỗi máy chủ hoặc lỗi cấu hình Cloudinary.
 
 ---
 
