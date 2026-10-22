@@ -10,18 +10,79 @@ import {
   validateRatingInput,
 } from './tickets.validator';
 import { isValidMediaUrl, sanitizeMaterials, containsBase64Payload } from '../../common/utils/validation';
+import ticketsRouter from './tickets.controller';
+import prisma from '../../database/prisma';
 
 let passCount = 0;
 let failCount = 0;
 
-function assert(condition: boolean, testName: string) {
+function assert(condition: boolean, testName: string, detail?: string) {
   if (condition) {
     console.log(`  ✅ [PASS] ${testName}`);
     passCount++;
   } else {
-    console.error(`  ❌ [FAIL] ${testName}`);
+    console.error(`  ❌ [FAIL] ${testName}${detail ? ` -> ${detail}` : ''}`);
     failCount++;
   }
+}
+
+/**
+ * Helper thực thi yêu cầu HTTP trực tiếp qua Express Router và toàn bộ Middleware pipeline
+ */
+function invokeTicketsRouter(options: {
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  url: string;
+  baseUrl?: string;
+  user?: any;
+  headers?: Record<string, string>;
+  body?: any;
+  query?: Record<string, string>;
+  params?: Record<string, string>;
+}): Promise<{ statusCode: number; body: any }> {
+  return new Promise((resolve) => {
+    let statusCode = 200;
+    let responseBody: any = null;
+
+    const baseUrl = options.baseUrl || '/api/tickets';
+    const req: any = {
+      method: options.method,
+      url: options.url,
+      baseUrl,
+      originalUrl: `${baseUrl}${options.url === '/' ? '' : options.url}`,
+      headers: options.headers || {},
+      user: options.user,
+      body: options.body || {},
+      query: options.query || {},
+      params: options.params || {},
+    };
+
+    const res: any = {
+      statusCode: 200,
+      status(code: number) {
+        statusCode = code;
+        this.statusCode = code;
+        return this;
+      },
+      json(data: any) {
+        responseBody = data;
+        resolve({ statusCode, body: responseBody });
+        return this;
+      },
+      send(data: any) {
+        responseBody = data;
+        resolve({ statusCode, body: responseBody });
+        return this;
+      },
+    };
+
+    (ticketsRouter as any).handle(req, res, (err: any) => {
+      if (err) {
+        resolve({ statusCode: 500, body: { error: err.message } });
+      } else {
+        resolve({ statusCode: 404, body: { message: 'Not found' } });
+      }
+    });
+  });
 }
 
 console.log('\n======================================================');
@@ -311,13 +372,325 @@ assert(startupFailed, 'Fail-Fast: Ứng dụng từ chối khởi động ở Pr
 process.env.NODE_ENV = prevNodeEnv; // Phục hồi môi trường
 process.env.JWT_SECRET = JWT_SECRET;
 
-console.log('\n======================================================');
-console.log(`📊 TỔNG KẾT KIỂM THỬ: ${passCount} ĐẠT (PASS) | ${failCount} THẤT BẠI (FAIL)`);
-console.log('======================================================\n');
+async function runAsyncTests() {
+  // -------------------------------------------------------------------------
+  // 5. KIỂM THỬ HIEU-001 — KIỂM SOÁT ROOMID VÀ PHÂN QUYỀN CĂN HỘ
+  // -------------------------------------------------------------------------
+  console.log('\n5. Kiểm thử HIEU-001 — Kiểm soát roomId và Phân quyền Căn hộ (POST /api/tickets):');
 
-if (failCount > 0) {
-  process.exit(1);
-} else {
-  console.log('🎉 TẤT CẢ CÁC BÀI KIỂM THỬ ĐÃ VƯỢT QUA XUẤT SẮC!\n');
-  process.exit(0);
+  let capturedTxQueryRawSQL: any = null;
+  let capturedTxQueryRawArg: any = null;
+  let capturedCreatedTicketData: any = null;
+  let queryRawThrows = false;
+
+  const originalTx = prisma.$transaction;
+  const originalUserFindUnique = prisma.user.findUnique;
+  const originalRoomFindUnique = prisma.room.findUnique;
+
+  (prisma.user as any).findUnique = async ({ where }: any) => {
+    if (where.id === 10) return { id: 10, role: Role.RESIDENT, fullName: 'Cư Dân Có Phòng' };
+    if (where.id === 11) return { id: 11, role: Role.RESIDENT, fullName: 'Cư Dân Chưa Phòng' };
+    if (where.id === 2) return { id: 2, role: Role.BQL, fullName: 'Ban Quản Lý' };
+    return null;
+  };
+
+  (prisma.room as any).findUnique = async ({ where }: any) => {
+    if (where.id === 101 || where.id === 202) return { id: where.id, roomNumber: `R${where.id}` };
+    return null;
+  };
+
+  (prisma as any).$transaction = async (callback: any) => {
+    const mockTx = {
+      $queryRaw: async (strings: TemplateStringsArray, ...values: any[]) => {
+        capturedTxQueryRawSQL = strings.join('?');
+        capturedTxQueryRawArg = values[0];
+        if (queryRawThrows) {
+          throw new Error('deadlock detected on advisory lock');
+        }
+        return [{ locked: 1 }];
+      },
+      user: {
+        findUnique: async (args: any) => prisma.user.findUnique(args),
+      },
+      room: {
+        findUnique: async (args: any) => prisma.room.findUnique(args),
+      },
+      ticket: {
+        findFirst: async () => null,
+        create: async ({ data }: any) => {
+          capturedCreatedTicketData = data;
+          return {
+            id: 999,
+            ...data,
+            room: data.roomId ? { id: data.roomId, roomNumber: `R${data.roomId}` } : null,
+            resident: { id: data.residentId, fullName: 'Test Resident', phone: '0901234567' },
+          };
+        },
+      },
+    };
+    return callback(mockTx);
+  };
+
+  // 5.1 Cư dân chưa gán phòng cố chỉ định roomId của phòng khác -> 403 Forbidden
+  const resNoRoomSpoof = await invokeTicketsRouter({
+    method: 'POST',
+    url: '/',
+    user: { id: 11, role: Role.RESIDENT, roomId: null },
+    body: { category: 'Điện-H1.1', description: 'Bóng đèn hành lang bị cháy', roomId: 101 },
+  });
+  assert(
+    resNoRoomSpoof.statusCode === 403 && resNoRoomSpoof.body?.message?.includes('chưa được gán căn hộ'),
+    'HIEU-001.1: Cư dân chưa gán phòng cố chỉ định roomId phòng khác bị từ chối (403 Forbidden)'
+  );
+
+  // 5.2 Cư dân có phòng (101) cố gửi roomId phòng khác (202) -> 403 Forbidden
+  const resWithRoomSpoof = await invokeTicketsRouter({
+    method: 'POST',
+    url: '/',
+    user: { id: 10, role: Role.RESIDENT, roomId: 101 },
+    body: { category: 'Điện-H1.2', description: 'Bóng đèn phòng ngủ bị cháy', roomId: 202 },
+  });
+  assert(
+    resWithRoomSpoof.statusCode === 403 && resWithRoomSpoof.body?.message?.includes('chỉ có quyền báo sự cố cho căn hộ của mình'),
+    'HIEU-001.2: Cư dân có phòng cố gửi roomId căn hộ khác bị từ chối (403 Forbidden)'
+  );
+
+  // 5.3 Cư dân gửi roomId không hợp lệ (số âm) -> 400 Bad Request
+  const resInvalidRoom = await invokeTicketsRouter({
+    method: 'POST',
+    url: '/',
+    user: { id: 10, role: Role.RESIDENT, roomId: 101 },
+    body: { category: 'Điện-H1.3', description: 'Bóng đèn bị chập chờn', roomId: -99 },
+  });
+  assert(resInvalidRoom.statusCode === 400, 'HIEU-001.3: Cư dân gửi roomId không hợp lệ bị từ chối (400 Bad Request)');
+
+  // 5.4 Cư dân có phòng gửi đúng phòng được gán (101) -> 201 Created
+  const resValidMyRoom = await invokeTicketsRouter({
+    method: 'POST',
+    url: '/',
+    user: { id: 10, role: Role.RESIDENT, roomId: 101 },
+    body: { category: 'Điện-H1.4', description: 'Bóng đèn phòng khách chập chờn', roomId: 101 },
+  });
+  assert(
+    resValidMyRoom.statusCode === 201 && capturedCreatedTicketData?.roomId === 101,
+    'HIEU-001.4: Cư dân gửi đúng phòng được gán được chấp nhận và gán đúng roomId (201 Created)'
+  );
+
+  // 5.5 Cư dân có phòng gửi roomId: null báo khu vực chung -> 201 Created
+  const resCommonArea = await invokeTicketsRouter({
+    method: 'POST',
+    url: '/',
+    user: { id: 10, role: Role.RESIDENT, roomId: 101 },
+    body: { category: 'Nước-H1.5', description: 'Vỡ đường ống nước sảnh tầng 1', roomId: null },
+  });
+  assert(
+    resCommonArea.statusCode === 201 && capturedCreatedTicketData?.roomId === null,
+    'HIEU-001.5: Cư dân có phòng gửi roomId: null báo khu vực chung thành công (roomId = null)'
+  );
+
+  // 5.6 Cư dân có phòng KHÔNG gửi trường roomId (omitted / undefined) -> mặc định phòng của cư dân
+  const resOmittedRoom = await invokeTicketsRouter({
+    method: 'POST',
+    url: '/',
+    user: { id: 10, role: Role.RESIDENT, roomId: 101 },
+    body: { category: 'Internet-H1.6', description: 'Mạng internet phòng khách bị ngắt' },
+  });
+  assert(
+    resOmittedRoom.statusCode === 201 && capturedCreatedTicketData?.roomId === 101,
+    'HIEU-001.6: Cư dân không gửi roomId được tự động gán phòng mặc định của cư dân (201 Created)'
+  );
+
+  // 5.7 Cư dân chưa có phòng gửi báo khu vực chung (roomId: null hoặc không gửi) -> 201 Created
+  const resNoRoomCommon = await invokeTicketsRouter({
+    method: 'POST',
+    url: '/',
+    user: { id: 11, role: Role.RESIDENT, roomId: null },
+    body: { category: 'ThangMáy-H1.7', description: 'Thang máy số 2 phát tiếng kêu lạ', roomId: null },
+  });
+  assert(
+    resNoRoomCommon.statusCode === 201 && capturedCreatedTicketData?.roomId === null,
+    'HIEU-001.7: Cư dân chưa gán phòng báo sự cố khu vực chung thành công (roomId = null)'
+  );
+
+  // 5.8 BQL tạo phiếu hộ cư dân chỉ định residentId và roomId -> 201 Created
+  const resBqlCreate = await invokeTicketsRouter({
+    method: 'POST',
+    url: '/',
+    user: { id: 2, role: Role.BQL },
+    body: { category: 'Điện-H1.8', description: 'BQL lập phiếu hộ cư dân phòng 202', residentId: 10, roomId: 202 },
+  });
+  assert(
+    resBqlCreate.statusCode === 201 && capturedCreatedTicketData?.residentId === 10 && capturedCreatedTicketData?.roomId === 202,
+    'HIEU-001.8: Ban quản lý tạo phiếu hộ cư dân với residentId và roomId chỉ định thành công'
+  );
+
+  // -------------------------------------------------------------------------
+  // 6. KIỂM THỬ HIEU-002 — ĐIỀU KIỆN LỌC ROUTE ALIAS /api/technician/tickets & RBAC
+  // -------------------------------------------------------------------------
+  console.log('\n6. Kiểm thử HIEU-002 — Điều kiện lọc route alias /api/technician/tickets & RBAC:');
+
+  let capturedFindManyWhere: any = null;
+  const originalFindMany = prisma.ticket.findMany;
+  const originalCount = prisma.ticket.count;
+
+  (prisma.ticket as any).count = async () => 1;
+  (prisma.ticket as any).findMany = async (args: any) => {
+    capturedFindManyWhere = args?.where;
+    return [{ id: 1, title: 'Phiếu kiểm thử', status: TicketStatus.PENDING }];
+  };
+
+  // 6.1 Cư dân truy cập /api/technician/tickets -> 403 Forbidden
+  const resResidentAlias = await invokeTicketsRouter({
+    method: 'GET',
+    url: '/',
+    baseUrl: '/api/technician/tickets',
+    user: { id: 10, role: Role.RESIDENT },
+  });
+  assert(
+    resResidentAlias.statusCode === 403 && resResidentAlias.body?.message?.includes('Cư dân không có quyền'),
+    'HIEU-002.1: Cư dân bị từ chối truy cập route alias của thợ /api/technician/tickets (403 Forbidden)'
+  );
+
+  // 6.2 Cư dân truy cập /api/tickets?residentId=99 -> where.residentId === 10
+  await invokeTicketsRouter({
+    method: 'GET',
+    url: '/',
+    baseUrl: '/api/tickets',
+    user: { id: 10, role: Role.RESIDENT },
+    query: { residentId: '99' },
+  });
+  assert(
+    capturedFindManyWhere?.residentId === 10,
+    'HIEU-002.2: Cư dân truy cập /api/tickets bị ép chặt theo residentId của mình, phớt lờ query (Anti-IDOR)'
+  );
+
+  // 6.3 Thợ kỹ thuật truy cập /api/technician/tickets?technicianId=99 -> where.technicianId === 20
+  await invokeTicketsRouter({
+    method: 'GET',
+    url: '/',
+    baseUrl: '/api/technician/tickets',
+    user: { id: 20, role: Role.TECHNICIAN },
+    query: { technicianId: '99' },
+  });
+  assert(
+    capturedFindManyWhere?.technicianId === 20,
+    'HIEU-002.3: Thợ kỹ thuật truy cập route alias luôn bị giới hạn theo ID của mình, không thể tự nâng quyền'
+  );
+
+  // 6.4 Admin truy vấn /api/technician/tickets?technicianId=5 -> where.technicianId === 5
+  await invokeTicketsRouter({
+    method: 'GET',
+    url: '/',
+    baseUrl: '/api/technician/tickets',
+    user: { id: 1, role: Role.ADMIN },
+    query: { technicianId: '5' },
+  });
+  assert(
+    capturedFindManyWhere?.technicianId === 5,
+    'HIEU-002.4: Admin truy vấn /api/technician/tickets?technicianId=5 nhận danh sách theo đúng bộ lọc thợ'
+  );
+
+  // 6.5 BQL truy vấn /api/technician/tickets?technicianId=7 -> where.technicianId === 7
+  await invokeTicketsRouter({
+    method: 'GET',
+    url: '/',
+    baseUrl: '/api/technician/tickets',
+    user: { id: 2, role: Role.BQL },
+    query: { technicianId: '7' },
+  });
+  assert(
+    capturedFindManyWhere?.technicianId === 7,
+    'HIEU-002.5: BQL truy vấn /api/technician/tickets?technicianId=7 nhận danh sách theo đúng bộ lọc thợ'
+  );
+
+  // 6.6 Admin truy vấn /api/tickets?technicianId=5 -> where.technicianId === 5
+  await invokeTicketsRouter({
+    method: 'GET',
+    url: '/',
+    baseUrl: '/api/tickets',
+    user: { id: 1, role: Role.ADMIN },
+    query: { technicianId: '5' },
+  });
+  assert(
+    capturedFindManyWhere?.technicianId === 5,
+    'HIEU-002.6: Admin truy vấn /api/tickets?technicianId=5 nhận danh sách lọc theo thợ chính xác'
+  );
+
+  // 6.7 BQL truy vấn /api/tickets?residentId=15 -> where.residentId === 15
+  await invokeTicketsRouter({
+    method: 'GET',
+    url: '/',
+    baseUrl: '/api/tickets',
+    user: { id: 2, role: Role.BQL },
+    query: { residentId: '15' },
+  });
+  assert(
+    capturedFindManyWhere?.residentId === 15,
+    'HIEU-002.7: BQL truy vấn /api/tickets?residentId=15 nhận danh sách lọc theo cư dân chính xác'
+  );
+
+  // -------------------------------------------------------------------------
+  // 7. KIỂM THỬ HIEU-004 — THỰC THI ADVISORY LOCK QUA $queryRaw & XỬ LÝ LỖI
+  // -------------------------------------------------------------------------
+  console.log('\n7. Kiểm thử HIEU-004 — Thực thi Advisory Lock qua $queryRaw & Xử lý Lỗi Đồng thời:');
+
+  // 7.1 Xác minh câu lệnh parameterized query $queryRaw và lockKey bigint
+  queryRawThrows = false;
+  capturedTxQueryRawSQL = null;
+  capturedTxQueryRawArg = null;
+  const resLockSuccess = await invokeTicketsRouter({
+    method: 'POST',
+    url: '/',
+    user: { id: 10, role: Role.RESIDENT, roomId: 101 },
+    body: { category: 'Khóa-H4.1', description: 'Kiểm tra câu lệnh advisory lock tham số hóa' },
+  });
+  assert(
+    resLockSuccess.statusCode === 201 &&
+    capturedTxQueryRawSQL?.includes('SELECT 1 AS locked') &&
+    capturedTxQueryRawSQL?.includes('pg_advisory_xact_lock') &&
+    capturedTxQueryRawSQL?.includes('::bigint') &&
+    typeof capturedTxQueryRawArg === 'bigint',
+    'HIEU-004.1: Sử dụng $queryRaw bọc ngoài SELECT 1 AS locked với tagged template và tham số bigint an toàn'
+  );
+
+  // 7.2 Khi lấy lock thất bại (deadlock/db error) -> Transaction rollback, trả về 409 Conflict, không nuốt lỗi
+  queryRawThrows = true;
+  capturedCreatedTicketData = null;
+  const resLockFail = await invokeTicketsRouter({
+    method: 'POST',
+    url: '/',
+    user: { id: 10, role: Role.RESIDENT, roomId: 101 },
+    body: { category: 'Khóa-H4.2', description: 'Kiểm tra xử lý lỗi khi lấy advisory lock thất bại' },
+  });
+  assert(
+    resLockFail.statusCode === 409 &&
+    resLockFail.body?.message?.includes('yêu cầu báo sự cố tương tự') &&
+    capturedCreatedTicketData === null,
+    'HIEU-004.2: Khi advisory lock thất bại, controller ném LOCK_FAILED, trả về HTTP 409 Conflict và không tạo ticket'
+  );
+
+  // Phục hồi nguyên trạng các stub
+  (prisma as any).$transaction = originalTx;
+  (prisma.user as any).findUnique = originalUserFindUnique;
+  (prisma.room as any).findUnique = originalRoomFindUnique;
+  (prisma.ticket as any).findMany = originalFindMany;
+  (prisma.ticket as any).count = originalCount;
 }
+
+runAsyncTests()
+  .then(() => {
+    console.log('\n======================================================');
+    console.log(`📊 TỔNG KẾT KIỂM THỬ TICKETS: ${passCount} ĐẠT (PASS) | ${failCount} THẤT BẠI (FAIL)`);
+    console.log('======================================================\n');
+
+    if (failCount > 0) {
+      process.exit(1);
+    } else {
+      console.log('🎉 TẤT CẢ CÁC BÀI KIỂM THỬ TICKETS ĐÃ VƯỢT QUA XUẤT SẮC!\n');
+      process.exit(0);
+    }
+  })
+  .catch((err) => {
+    console.error('Lỗi kiểm thử bất đồng bộ:', err);
+    process.exit(1);
+  });

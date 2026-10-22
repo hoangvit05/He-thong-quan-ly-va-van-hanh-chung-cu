@@ -59,15 +59,21 @@ router.get('/', async (req: Request, res: Response) => {
 
     // 1. Phân quyền xem dữ liệu nghiêm ngặt theo vai trò (Record-Level Access Control)
     if (currentUser.role === Role.RESIDENT) {
-      // Cư dân TUYỆT ĐỐI CHỈ xem phiếu do chính mình tạo (ngăn chặn rò rỉ dữ liệu sự cố phòng khác)
-      where.residentId = currentUser.id;
-    } else if (currentUser.role === Role.TECHNICIAN || isTechnicianRoute) {
-      // Thợ kỹ thuật chỉ xem các phiếu được phân công cho mình (trừ khi BQL lọc)
-      if (currentUser.role === Role.TECHNICIAN) {
-        where.technicianId = currentUser.id;
+      // Chặn cư dân truy cập trái phép route alias của Thợ kỹ thuật
+      if (isTechnicianRoute) {
+        return res.status(403).json({
+          success: false,
+          data: null,
+          message: 'Cư dân không có quyền truy cập danh sách công việc của Thợ kỹ thuật.',
+        });
       }
+      // Cư dân TUYỆT ĐỐI CHỈ xem phiếu do chính mình tạo (ngăn chặn rò rỉ dữ liệu sự cố phòng khác, bất kể query params)
+      where.residentId = currentUser.id;
+    } else if (currentUser.role === Role.TECHNICIAN) {
+      // Thợ kỹ thuật chỉ xem các phiếu được phân công cho chính mình (không thể tự nâng quyền qua query technicianId)
+      where.technicianId = currentUser.id;
     } else if (currentUser.role === Role.ADMIN || currentUser.role === Role.BQL) {
-      // BQL & Admin có quyền lọc theo cư dân hoặc thợ cụ thể
+      // BQL & Admin có quyền lọc theo cư dân hoặc thợ cụ thể (kể cả trên /api/tickets và route alias /api/technician/tickets)
       if (residentId && !isNaN(Number(residentId))) {
         where.residentId = Number(residentId);
       }
@@ -286,15 +292,33 @@ router.post('/', async (req: Request, res: Response) => {
       // 2. BẢO MẬT PHÒNG: Cư dân chỉ có thể báo hỏng cho phòng của chính mình, hoặc khu vực chung (roomId = null)
       if (roomId !== undefined && roomId !== null && roomId !== '') {
         const reqRoomId = Number(roomId);
-        if (currentUser.roomId && reqRoomId !== currentUser.roomId) {
+        if (isNaN(reqRoomId) || reqRoomId <= 0) {
+          return res.status(400).json({
+            success: false,
+            data: null,
+            message: 'Mã căn hộ không hợp lệ.',
+          });
+        }
+        if (!currentUser.roomId) {
+          return res.status(403).json({
+            success: false,
+            data: null,
+            message: 'Bạn chưa được gán căn hộ nên không thể báo sự cố cho căn hộ cụ thể. Vui lòng chỉ báo sự cố cho khu vực chung hoặc liên hệ Ban quản lý.',
+          });
+        }
+        if (reqRoomId !== currentUser.roomId) {
           return res.status(403).json({
             success: false,
             data: null,
             message: `Bạn chỉ có quyền báo sự cố cho căn hộ của mình (Phòng ${currentUser.roomId}) hoặc khu vực chung. Không thể báo thay cho căn hộ khác.`,
           });
         }
-        effectiveRoomId = reqRoomId;
+        effectiveRoomId = currentUser.roomId;
+      } else if (roomId === null || roomId === '') {
+        // Cư dân chủ động báo sự cố khu vực chung
+        effectiveRoomId = null;
       } else {
+        // roomId không được gửi (undefined): mặc định phòng của cư dân nếu có, hoặc khu vực chung nếu chưa gán phòng
         effectiveRoomId = currentUser.roomId || null;
       }
     } else {
@@ -326,7 +350,9 @@ router.post('/', async (req: Request, res: Response) => {
 
     // Bọc trong Database Transaction để đảm bảo tính nguyên tử giữa kiểm tra trùng và tạo bản ghi
     const newTicket = await prisma.$transaction(async (tx) => {
-      // Thử nghiệm Acquire Advisory Lock trên PostgreSQL để xếp hàng các transaction đồng thời
+      // Acquire Advisory Lock trên PostgreSQL để xếp hàng các transaction đồng thời (Concurrency Safety)
+      // Sử dụng $queryRaw với tagged template và tham số hóa thay vì ghép chuỗi $executeRawUnsafe
+      // Bọc ngoài bằng SELECT 1 AS locked FROM (...) để tránh lỗi deserialize kiểu void trong Prisma Client
       try {
         const lockStr = `ticket_dup:${effectiveRoomId || effectiveResidentId}:${category.trim()}`;
         let hash = 0;
@@ -334,9 +360,16 @@ router.post('/', async (req: Request, res: Response) => {
           hash = (hash << 5) - hash + lockStr.charCodeAt(i);
           hash |= 0;
         }
-        await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(${Math.abs(hash)})`);
-      } catch {
-        // Bỏ qua nếu DB không hỗ trợ pg_advisory_xact_lock (hoặc offline mock test)
+        const lockKey = BigInt(Math.abs(hash));
+        await tx.$queryRaw<Array<{ locked: number }>>`
+          SELECT 1 AS locked
+          FROM (
+            SELECT pg_advisory_xact_lock(${lockKey}::bigint)
+          ) AS advisory_lock
+        `;
+      } catch (lockError: any) {
+        console.error('[Tickets Controller - Concurrency Advisory Lock Error]:', lockError?.message || lockError);
+        throw new Error('LOCK_FAILED: Không thể thiết lập khóa an toàn cho sự cố. Vui lòng thử lại.');
       }
 
       // Xác minh resident tồn tại
@@ -403,6 +436,13 @@ router.post('/', async (req: Request, res: Response) => {
   } catch (error: any) {
     if (error.message?.startsWith('NOT_FOUND_')) {
       return res.status(404).json({ success: false, data: null, message: error.message.split(': ')[1] });
+    }
+    if (error.message?.startsWith('LOCK_FAILED:')) {
+      return res.status(409).json({
+        success: false,
+        data: null,
+        message: 'Hệ thống đang xử lý yêu cầu báo sự cố tương tự. Vui lòng thử lại sau ít giây.',
+      });
     }
     res.status(500).json({ success: false, data: null, message: error.message || 'Lỗi gửi phiếu sự cố' });
   }
