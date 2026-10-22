@@ -53,6 +53,38 @@ async function main() {
 
     totalPassed += feedbackResult.passed;
     totalFailed += feedbackResult.failed;
+
+    // BƯỚC 2E: DYNAMIC IMPORT VÀ CHẠY USERS INTEGRATION TESTS
+    console.log('📦 BƯỚC 2E: Nạp và chạy phân hệ Users Integration Tests...');
+    const { runUsersIntegrationTests } = await import('../modules/users/users.integration.test');
+    const usersResult = await runUsersIntegrationTests(prisma, tracker);
+
+    totalPassed += usersResult.passed;
+    totalFailed += usersResult.failed;
+
+    // BƯỚC 2F: DYNAMIC IMPORT VÀ CHẠY ROOMS INTEGRATION TESTS
+    console.log('📦 BƯỚC 2F: Nạp và chạy phân hệ Rooms Integration Tests...');
+    const { runRoomsIntegrationTests } = await import('../modules/rooms/rooms.integration.test');
+    const roomsResult = await runRoomsIntegrationTests(prisma, tracker);
+
+    totalPassed += roomsResult.passed;
+    totalFailed += roomsResult.failed;
+
+    // BƯỚC 2G: DYNAMIC IMPORT VÀ CHẠY NOTIFICATIONS INTEGRATION TESTS
+    console.log('📦 BƯỚC 2G: Nạp và chạy phân hệ Notifications Integration Tests...');
+    const { runNotificationsIntegrationTests } = await import('../modules/notifications/notifications.integration.test');
+    const notificationsResult = await runNotificationsIntegrationTests(prisma, tracker);
+
+    totalPassed += notificationsResult.passed;
+    totalFailed += notificationsResult.failed;
+
+    // BƯỚC 2H: DYNAMIC IMPORT VÀ CHẠY MEDIA UPLOAD INTEGRATION TESTS
+    console.log('📦 BƯỚC 2H: Nạp và chạy phân hệ Media Upload Integration Tests...');
+    const { runMediaIntegrationTests } = await import('../modules/media/media.integration.test');
+    const mediaResult = await runMediaIntegrationTests(prisma, tracker);
+
+    totalPassed += mediaResult.passed;
+    totalFailed += mediaResult.failed;
   } catch (testError: any) {
     console.error('❌ Ngoại lệ nghiêm trọng trong quá trình chạy test:', testError);
     totalFailed++;

@@ -14,11 +14,18 @@ import { URL } from 'url';
 export class ResourceTracker {
   private paymentIds: number[] = [];
   private invoiceIds: number[] = [];
+  private mediaAssetIds: number[] = [];
   private ticketIds: number[] = [];
   private feedbackIds: number[] = [];
   private notificationIds: number[] = [];
   private userIds: number[] = [];
   private roomIds: number[] = [];
+
+  trackMediaAsset(id: number): void {
+    if (id && !this.mediaAssetIds.includes(id)) {
+      this.mediaAssetIds.push(id);
+    }
+  }
 
   trackPayment(id: number): void {
     if (id && !this.paymentIds.includes(id)) {
@@ -126,6 +133,19 @@ export class ResourceTracker {
       }
     }
 
+    // 2.5. Xóa MediaAssets trước khi xóa Ticket và User
+    let cleanedMediaAssets = 0;
+    for (const id of [...this.mediaAssetIds].reverse()) {
+      try {
+        await prisma.mediaAsset.delete({ where: { id } });
+        cleanedMediaAssets++;
+      } catch (err: any) {
+        if (err.code !== 'P2025') {
+          failed.push({ type: 'MediaAsset', id, error: err.message });
+        }
+      }
+    }
+
     // 3. Xóa Tickets trước khi xóa User và Room
     for (const id of [...this.ticketIds].reverse()) {
       try {
@@ -188,6 +208,7 @@ export class ResourceTracker {
 
     this.paymentIds = [];
     this.invoiceIds = [];
+    this.mediaAssetIds = [];
     this.ticketIds = [];
     this.feedbackIds = [];
     this.notificationIds = [];

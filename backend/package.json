@@ -13,12 +13,18 @@
     "test:feedback": "ts-node src/modules/feedback/feedback.test.ts",
     "test:invoices": "ts-node src/modules/invoices/invoices.test.ts",
     "test:auth": "ts-node src/modules/auth/auth.test.ts",
+    "test:users": "ts-node src/modules/users/users.test.ts",
+    "test:rooms": "ts-node src/modules/rooms/rooms.test.ts",
+    "test:notifications": "ts-node src/modules/notifications/notifications.test.ts",
+    "test:media": "ts-node src/modules/media/media.test.ts",
+    "test:media:live": "ts-node src/modules/media/media.live.test.ts",
     "test:integration": "ts-node src/test/run-all-integration.ts",
-    "test": "npm run test:tickets && npm run test:feedback && npm run test:invoices && npm run test:auth"
+    "test": "npm run test:tickets && npm run test:feedback && npm run test:invoices && npm run test:auth && npm run test:users && npm run test:rooms && npm run test:notifications && npm run test:media"
   },
   "dependencies": {
     "@prisma/client": "^5.14.0",
     "bcryptjs": "^2.4.3",
+    "cloudinary": "^2.11.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
@@ -33,6 +39,7 @@
     "@types/node": "^20.14.0",
     "nodemon": "^3.1.2",
     "prisma": "^5.14.0",
+    "socket.io-client": "^4.7.5",
     "ts-node": "^10.9.2",
     "typescript": "^5.4.5"
   }

@@ -12,6 +12,7 @@ import {
   validateTicketInput,
   validateRatingInput,
 } from './tickets.validator';
+import { verifyTicketMediaOwnership } from '../media/media.service';
 
 const router = Router();
 
@@ -334,6 +335,24 @@ router.post('/', async (req: Request, res: Response) => {
       effectiveRoomId = roomId ? Number(roomId) : null;
     }
 
+    // 3. XÁC MINH QUYỀN SỞ HỮU TỆP ĐÍNH KÈM NẾU LÀ CLOUDINARY
+    let mediaAssetId: number | undefined;
+    if (mediaUrl) {
+      const mediaOwnership = await verifyTicketMediaOwnership({
+        mediaUrl,
+        userId: effectiveResidentId,
+        purpose: 'tickets',
+      });
+      if (!mediaOwnership.isValid) {
+        return res.status(403).json({
+          success: false,
+          data: null,
+          message: mediaOwnership.error || 'Tệp đính kèm không hợp lệ hoặc không thuộc quyền sở hữu của bạn.',
+        });
+      }
+      mediaAssetId = mediaOwnership.assetId;
+    }
+
     // CHỐNG DOUBLE-CLICK CONCURRENT REQUEST (5 giây debounce gate)
     cleanOldSubmissions();
     const debounceKey = `${effectiveResidentId}:${effectiveRoomId || 'common'}:${category.trim().toLowerCase()}`;
@@ -408,7 +427,7 @@ router.post('/', async (req: Request, res: Response) => {
 
       const isDuplicate = !!existingSimilarTicket;
 
-      return tx.ticket.create({
+      const createdTicket = await tx.ticket.create({
         data: {
           title: title ? String(title).trim() : `${category} - ${effectiveRoomId ? `Phòng ${effectiveRoomId}` : 'Khu vực chung'}`,
           category: category.trim(),
@@ -424,6 +443,26 @@ router.post('/', async (req: Request, res: Response) => {
           resident: { select: { id: true, fullName: true, phone: true } },
         },
       });
+
+      // Liên kết bền vững MediaAsset với Ticket vừa tạo trong cùng transaction (Atomic Conditional Claim)
+      if (mediaAssetId) {
+        const claimResult = await tx.mediaAsset.updateMany({
+          where: {
+            id: mediaAssetId,
+            uploaderId: effectiveResidentId,
+            purpose: 'tickets',
+            isConfirmed: true,
+            ticketId: null, // ĐIỀU KIỆN TIÊN QUYẾT: Asset chưa bị claim bởi bất kỳ Ticket nào
+          },
+          data: { ticketId: createdTicket.id },
+        });
+
+        if (claimResult.count === 0) {
+          throw new Error('ASSET_CLAIM_FAILED: Tệp đính kèm đã được liên kết với một phiếu sự cố khác hoặc không còn khả dụng.');
+        }
+      }
+
+      return createdTicket;
     });
 
     res.status(201).json({
@@ -434,6 +473,9 @@ router.post('/', async (req: Request, res: Response) => {
         : 'Gửi phiếu báo hỏng thành công.',
     });
   } catch (error: any) {
+    if (error.message?.startsWith('ASSET_CLAIM_FAILED:')) {
+      return res.status(409).json({ success: false, data: null, message: error.message.split(': ')[1] });
+    }
     if (error.message?.startsWith('NOT_FOUND_')) {
       return res.status(404).json({ success: false, data: null, message: error.message.split(': ')[1] });
     }
@@ -546,6 +588,25 @@ router.put('/:id/status', async (req: Request, res: Response) => {
 
     const currentUser = req.user!;
 
+    // Xác minh quyền sở hữu ảnh nghiệm thu nếu là Cloudinary
+    let completedMediaAssetId: number | undefined;
+    if (completedMediaUrl) {
+      const mediaOwnership = await verifyTicketMediaOwnership({
+        mediaUrl: completedMediaUrl,
+        userId: currentUser.id,
+        purpose: 'materials',
+        ticketId,
+      });
+      if (!mediaOwnership.isValid) {
+        return res.status(403).json({
+          success: false,
+          data: null,
+          message: mediaOwnership.error || 'Ảnh nghiệm thu không hợp lệ hoặc không thuộc quyền sở hữu của bạn.',
+        });
+      }
+      completedMediaAssetId = mediaOwnership.assetId;
+    }
+
     const updated = await prisma.$transaction(async (tx) => {
       const ticket = await tx.ticket.findUnique({ where: { id: ticketId } });
       if (!ticket) {
@@ -572,7 +633,7 @@ router.put('/:id/status', async (req: Request, res: Response) => {
         updateData.completedMediaUrl = completedMediaUrl;
       }
 
-      return tx.ticket.update({
+      const updatedTicket = await tx.ticket.update({
         where: { id: ticketId },
         data: updateData,
         include: {
@@ -581,10 +642,36 @@ router.put('/:id/status', async (req: Request, res: Response) => {
           technician: { select: { id: true, fullName: true, phone: true } },
         },
       });
+
+      // Liên kết bền vững MediaAsset nghiệm thu với Ticket trong cùng transaction (Atomic Conditional Claim)
+      if (completedMediaAssetId) {
+        const claimResult = await tx.mediaAsset.updateMany({
+          where: {
+            id: completedMediaAssetId,
+            uploaderId: currentUser.id,
+            purpose: 'materials',
+            isConfirmed: true,
+            OR: [
+              { ticketId: null },
+              { ticketId: ticketId }, // Cho phép idempotent nếu chính ticket này đã liên kết
+            ],
+          },
+          data: { ticketId },
+        });
+
+        if (claimResult.count === 0) {
+          throw new Error('ASSET_CLAIM_FAILED: Ảnh nghiệm thu đã được sử dụng cho phiếu sự cố khác hoặc không còn khả dụng.');
+        }
+      }
+
+      return updatedTicket;
     });
 
     res.json({ success: true, data: updated, message: `Cập nhật trạng thái thành công: ${status}` });
   } catch (error: any) {
+    if (error.message?.startsWith('ASSET_CLAIM_FAILED:')) {
+      return res.status(409).json({ success: false, data: null, message: error.message.split(': ')[1] });
+    }
     if (error.message?.startsWith('NOT_FOUND:')) {
       return res.status(404).json({ success: false, data: null, message: error.message.split(': ')[1] });
     }

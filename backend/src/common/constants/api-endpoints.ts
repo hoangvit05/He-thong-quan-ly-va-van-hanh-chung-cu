@@ -10,6 +10,14 @@ export const API_ENDPOINTS = {
     ADMIN_USERS: '/api/admin/users',
     RESIDENTS: '/api/apartments/residents',
     APPROVE_RESIDENT: (id: string | number) => `/api/apartments/residents/${id}/approve`,
+    ASSIGN_ROOM: (id: string | number) => `/api/apartments/residents/${id}/room`,
+  },
+
+  // Alias ngữ nghĩa cho phân hệ Cư dân (Quản lý Cư dân tòa nhà)
+  RESIDENTS: {
+    LIST: '/api/apartments/residents',
+    APPROVE: (id: string | number) => `/api/apartments/residents/${id}/approve`,
+    ASSIGN_ROOM: (id: string | number) => `/api/apartments/residents/${id}/room`,
   },
 
   // 2. Phân hệ Báo hỏng & Luồng Sự cố (Phụ trách: Hiếu)
@@ -45,5 +53,18 @@ export const API_ENDPOINTS = {
   NOTIFICATIONS: {
     CREATE: '/api/notifications',
     LIST: '/api/notifications',
+  },
+
+  // 6. Phân hệ Quản lý Căn hộ (Phụ trách: Việt Hoàng)
+  ROOMS: {
+    LIST: '/api/rooms',
+    CREATE: '/api/rooms',
+    UPDATE: (id: string | number) => `/api/rooms/${id}`,
+  },
+
+  // 7. Phân hệ Tải lên Đa phương tiện Cloudinary (Phụ trách: Việt Hoàng)
+  MEDIA: {
+    SIGNATURE: '/api/media/signature',
+    CONFIRM: '/api/media/confirm',
   },
 };
