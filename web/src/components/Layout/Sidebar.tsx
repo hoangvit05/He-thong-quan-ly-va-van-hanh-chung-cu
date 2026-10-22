@@ -1,36 +1,38 @@
-import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { MENU_ITEMS } from '../../constants/menu';
+// Lấy danh sách menu từ file cấu hình chung của team
+import { MENU_ITEMS } from '../../constants/menu'; 
 
-export const Sidebar: React.FC = () => {
+const Sidebar = () => {
   const location = useLocation();
 
   return (
-    <aside style={{ width: '260px', backgroundColor: '#1e293b', color: '#fff', padding: '20px' }}>
-      <h2 style={{ fontSize: '18px', marginBottom: '24px', borderBottom: '1px solid #334155', paddingBottom: '12px' }}>
-        🏢 Quản Lý Chung Cư
-      </h2>
-      <nav style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-        {MENU_ITEMS.map((item) => {
+    <aside className="w-64 bg-gray-900 text-white flex flex-col min-h-screen">
+      <div className="h-16 flex items-center justify-center border-b border-gray-800">
+        <h1 className="text-xl font-bold uppercase tracking-wider">Chung Cư X</h1>
+      </div>
+      <nav className="flex-1 px-4 py-6 space-y-2">
+        {MENU_ITEMS.map((item: any) => {
           const isActive = location.pathname === item.path;
           return (
             <Link
-              key={item.path}
+              key={item.name}
               to={item.path}
-              style={{
-                color: isActive ? '#38bdf8' : '#94a3b8',
-                backgroundColor: isActive ? '#0f172a' : 'transparent',
-                padding: '10px 14px',
-                borderRadius: '6px',
-                textDecoration: 'none',
-                fontWeight: isActive ? 'bold' : 'normal',
-              }}
+              className={`block px-4 py-3 rounded-lg transition-colors ${
+                isActive 
+                  ? 'bg-blue-600 text-white' 
+                  : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+              }`}
             >
-              {item.title}
+              {item.name}
             </Link>
           );
         })}
       </nav>
+      <div className="p-4 border-t border-gray-800 text-sm text-gray-500 text-center">
+        © 2026 Quản lý Tòa nhà
+      </div>
     </aside>
   );
 };
+
+export default Sidebar;

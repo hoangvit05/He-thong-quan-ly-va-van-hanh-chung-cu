@@ -1,12 +1,22 @@
-import React from 'react';
-
-export const Header: React.FC = () => {
+const Header = () => {
   return (
-    <header style={{ height: '60px', backgroundColor: '#fff', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px' }}>
-      <span style={{ fontWeight: 'bold', color: '#334155' }}>Hệ Thống Điều Hành & Vận Hành Tòa Nhà</span>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-        <span style={{ fontSize: '14px', color: '#64748b' }}>Xin chào, Quản trị viên</span>
+    <header className="h-16 bg-white shadow-sm flex items-center justify-between px-8 z-10 relative">
+      <div className="text-gray-700 font-medium">
+        Hệ thống Quản lý và Vận hành
+      </div>
+      <div className="flex items-center space-x-4">
+        <div className="flex items-center space-x-2">
+          <div className="w-8 h-8 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center font-bold">
+            A
+          </div>
+          <span className="text-sm font-medium text-gray-700">Admin</span>
+        </div>
+        <button className="text-sm text-red-600 hover:text-red-800 font-medium transition-colors">
+          Đăng xuất
+        </button>
       </div>
     </header>
   );
 };
+
+export default Header;

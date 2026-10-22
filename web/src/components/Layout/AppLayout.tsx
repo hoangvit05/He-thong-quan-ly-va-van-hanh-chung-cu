@@ -1,17 +1,20 @@
-import React from 'react';
-import { Sidebar } from './Sidebar';
-import { Header } from './Header';
+import { Outlet } from 'react-router-dom';
+import Sidebar from './Sidebar';
+import Header from './Header';
 
-export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+const AppLayout = () => {
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', fontFamily: 'Arial, sans-serif' }}>
+    <div className="flex h-screen bg-gray-50 overflow-hidden font-sans">
       <Sidebar />
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+      <div className="flex-1 flex flex-col overflow-hidden">
         <Header />
-        <main style={{ padding: '24px', backgroundColor: '#f4f6f8', flex: 1 }}>
-          {children}
+        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 p-6">
+          {/* Nơi hiển thị nội dung của các trang con */}
+          <Outlet /> 
         </main>
       </div>
     </div>
   );
 };
+
+export default AppLayout;
