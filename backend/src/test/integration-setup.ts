@@ -14,11 +14,18 @@ import { URL } from 'url';
 export class ResourceTracker {
   private paymentIds: number[] = [];
   private invoiceIds: number[] = [];
+  private mediaAssetIds: number[] = [];
   private ticketIds: number[] = [];
   private feedbackIds: number[] = [];
   private notificationIds: number[] = [];
   private userIds: number[] = [];
   private roomIds: number[] = [];
+
+  trackMediaAsset(id: number): void {
+    if (id && !this.mediaAssetIds.includes(id)) {
+      this.mediaAssetIds.push(id);
+    }
+  }
 
   trackPayment(id: number): void {
     if (id && !this.paymentIds.includes(id)) {
@@ -62,10 +69,20 @@ export class ResourceTracker {
     }
   }
 
-  getTrackedCount(): { payments: number; invoices: number; tickets: number; feedbacks: number; notifications: number; users: number; rooms: number } {
+  getTrackedCount(): {
+    payments: number;
+    invoices: number;
+    mediaAssets: number;
+    tickets: number;
+    feedbacks: number;
+    notifications: number;
+    users: number;
+    rooms: number;
+  } {
     return {
       payments: this.paymentIds.length,
       invoices: this.invoiceIds.length,
+      mediaAssets: this.mediaAssetIds.length,
       tickets: this.ticketIds.length,
       feedbacks: this.feedbackIds.length,
       notifications: this.notificationIds.length,
@@ -78,6 +95,7 @@ export class ResourceTracker {
    * Dọn dẹp dữ liệu an toàn theo thứ tự ngược của cây khóa ngoại (Foreign Key Hierarchy):
    * 1. Payment (phụ thuộc Invoice qua invoiceId)
    * 2. Invoice (phụ thuộc Room qua roomId)
+   * 2.5. MediaAsset (phụ thuộc Ticket qua ticketId, User qua uploaderId)
    * 3. Ticket (phụ thuộc Room qua roomId, User qua residentId và technicianId)
    * 4. Feedback (phụ thuộc Room qua roomId, User qua residentId)
    * 5. User (phụ thuộc Room qua roomId)
@@ -86,6 +104,7 @@ export class ResourceTracker {
   async cleanup(prisma: any): Promise<{
     cleanedPayments: number;
     cleanedInvoices: number;
+    cleanedMediaAssets: number;
     cleanedTickets: number;
     cleanedFeedbacks: number;
     cleanedNotifications: number;
@@ -122,6 +141,19 @@ export class ResourceTracker {
       } catch (err: any) {
         if (err.code !== 'P2025') {
           failed.push({ type: 'Invoice', id, error: err.message });
+        }
+      }
+    }
+
+    // 2.5. Xóa MediaAssets trước khi xóa Ticket và User
+    let cleanedMediaAssets = 0;
+    for (const id of [...this.mediaAssetIds].reverse()) {
+      try {
+        await prisma.mediaAsset.delete({ where: { id } });
+        cleanedMediaAssets++;
+      } catch (err: any) {
+        if (err.code !== 'P2025') {
+          failed.push({ type: 'MediaAsset', id, error: err.message });
         }
       }
     }
@@ -188,6 +220,7 @@ export class ResourceTracker {
 
     this.paymentIds = [];
     this.invoiceIds = [];
+    this.mediaAssetIds = [];
     this.ticketIds = [];
     this.feedbackIds = [];
     this.notificationIds = [];
@@ -198,7 +231,17 @@ export class ResourceTracker {
       throw new Error(`[SAFETY CLEANUP FAILURE] Có lỗi khi dọn dẹp bản ghi test: ${JSON.stringify(failed)}`);
     }
 
-    return { cleanedPayments, cleanedInvoices, cleanedTickets, cleanedFeedbacks, cleanedNotifications, cleanedUsers, cleanedRooms, failed };
+    return {
+      cleanedPayments,
+      cleanedInvoices,
+      cleanedMediaAssets,
+      cleanedTickets,
+      cleanedFeedbacks,
+      cleanedNotifications,
+      cleanedUsers,
+      cleanedRooms,
+      failed,
+    };
   }
 }
 

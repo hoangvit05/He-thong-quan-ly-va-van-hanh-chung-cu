@@ -257,6 +257,33 @@ export async function runTicketsIntegrationTests(
 
     console.log(`  -> Đã tạo 2 Phòng, 1 BQL, 2 Thợ kỹ thuật, và 4 Cư dân test thành công.\n`);
 
+    // Fixtures MediaAsset đã xác minh (phục vụ kiểm thử liên kết Media có kiểm soát)
+    const mediaAssetResident1 = await prisma.mediaAsset.create({
+      data: {
+        publicId: `tickets_u${residentUser1.id}_sample_${RUN_KEY}`,
+        url: 'https://res.cloudinary.com/demo/image/upload/sample.jpg',
+        purpose: 'tickets',
+        bytes: 1024,
+        format: 'jpg',
+        uploaderId: residentUser1.id,
+        isConfirmed: true,
+      },
+    });
+    tracker.trackMediaAsset(mediaAssetResident1.id);
+
+    const mediaAssetTech1 = await prisma.mediaAsset.create({
+      data: {
+        publicId: `materials_u${techUser1.id}_fixed_${RUN_KEY}`,
+        url: 'https://res.cloudinary.com/demo/image/upload/fixed.jpg',
+        purpose: 'materials',
+        bytes: 2048,
+        format: 'jpg',
+        uploaderId: techUser1.id,
+        isConfirmed: true,
+      },
+    });
+    tracker.trackMediaAsset(mediaAssetTech1.id);
+
     // -----------------------------------------------------------------------
     // NHÓM A: CRUD VÀ VALIDATION
     // -----------------------------------------------------------------------

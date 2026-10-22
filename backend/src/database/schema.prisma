@@ -92,6 +92,7 @@ model User {
   assignedTickets Ticket[]       @relation("TechnicianTickets") // Danh sách việc được giao cho thợ này
   feedbacks       Feedback[] // Danh sách góp ý do cư dân này gửi
   notifications   Notification[] @relation("AuthorNotifications") // Thông báo do Admin/BQL này tạo
+  mediaAssets     MediaAsset[]   @relation("UserMediaAssets") // Danh sách tài nguyên đa phương tiện đã xác minh
 
   @@index([role, isApproved])
   @@index([roomId])
@@ -122,6 +123,7 @@ model Ticket {
   rating            Int? // Đánh giá 1 - 5 sao
   ratingComment     String? // Nhận xét chi tiết của cư dân khi nghiệm thu
   isDuplicate       Boolean @default(false) // Cờ đánh dấu phiếu gửi trùng lặp
+  mediaAssets       MediaAsset[] @relation("TicketMediaAssets") // Danh sách tài sản media liên kết
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -209,4 +211,37 @@ model Notification {
   createdAt  DateTime @default(now())
 
   @@index([targetRoom])
+}
+
+// ==========================================
+// 8. BẢNG QUẢN LÝ TÀI NGUYÊN ĐA PHƯƠNG TIỆN (MEDIA ASSET)
+// ==========================================
+model MediaAsset {
+  id           Int      @id @default(autoincrement())
+  publicId     String   @unique // Định danh Cloudinary public_id
+  url          String   // Đường dẫn bảo mật (Secure URL)
+  resourceType String   @default("image") // "image" | "video"
+  deliveryType String   @default("authenticated") // "upload" | "authenticated" | "private"
+  purpose      String   // Mục đích: "tickets" | "materials" | "announcements"
+  bytes        Int      // Kích thước tệp thực tế đã xác minh từ Cloudinary Admin API
+  format       String   // Định dạng tệp thực tế (png, jpg, mp4...)
+  width        Int?     // Chiều rộng
+  height       Int?     // Chiều cao
+  duration     Float?   // Thời lượng video (nếu có)
+
+  uploaderId   Int      // Người dùng sở hữu phiên tải lên
+  uploader     User     @relation("UserMediaAssets", fields: [uploaderId], references: [id])
+
+  ticketId     Int?     // Liên kết với phiếu sự cố cụ thể (nếu có)
+  ticket       Ticket?  @relation("TicketMediaAssets", fields: [ticketId], references: [id])
+
+  isConfirmed  Boolean   @default(false) // Mặc định false (Fail-Closed) cho tới khi xác minh thành công
+  confirmedAt  DateTime? // Thời điểm xác minh thành công (null khi chưa xác minh)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([uploaderId])
+  @@index([purpose, ticketId])
+  @@index([url])
+  @@index([publicId])
 }

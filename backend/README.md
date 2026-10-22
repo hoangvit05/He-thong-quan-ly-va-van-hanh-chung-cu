@@ -79,24 +79,60 @@ docker compose -f docker-compose.test.yml -p apartment-test ps
 
 ---
 
-## 6. Đồng bộ Schema Prisma vào Database Test
+## 6. Hướng dẫn Vận hành Prisma Migration (Migration Operational Playbook)
 
-Trước khi chạy integration tests, schema cần được tạo trên database `apartment_test`. Thao tác này được thực hiện bởi tài khoản quản trị `test_user`:
+Hệ thống quản lý phiên bản cơ sở dữ liệu qua thư mục chuẩn `src/database/migrations`:
+- `0_init`: Migration đường cơ sở (Baseline) bao gồm 5 Enums, 7 bảng nghiệp vụ (`Room`, `User`, `Ticket`, `Invoice`, `Payment`, `Feedback`, `Notification`), 15 indexes và 9 foreign keys.
+- `20261023000000_add_media_asset`: Migration gia tăng bổ sung bảng `MediaAsset`, các indexes và foreign keys.
 
-### Trên Linux / macOS (Bash):
+> [!IMPORTANT]
+> **Quy tắc an toàn sống còn:**
+> - `npx prisma migrate resolve --applied <migration_name>` **CHỈ** ghi nhận trạng thái vào bảng lịch sử `_prisma_migrations`; lệnh này **KHÔNG** tự tạo bảng, không sửa đổi dữ liệu và không tự chứng minh schema thực tế có khớp hay không.
+> - Tuyệt đối **KHÔNG** dùng `prisma db push` trên môi trường Staging/Production để né lỗi migration.
+> - Luôn thực hiện bởi tài khoản quản trị database (`test_user` hoặc `postgres`).
+
+### Trường hợp A: Database mới, trống hoàn toàn (Clean Database)
+Áp dụng khi triển khai môi trường mới hoặc dựng container từ đầu:
 ```bash
-cd backend
-DATABASE_URL="postgresql://test_user:<YOUR_SECURE_ADMIN_PASSWORD>@127.0.0.1:5432/apartment_test?schema=public" npx prisma db push --schema=src/database/schema.prisma
-```
+# Linux / macOS:
+DATABASE_URL="postgresql://test_user:<ADMIN_PASSWORD>@127.0.0.1:5432/apartment_db?schema=public" npx prisma migrate deploy --schema=src/database/schema.prisma
 
-### Trên Windows (PowerShell):
-```powershell
-cd backend
-$env:DATABASE_URL = "postgresql://test_user:<YOUR_SECURE_ADMIN_PASSWORD>@127.0.0.1:5432/apartment_test?schema=public"
-npx prisma db push --schema=src/database/schema.prisma
+# Windows PowerShell:
+$env:DATABASE_URL = "postgresql://test_user:<ADMIN_PASSWORD>@127.0.0.1:5432/apartment_db?schema=public"
+npx prisma migrate deploy --schema=src/database/schema.prisma
 ```
+*Kết quả:* Toàn bộ các migration (`0_init` và `20261023000000_add_media_asset`) sẽ được tuần tự thực thi tự động.
 
-*Lưu ý:* Khi `test_user` tạo các bảng, các quyền `SELECT`, `INSERT`, `UPDATE`, `DELETE` sẽ tự động được áp dụng cho `test_app_user` thông qua cơ chế `ALTER DEFAULT PRIVILEGES` đã được init script cấu hình trước.
+---
+
+### Trường hợp B: Database đã có schema nền phù hợp `0_init`, chưa có bảng `MediaAsset`
+Áp dụng cho các database đã chạy trước đây mà chưa có bảng MediaAsset:
+1. **Xác minh schema nền:** Kiểm tra các bảng `User`, `Room`, `Ticket`... đã tồn tại và khớp cấu trúc.
+2. **Đánh dấu baseline:**
+   ```bash
+   npx prisma migrate resolve --applied 0_init --schema=src/database/schema.prisma
+   ```
+3. **Áp dụng migration bổ sung:**
+   ```bash
+   npx prisma migrate deploy --schema=src/database/schema.prisma
+   ```
+*Kết quả:* Hệ thống ghi nhận `0_init` đã có sẵn và chỉ chạy câu lệnh tạo bảng `MediaAsset`, không gây lỗi trùng bảng cũ.
+
+---
+
+### Trường hợp C: Database đã có cả schema nền và bảng `MediaAsset` tạo thủ công
+Áp dụng cho môi trường kiểm thử hiện tại nơi bảng `MediaAsset` đã được tạo trước đó:
+1. **Đối chiếu schema:** Chạy `\d "MediaAsset"` kiểm tra kiểu dữ liệu, nullability, unique constraint và foreign keys đã khớp 100% với `schema.prisma`.
+2. **Đánh dấu cả hai migration đã áp dụng:**
+   ```bash
+   npx prisma migrate resolve --applied 0_init --schema=src/database/schema.prisma
+   npx prisma migrate resolve --applied 20261023000000_add_media_asset --schema=src/database/schema.prisma
+   ```
+3. **Kiểm tra trạng thái:**
+   ```bash
+   npx prisma migrate status --schema=src/database/schema.prisma
+   ```
+*Kỳ vọng:* `Database schema is up to date!`. Tuyệt đối không chạy lại lệnh deploy để tránh lỗi `relation already exists`.
 
 ---
 
@@ -108,7 +144,7 @@ Unit tests không yêu cầu kết nối cơ sở dữ liệu thật (chạy ho�
 cd backend
 npm test
 ```
-*Kỳ vọng:* 197/197 unit tests đạt (PASS) trên cả 4 phân hệ Tickets, Feedback, Invoices và Auth.
+*Kỳ vọng:* Toàn bộ các phân hệ (Tickets, Feedback, Invoices, Auth, Users, Rooms, Notifications, Media Upload), Global Error Handler và Test Harnesses đều đạt PASS 100%.
 
 ---
 
@@ -130,7 +166,7 @@ $env:DATABASE_URL = "postgresql://test_app_user:<YOUR_SECURE_TEST_PASSWORD>@127.
 npm run test:integration
 ```
 
-*Kỳ vọng:* 178/178 assertions đạt (PASS) qua 4 phân hệ (Auth, Invoices, Tickets, Feedback) và Cleanup tự động xóa toàn bộ fixture.
+*Kỳ vọng:* Toàn bộ các kiểm thử thuộc 8 phân hệ (Auth, Invoices, Tickets, Feedback, Users, Rooms, Notifications, Media Upload) đều đạt PASS 100% trên PostgreSQL 16 thật và ResourceTracker tự động dọn dẹp sạch toàn bộ fixture theo đúng thứ tự phân cấp khóa ngoại (Payments, Invoices, MediaAssets, Tickets, Feedbacks, Notifications, Users, Rooms).
 
 ---
 
