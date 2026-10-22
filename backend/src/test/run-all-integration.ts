@@ -94,7 +94,7 @@ async function main() {
     try {
       const cleanupSummary = await tracker.cleanup(prisma);
       console.log(
-        `✅ Cleanup hoàn tất: Đã xóa an toàn ${cleanupSummary.cleanedPayments} Payments, ${cleanupSummary.cleanedInvoices} Invoices, ${cleanupSummary.cleanedTickets} Tickets, ${cleanupSummary.cleanedFeedbacks} Feedbacks, ${cleanupSummary.cleanedNotifications} Notifications, ${cleanupSummary.cleanedUsers} Users, và ${cleanupSummary.cleanedRooms} Rooms do test tạo ra.`
+        `✅ Cleanup hoàn tất: Đã xóa an toàn ${cleanupSummary.cleanedPayments} Payments, ${cleanupSummary.cleanedInvoices} Invoices, ${cleanupSummary.cleanedMediaAssets} MediaAssets, ${cleanupSummary.cleanedTickets} Tickets, ${cleanupSummary.cleanedFeedbacks} Feedbacks, ${cleanupSummary.cleanedNotifications} Notifications, ${cleanupSummary.cleanedUsers} Users, và ${cleanupSummary.cleanedRooms} Rooms do test tạo ra.`
       );
     } catch (cleanupError: any) {
       console.error('❌ LỖI TRONG QUÁ TRÌNH CLEANUP:', cleanupError.message);

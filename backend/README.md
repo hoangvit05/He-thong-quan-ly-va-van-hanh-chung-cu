@@ -144,7 +144,7 @@ Unit tests không yêu cầu kết nối cơ sở dữ liệu thật (chạy ho�
 cd backend
 npm test
 ```
-*Kỳ vọng:* Toàn bộ các phân hệ (Tickets, Feedback, Invoices, Auth, Users, Rooms, Notifications, Media) đều đạt PASS 100%.
+*Kỳ vọng:* Toàn bộ các phân hệ (Tickets, Feedback, Invoices, Auth, Users, Rooms, Notifications, Media Upload), Global Error Handler và Test Harnesses đều đạt PASS 100%.
 
 ---
 
@@ -166,7 +166,7 @@ $env:DATABASE_URL = "postgresql://test_app_user:<YOUR_SECURE_TEST_PASSWORD>@127.
 npm run test:integration
 ```
 
-*Kỳ vọng:* 178/178 assertions đạt (PASS) qua 4 phân hệ (Auth, Invoices, Tickets, Feedback) và Cleanup tự động xóa toàn bộ fixture.
+*Kỳ vọng:* Toàn bộ các kiểm thử thuộc 8 phân hệ (Auth, Invoices, Tickets, Feedback, Users, Rooms, Notifications, Media Upload) đều đạt PASS 100% trên PostgreSQL 16 thật và ResourceTracker tự động dọn dẹp sạch toàn bộ fixture theo đúng thứ tự phân cấp khóa ngoại (Payments, Invoices, MediaAssets, Tickets, Feedbacks, Notifications, Users, Rooms).
 
 ---
 

@@ -18,8 +18,10 @@
     "test:notifications": "ts-node src/modules/notifications/notifications.test.ts",
     "test:media": "ts-node src/modules/media/media.test.ts",
     "test:media:live": "ts-node src/modules/media/media.live.test.ts",
+    "test:error-handler": "ts-node src/common/middleware/error-handler.test.ts",
+    "test:resource-tracker": "ts-node src/test/resource-tracker.test.ts",
     "test:integration": "ts-node src/test/run-all-integration.ts",
-    "test": "npm run test:tickets && npm run test:feedback && npm run test:invoices && npm run test:auth && npm run test:users && npm run test:rooms && npm run test:notifications && npm run test:media"
+    "test": "npm run test:tickets && npm run test:feedback && npm run test:invoices && npm run test:auth && npm run test:users && npm run test:rooms && npm run test:notifications && npm run test:media && npm run test:error-handler && npm run test:resource-tracker"
   },
   "dependencies": {
     "@prisma/client": "^5.14.0",
