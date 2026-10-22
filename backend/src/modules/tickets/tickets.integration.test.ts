@@ -24,6 +24,7 @@ interface TestResult {
 function invokeTickets(options: {
   method: 'GET' | 'POST' | 'PUT' | 'DELETE';
   url: string;
+  baseUrl?: string;
   token?: string;
   body?: any;
   query?: Record<string, string>;
@@ -38,12 +39,13 @@ function invokeTickets(options: {
     }
 
     const normalizedUrl = options.url ? (options.url.startsWith('/') ? options.url : `/${options.url}`) : '/';
+    const baseUrl = options.baseUrl || '/api/tickets';
 
     const req: any = {
       method: options.method,
       url: normalizedUrl,
-      originalUrl: `/api/tickets${normalizedUrl === '/' ? '' : normalizedUrl}`,
-      baseUrl: '/api/tickets',
+      originalUrl: `${baseUrl}${normalizedUrl === '/' ? '' : normalizedUrl}`,
+      baseUrl,
       headers,
       body: options.body || {},
       query: options.query || {},
@@ -238,7 +240,22 @@ export async function runTicketsIntegrationTests(
     tracker.trackUser(residentUser3InRoom2.id);
     const residentToken3InRoom2 = createAuthToken(residentUser3InRoom2);
 
-    console.log(`  -> Đã tạo 2 Phòng, 1 BQL, 2 Thợ kỹ thuật, và 3 Cư dân test thành công.\n`);
+    // Cư dân 4 (Chưa được gán phòng - Dùng để kiểm thử HIEU-001 phân quyền căn hộ)
+    const residentUserUnassigned = await prisma.user.create({
+      data: {
+        username: `res_unassigned_${RUN_KEY}`,
+        password: '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy',
+        fullName: 'Cư Dân Chưa Gán Phòng',
+        email: `res_unassigned_${RUN_KEY}@building.test`,
+        role: Role.RESIDENT,
+        roomId: null,
+        isApproved: true,
+      },
+    });
+    tracker.trackUser(residentUserUnassigned.id);
+    const residentTokenUnassigned = createAuthToken(residentUserUnassigned);
+
+    console.log(`  -> Đã tạo 2 Phòng, 1 BQL, 2 Thợ kỹ thuật, và 4 Cư dân test thành công.\n`);
 
     // -----------------------------------------------------------------------
     // NHÓM A: CRUD VÀ VALIDATION
@@ -386,7 +403,7 @@ export async function runTicketsIntegrationTests(
       url: '/',
       token: residentToken1,
       body: {
-        category: 'Nước',
+        category: 'Nước-FakeRoom',
         description: 'Báo hỏng thay phòng 202',
         roomId: room2.id, // Phòng của người khác
       },
@@ -395,6 +412,60 @@ export async function runTicketsIntegrationTests(
       fakeRoomRes.statusCode === 403,
       'TC-TCK-08: Cư dân bị chặn báo hỏng thay cho căn hộ khác (HTTP 403 Forbidden - Anti Spoofing)'
     );
+
+    // TC-TCK-08B (HIEU-001): Cư dân chưa gán phòng cố chỉ định roomId của phòng 1
+    const unassignedFakeRoomRes = await invokeTickets({
+      method: 'POST',
+      url: '/',
+      token: residentTokenUnassigned,
+      body: {
+        category: 'Điện-UnassignedFake',
+        description: 'Cư dân chưa có phòng cố báo hộ phòng 101',
+        roomId: room1.id,
+      },
+    });
+    assert(
+      unassignedFakeRoomRes.statusCode === 403,
+      'TC-TCK-08B: Cư dân chưa gán phòng cố chỉ định roomId phòng khác bị từ chối (HTTP 403 Forbidden)'
+    );
+
+    // TC-TCK-08C (HIEU-001): Cư dân có phòng chủ động báo khu vực chung (roomId: null)
+    const commonAreaRoomRes = await invokeTickets({
+      method: 'POST',
+      url: '/',
+      token: residentToken1,
+      body: {
+        category: 'ThangMáy-Common1',
+        description: 'Thang máy sảnh tầng 1 bị kẹt cửa',
+        roomId: null,
+      },
+    });
+    assert(
+      commonAreaRoomRes.statusCode === 201 && commonAreaRoomRes.body?.data?.roomId === null,
+      'TC-TCK-08C: Cư dân có phòng báo sự cố khu vực chung thành công với roomId: null (HTTP 201)'
+    );
+    if (commonAreaRoomRes.body?.data?.id) {
+      tracker.trackTicket(commonAreaRoomRes.body.data.id);
+    }
+
+    // TC-TCK-08D (HIEU-001): Cư dân chưa gán phòng báo khu vực chung (roomId: null)
+    const unassignedCommonRes = await invokeTickets({
+      method: 'POST',
+      url: '/',
+      token: residentTokenUnassigned,
+      body: {
+        category: 'ĐènSảnh-Common2',
+        description: 'Đèn sảnh chung cư bị cháy',
+        roomId: null,
+      },
+    });
+    assert(
+      unassignedCommonRes.statusCode === 201 && unassignedCommonRes.body?.data?.roomId === null,
+      'TC-TCK-08D: Cư dân chưa gán phòng báo sự cố khu vực chung thành công (HTTP 201)'
+    );
+    if (unassignedCommonRes.body?.data?.id) {
+      tracker.trackTicket(unassignedCommonRes.body.data.id);
+    }
 
     // TC-TCK-09: Cư dân phòng 2 cố tình xem chi tiết phiếu của phòng 1
     const spyTicketRes = await invokeTickets({
@@ -427,6 +498,31 @@ export async function runTicketsIntegrationTests(
     assert(listRes.statusCode === 200, 'TC-TCK-11: Lấy danh sách phiếu thành công (HTTP 200)');
     const allBelongToResident1 = listRes.body?.data?.every((t: any) => t.residentId === residentUser1.id);
     assert(allBelongToResident1, 'TC-TCK-11: Danh sách phiếu trả về TUYỆT ĐỐI chỉ chứa phiếu của chính cư dân đó');
+
+    // TC-TCK-11B (HIEU-002): Cư dân truy cập route alias /api/technician/tickets bị từ chối 403
+    const residentAliasRes = await invokeTickets({
+      method: 'GET',
+      url: '/',
+      baseUrl: '/api/technician/tickets',
+      token: residentToken1,
+    });
+    assert(
+      residentAliasRes.statusCode === 403,
+      'TC-TCK-11B: Cư dân bị từ chối truy cập route alias /api/technician/tickets (HTTP 403 Forbidden)'
+    );
+
+    // TC-TCK-11C (HIEU-002): BQL truy vấn route alias /api/technician/tickets?technicianId lọc đúng thợ
+    const bqlAliasFilterRes = await invokeTickets({
+      method: 'GET',
+      url: '/',
+      baseUrl: '/api/technician/tickets',
+      token: bqlToken,
+      query: { technicianId: String(techUser1.id) },
+    });
+    assert(
+      bqlAliasFilterRes.statusCode === 200,
+      'TC-TCK-11C: BQL truy vấn /api/technician/tickets?technicianId thành công (HTTP 200)'
+    );
 
     // -----------------------------------------------------------------------
     // NHÓM D: VÒNG ĐỜI TICKET (STATE MACHINE), KÊ KHAI VẬT TƯ & NGHIỆM THU
@@ -642,6 +738,110 @@ export async function runTicketsIntegrationTests(
     assert(
       notificationCount === 0,
       'TC-TCK-24: Xác minh CSDL: Không phát sinh Notification ma ngoài ý muốn (COUNT = 0)'
+    );
+
+    // TC-TCK-25 (HIEU-004): Xác minh truy vấn Advisory Lock thực tế không gặp lỗi deserialize void
+    // Thực thi trực tiếp truy vấn advisory lock thông qua Prisma trong transaction trên PostgreSQL thật
+    const testLockKey = BigInt(123456789);
+    const advisoryLockResult = await prisma.$transaction(async (tx: any) => {
+      return tx.$queryRaw<Array<{ locked: number }>>`
+        SELECT 1 AS locked
+        FROM (
+          SELECT pg_advisory_xact_lock(${testLockKey}::bigint)
+        ) AS advisory_lock
+      `;
+    });
+    assert(
+      Array.isArray(advisoryLockResult) && advisoryLockResult.length === 1 && advisoryLockResult[0].locked === 1,
+      'TC-TCK-25: Truy vấn pg_advisory_xact_lock bọc ngoài SELECT 1 AS locked trả về integer hợp lệ, không lỗi void'
+    );
+
+    // TC-TCK-26 (HIEU-004): Xác minh hành vi tranh chấp đồng thời (Contention) của PostgreSQL Advisory Lock
+    // Sử dụng hai transaction độc lập trên PostgreSQL thật:
+    // 1. Transaction 1 lấy advisory lock và duy trì transaction mở.
+    // 2. Transaction 2 thử lấy cùng khóa và bị từ chối (pg_try_advisory_xact_lock trả về false).
+    // 3. Transaction 1 kết thúc (commit), khóa được giải phóng.
+    // 4. Transaction tiếp theo có thể sở hữu khóa thành công.
+    const lockStrContention = `ticket_dup:test_contention_room_999:Điện`;
+    let hashContention = 0;
+    for (let i = 0; i < lockStrContention.length; i++) {
+      hashContention = (hashContention << 5) - hashContention + lockStrContention.charCodeAt(i);
+      hashContention |= 0;
+    }
+    const testContentionKey = BigInt(Math.abs(hashContention));
+
+    let resolveTx1Acquired!: () => void;
+    let rejectTx1Acquired!: (err: any) => void;
+    const tx1AcquiredPromise = new Promise<void>((res, rej) => {
+      resolveTx1Acquired = res;
+      rejectTx1Acquired = rej;
+    });
+
+    let resolveTx1Release!: () => void;
+    const tx1ReleasePromise = new Promise<void>((res) => {
+      resolveTx1Release = res;
+    });
+
+    let tx1Error: any = null;
+    const tx1Promise = prisma.$transaction(async (tx1: any) => {
+      try {
+        await tx1.$queryRaw<Array<{ locked: number }>>`
+          SELECT 1 AS locked
+          FROM (
+            SELECT pg_advisory_xact_lock(${testContentionKey}::bigint)
+          ) AS advisory_lock
+        `;
+        resolveTx1Acquired();
+        await tx1ReleasePromise;
+      } catch (err) {
+        rejectTx1Acquired(err);
+        throw err;
+      }
+    }).catch((err: any) => {
+      tx1Error = err;
+    });
+
+    try {
+      await tx1AcquiredPromise;
+
+      // Transaction 2: Kiểm tra khi Transaction 1 đang giữ khóa thì không thể sở hữu cùng khóa
+      let acquiredWhileLocked: boolean | null = null;
+      await prisma.$transaction(async (tx2: any) => {
+        const tryLock = await tx2.$queryRaw<Array<{ acquired: boolean }>>`
+          SELECT pg_try_advisory_xact_lock(${testContentionKey}::bigint) AS acquired
+        `;
+        acquiredWhileLocked = tryLock[0]?.acquired ?? true;
+      });
+
+      assert(
+        acquiredWhileLocked === false,
+        'TC-TCK-26: Tranh chấp đồng thời: Transaction 2 không thể sở hữu cùng advisory lock khi Transaction 1 đang giữ (acquired = false)'
+      );
+    } finally {
+      // Đảm bảo Transaction 1 luôn được giải phóng kể cả khi assertion thất bại
+      resolveTx1Release();
+      await tx1Promise;
+    }
+
+    assert(!tx1Error, 'TC-TCK-26: Transaction 1 kết thúc và commit thành công');
+
+    // Transaction 3: Sau khi Transaction 1 commit, transaction tiếp theo có thể lấy khóa
+    const postReleaseResult = await prisma.$transaction(async (tx3: any) => {
+      const tryAfter = await tx3.$queryRaw<Array<{ acquired: boolean }>>`
+        SELECT pg_try_advisory_xact_lock(${testContentionKey}::bigint) AS acquired
+      `;
+      const lockAfter = await tx3.$queryRaw<Array<{ locked: number }>>`
+        SELECT 1 AS locked
+        FROM (
+          SELECT pg_advisory_xact_lock(${testContentionKey}::bigint)
+        ) AS advisory_lock
+      `;
+      return { acquired: tryAfter[0]?.acquired, locked: lockAfter[0]?.locked };
+    });
+
+    assert(
+      postReleaseResult.acquired === true && postReleaseResult.locked === 1,
+      'TC-TCK-26: Sau khi Transaction 1 giải phóng, transaction mới sở hữu khóa thành công và trả về locked = 1'
     );
   } finally {
     // Không cleanup ở đây; cleanup được Runner quản lý tập trung trong khối finally của tiến trình
