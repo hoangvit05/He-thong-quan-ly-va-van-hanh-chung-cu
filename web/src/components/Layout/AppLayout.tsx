@@ -1,15 +1,22 @@
 import React from 'react';
-import { Sidebar } from './Sidebar';
+import { Outlet, Navigate } from 'react-router-dom';
 import { Header } from './Header';
+import { Sidebar } from './Sidebar';
 
-export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const AppLayout: React.FC = () => {
+  const token = localStorage.getItem('token');
+
+  if (!token) {
+    return <Navigate to="/login" replace />;
+  }
+
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', fontFamily: 'Arial, sans-serif' }}>
+    <div className="flex min-h-screen bg-gray-50">
       <Sidebar />
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+      <div className="flex-1 flex flex-col min-w-0">
         <Header />
-        <main style={{ padding: '24px', backgroundColor: '#f4f6f8', flex: 1 }}>
-          {children}
+        <main className="flex-1 p-6 overflow-y-auto">
+          <Outlet />
         </main>
       </div>
     </div>

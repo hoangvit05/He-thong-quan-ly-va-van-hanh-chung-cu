@@ -1,35 +1,36 @@
 import React from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 import { MENU_ITEMS } from '../../constants/menu';
 
 export const Sidebar: React.FC = () => {
-  const location = useLocation();
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  const userRole = user.role || '';
+
+  const accessibleMenu = MENU_ITEMS.filter((item) =>
+    item.roles.includes(userRole)
+  );
 
   return (
-    <aside style={{ width: '260px', backgroundColor: '#1e293b', color: '#fff', padding: '20px' }}>
-      <h2 style={{ fontSize: '18px', marginBottom: '24px', borderBottom: '1px solid #334155', paddingBottom: '12px' }}>
-        🏢 Quản Lý Chung Cư
-      </h2>
-      <nav style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-        {MENU_ITEMS.map((item) => {
-          const isActive = location.pathname === item.path;
-          return (
-            <Link
-              key={item.path}
-              to={item.path}
-              style={{
-                color: isActive ? '#38bdf8' : '#94a3b8',
-                backgroundColor: isActive ? '#0f172a' : 'transparent',
-                padding: '10px 14px',
-                borderRadius: '6px',
-                textDecoration: 'none',
-                fontWeight: isActive ? 'bold' : 'normal',
-              }}
-            >
-              {item.title}
-            </Link>
-          );
-        })}
+    <aside className="w-64 bg-slate-900 text-slate-100 min-h-screen flex flex-col p-4 shrink-0">
+      <div className="text-xl font-black mb-8 px-2 text-indigo-400 tracking-wider">
+        BQL CHUNG CƯ
+      </div>
+      <nav className="flex-1 space-y-1">
+        {accessibleMenu.map((item) => (
+          <NavLink
+            key={item.path}
+            to={item.path}
+            className={({ isActive }) =>
+              `block px-4 py-2.5 rounded-lg text-sm font-medium transition ${
+                isActive
+                  ? 'bg-indigo-600 text-white'
+                  : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+              }`
+            }
+          >
+            {item.title}
+          </NavLink>
+        ))}
       </nav>
     </aside>
   );
