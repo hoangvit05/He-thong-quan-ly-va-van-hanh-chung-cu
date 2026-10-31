@@ -1,15 +1,18 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { getStoredUser, clearAuthSession } from '../../utils/auth';
 
 export const Header: React.FC = () => {
   const navigate = useNavigate();
-  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  const user = getStoredUser();
 
   const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    clearAuthSession();
     navigate('/login');
   };
+
+  const displayName = user?.fullName || user?.username || 'Người dùng';
+  const displayRole = user?.role || 'GUEST';
 
   return (
     <header className="h-16 bg-white border-b px-6 flex items-center justify-between shadow-sm">
@@ -18,7 +21,7 @@ export const Header: React.FC = () => {
       </h2>
       <div className="flex items-center gap-4">
         <span className="text-sm text-gray-600">
-          Xin chào, <b>{user.fullName || user.username || 'Người dùng'}</b> ({user.role || 'GUEST'})
+          Xin chào, <b>{displayName}</b> ({displayRole})
         </span>
         <button
           onClick={handleLogout}

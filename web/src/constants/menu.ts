@@ -1,7 +1,9 @@
+export type AppRole = 'ADMIN' | 'BQL' | 'TECHNICIAN' | 'RESIDENT';
+
 export interface MenuItem {
   title: string;
   path: string;
-  roles: string[];
+  roles: AppRole[];
 }
 
 export const MENU_ITEMS: MenuItem[] = [
@@ -13,12 +15,12 @@ export const MENU_ITEMS: MenuItem[] = [
   {
     title: 'Cư dân & Căn hộ',
     path: '/residents',
-    roles: ['ADMIN', 'MANAGER'],
+    roles: ['ADMIN', 'BQL'],
   },
   {
     title: 'Điều phối sự cố',
     path: '/tickets/dispatch',
-    roles: ['ADMIN', 'MANAGER'],
+    roles: ['ADMIN', 'BQL'],
   },
   {
     title: 'Nhiệm vụ kỹ thuật',
@@ -28,16 +30,16 @@ export const MENU_ITEMS: MenuItem[] = [
   {
     title: 'Hóa đơn & Thu phí',
     path: '/billing',
-    roles: ['ADMIN', 'MANAGER'],
+    roles: ['ADMIN', 'BQL'],
   },
   {
     title: 'Phản ánh & Đóng góp',
     path: '/feedback',
-    roles: ['ADMIN', 'MANAGER'],
+    roles: ['ADMIN', 'BQL'],
   },
   {
     title: 'Thông báo tòa nhà',
     path: '/announcements',
-    roles: ['ADMIN', 'MANAGER'],
+    roles: ['ADMIN', 'BQL'],
   },
 ];

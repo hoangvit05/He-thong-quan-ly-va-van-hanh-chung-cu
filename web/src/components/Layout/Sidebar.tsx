@@ -1,11 +1,13 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { MENU_ITEMS } from '../../constants/menu';
+import { MENU_ITEMS, AppRole } from '../../constants/menu';
+import { getStoredUser } from '../../utils/auth';
 
 export const Sidebar: React.FC = () => {
-  const user = JSON.parse(localStorage.getItem('user') || '{}');
-  const userRole = user.role || '';
+  const user = getStoredUser();
+  const userRole = (user?.role || '') as AppRole;
 
+  // Lọc danh sách menu chuẩn xác theo role thực tế nhận từ Backend
   const accessibleMenu = MENU_ITEMS.filter((item) =>
     item.roles.includes(userRole)
   );
