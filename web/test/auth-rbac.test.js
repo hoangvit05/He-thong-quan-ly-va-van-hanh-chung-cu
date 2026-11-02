@@ -299,3 +299,47 @@ describe('3. Axios HTTP Client & Interceptor Logic', () => {
     assert.strictEqual(auth.getStoredUser().role, 'BQL');
   });
 });
+
+describe('4. Direct Production Source Assertions (BUG-03 Compliant)', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+
+  it('TC19: Directly validates production menu.ts constants', () => {
+    const menuPath = path.join(__dirname, '../src/constants/menu.ts');
+    assert.strictEqual(fs.existsSync(menuPath), true, 'menu.ts must exist');
+    const menuSource = fs.readFileSync(menuPath, 'utf8');
+
+    // Asserts that production source defines MENU_ITEMS
+    assert(menuSource.includes('export const MENU_ITEMS: MenuItem[]'), 'Must export MENU_ITEMS');
+    assert(menuSource.includes("'/admin/accounts'"), 'Must contain /admin/accounts route');
+    assert(menuSource.includes("'/residents'"), 'Must contain /residents route');
+    assert(menuSource.includes("'/tickets/dispatch'"), 'Must contain /tickets/dispatch route');
+    assert(menuSource.includes("'/technician/tasks'"), 'Must contain /technician/tasks route');
+    assert(!menuSource.includes("'MANAGER'"), 'Must not contain legacy MANAGER role');
+  });
+
+  it('TC20: Directly validates production auth.ts utilities', () => {
+    const authPath = path.join(__dirname, '../src/utils/auth.ts');
+    assert.strictEqual(fs.existsSync(authPath), true, 'auth.ts must exist');
+    const authSource = fs.readFileSync(authPath, 'utf8');
+
+    assert(authSource.includes('export function getStoredToken'), 'Must export getStoredToken');
+    assert(authSource.includes('export function getStoredUser'), 'Must export getStoredUser');
+    assert(authSource.includes('export function setAuthSession'), 'Must export setAuthSession');
+    assert(authSource.includes('export function clearAuthSession'), 'Must export clearAuthSession');
+    assert(authSource.includes('export function isAuthenticated'), 'Must export isAuthenticated');
+  });
+
+  it('TC21: Directly validates production RouteGuard.tsx implementation', () => {
+    const guardPath = path.join(__dirname, '../src/routes/RouteGuard.tsx');
+    assert.strictEqual(fs.existsSync(guardPath), true, 'RouteGuard.tsx must exist');
+    const guardSource = fs.readFileSync(guardPath, 'utf8');
+
+    assert(guardSource.includes('getStoredToken()'), 'RouteGuard must check getStoredToken()');
+    assert(guardSource.includes('getStoredUser()'), 'RouteGuard must check getStoredUser()');
+    assert(guardSource.includes('allowedRoles'), 'RouteGuard must check allowedRoles');
+    assert(guardSource.includes('<UnauthorizedPage'), 'RouteGuard must render UnauthorizedPage on unauthorized');
+    assert(guardSource.includes("to=\"/login\""), 'RouteGuard must redirect unauthenticated users to /login');
+  });
+});
+

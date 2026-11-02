@@ -1,20 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axiosClient from '../api/axiosClient';
 import { API_ENDPOINTS } from '../api/endpoints';
-import { getStoredUser, ApiEnvelope } from '../utils/auth';
+import { getStoredUser } from '../utils/auth';
 import { AppRole } from '../constants/menu';
+import {
+  StaffAccount,
+  PaginationMeta,
+  validateAdminUsersResponse,
+  calculatePageRecovery,
+} from '../utils/adminPagination';
 
-export interface StaffAccount {
-  id: number;
-  username: string;
-  fullName: string;
-  phone?: string | null;
-  email?: string | null;
-  role: AppRole;
-  roomId?: number | null;
-  isApproved: boolean;
-  createdAt?: string;
-}
+export type { StaffAccount };
 
 export const AdminAccountsPage: React.FC = () => {
   const [accounts, setAccounts] = useState<StaffAccount[]>([]);
@@ -23,33 +19,81 @@ export const AdminAccountsPage: React.FC = () => {
   const [fullName, setFullName] = useState('');
   const [role, setRole] = useState<'BQL' | 'TECHNICIAN'>('BQL');
   const [loading, setLoading] = useState(false);
+  const [tableLoading, setTableLoading] = useState(false);
+  const [paginationMeta, setPaginationMeta] = useState<PaginationMeta>({
+    page: 1,
+    limit: 10,
+    total: 0,
+    totalPages: 1,
+  });
+  const fetchAccountsSeqRef = useRef<number>(0);
+  const isMountedRef = useRef<boolean>(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
   const [fetchError, setFetchError] = useState('');
   const [createMsg, setCreateMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const currentUser = getStoredUser();
   const isAdmin = currentUser?.role === 'ADMIN';
 
-  const fetchAccounts = async () => {
+  const fetchAccounts = async (targetPage = 1, isRecovery = false) => {
+    const seq = ++fetchAccountsSeqRef.current;
     setFetchError('');
+    setTableLoading(true);
     try {
-      const res = (await axiosClient.get(API_ENDPOINTS.AUTH.ADMIN_USERS)) as unknown as ApiEnvelope<StaffAccount[]> | StaffAccount[];
-      // Backend envelope: { success: true, data: [...], pagination: {...} }
-      const envelopeData = (res as ApiEnvelope<StaffAccount[]>)?.data;
-      const list: StaffAccount[] = Array.isArray(envelopeData)
-        ? envelopeData
-        : Array.isArray(res)
-        ? (res as StaffAccount[])
-        : [];
-      setAccounts(list);
+      const res = await axiosClient.get(
+        `${API_ENDPOINTS.AUTH.ADMIN_USERS}?page=${targetPage}&limit=10`
+      );
+
+      if (seq !== fetchAccountsSeqRef.current || !isMountedRef.current) {
+        return; // Stale request or unmounted component
+      }
+
+      // Validate nghiêm ngặt response Backend theo hợp đồng
+      const validation = validateAdminUsersResponse(res, targetPage, 10);
+      if (!validation.isValid) {
+        setAccounts([]);
+        setFetchError(validation.error);
+        return;
+      }
+
+      // Xử lý trường hợp trang hiện tại vượt quá tổng số trang (Page Overshoot Recovery)
+      const recovery = calculatePageRecovery(
+        validation.pagination.page,
+        validation.pagination.totalPages,
+        validation.pagination.total,
+        isRecovery
+      );
+
+      if (recovery.shouldRecover) {
+        await fetchAccounts(recovery.targetPage, true);
+        return;
+      }
+
+      setAccounts(validation.users);
+      setPaginationMeta(validation.pagination);
     } catch (e: unknown) {
+      if (seq !== fetchAccountsSeqRef.current || !isMountedRef.current) {
+        return;
+      }
       const errObj = e as { message?: string };
       console.error('Không tải được danh sách tài khoản:', e);
       setFetchError(errObj?.message || 'Không thể tải danh sách tài khoản từ máy chủ.');
+      setAccounts([]);
+    } finally {
+      if (seq === fetchAccountsSeqRef.current && isMountedRef.current) {
+        setTableLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    fetchAccounts();
+    fetchAccounts(1);
   }, []);
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -148,7 +192,8 @@ export const AdminAccountsPage: React.FC = () => {
           Quản Lý Tài Khoản Ban Quản Lý & Thợ Kỹ Thuật
         </h1>
         <button
-          onClick={fetchAccounts}
+          type="button"
+          onClick={() => fetchAccounts(1)}
           className="text-xs bg-slate-200 hover:bg-slate-300 text-slate-700 px-3 py-1.5 rounded transition"
         >
           Làm mới
@@ -291,6 +336,33 @@ export const AdminAccountsPage: React.FC = () => {
           </tbody>
         </table>
       </div>
+
+      {/* Phân trang danh sách tài khoản */}
+      {paginationMeta.totalPages > 1 && (
+        <div className="flex justify-between items-center mt-3 text-sm text-gray-600">
+          <span>
+            Trang {paginationMeta.page} / {paginationMeta.totalPages} (Tổng: {paginationMeta.total} tài khoản)
+          </span>
+          <div className="flex space-x-2">
+            <button
+              type="button"
+              disabled={paginationMeta.page <= 1 || tableLoading}
+              onClick={() => fetchAccounts(paginationMeta.page - 1)}
+              className="px-3 py-1 border rounded bg-white hover:bg-gray-50 disabled:opacity-50"
+            >
+              Trang trước
+            </button>
+            <button
+              type="button"
+              disabled={paginationMeta.page >= paginationMeta.totalPages || tableLoading}
+              onClick={() => fetchAccounts(paginationMeta.page + 1)}
+              className="px-3 py-1 border rounded bg-white hover:bg-gray-50 disabled:opacity-50"
+            >
+              Trang sau
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
