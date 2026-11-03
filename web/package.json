@@ -5,7 +5,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "node test/auth-rbac.test.js && node test/room-validation.test.js"
+    "test": "node test/auth-rbac.test.js && node test/room-validation.test.js && node test/technician-tasks.test.js"
   },
   "dependencies": {
     "axios": "^1.7.2",
