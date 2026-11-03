@@ -555,35 +555,63 @@ npm start
 ### 1. Quy ước Phân nhánh Git (Branching Strategy)
 * **`main`**: Nhánh chính của dự án. Theo **chính sách nội bộ của nhóm**, `main` được quy ước là nhánh bảo vệ (Protected Branch theo quy ước nội bộ): chỉ chứa mã nguồn đã vượt qua kiểm tra biên dịch, unit tests và CI Pipeline; tuyệt đối không push code trực tiếp lên `main`.
   * *Phân biệt quy ước nội bộ và cấu hình GitHub:* Chính sách bảo vệ nhánh `main` hiện là cam kết kỷ luật nội bộ của nhóm (`[QUY ƯỚC NỘI BỘ]`). Việc kích hoạt cấu hình Branch Protection Rule hoặc Ruleset kỹ thuật thực tế trên GitHub repository (`[CẦN XÁC MINH CẤU HÌNH GITHUB THỰC TẾ]`) cần được Trưởng nhóm (Repo Admin - Việt Hoàng) thiết lập và xác minh trực tiếp trên phần Settings của GitHub repository; hiện tại chưa có bằng chứng xác nhận cấu hình này đã được bật trên GitHub.
-* **Kiến trúc Đúng 6 Nhánh làm việc Chính (Active Working Branches):**
-  Dự án chuẩn hóa đúng 6 nhánh làm việc chính, bao gồm nhánh `main` và 5 nhánh cá nhân độc lập của 5 thành viên phát triển:
-  1. **`main`**: Nhánh tích hợp trung tâm của dự án (Production baseline).
-  2. **`Đức`**: Nhánh cá nhân của Đức (Phụ trách Web Quản lý Căn hộ, Điều phối sự cố & Hóa đơn).
-  3. **`Đăng-Hoàng`**: Nhánh cá nhân của Đăng Hoàng (Phụ trách Web Frontend Lead, Web Foundation, Auth/RBAC & Admin Accounts).
-  4. **`Việt-Hoàng`**: Nhánh cá nhân của Việt Hoàng (Trưởng nhóm, Phụ trách Backend Framework, Auth, Users, Rooms, Notifications, Media).
+* **Kiến trúc Duy nhất 6 Nhánh làm việc Chính thức (Official Branch Strategy):**
+  Dự án chuẩn hóa cấu trúc repository tinh gọn, tuyệt đối **MỖI THÀNH VIÊN CHỈ CÓ DUY NHẤT MỘT BRANCH LÀM VIỆC CHÍNH THỨC**. Hệ thống chỉ gồm đúng 6 nhánh:
+  1. **`main`**: Nhánh tích hợp trung tâm của toàn dự án (Production baseline).
+  2. **`Việt-Hoàng`**: Nhánh cá nhân của Việt Hoàng (Trưởng nhóm, Phụ trách Backend Framework, Auth, Users, Rooms, Notifications, Media).
+  3. **`Đức`**: Nhánh cá nhân của Đức (Phụ trách Web Quản lý Căn hộ, Điều phối sự cố & Hóa đơn).
+  4. **`Đăng-Hoàng`**: Nhánh cá nhân của Đăng Hoàng (Phụ trách Web Frontend Lead, Web Foundation, Auth/RBAC & Admin Accounts).
   5. **`Oanh`**: Nhánh cá nhân của Oanh (Phụ trách Web Vận hành Thợ, Thông báo tòa nhà & Góp ý).
   6. **`Hiếu`**: Nhánh cá nhân của Hiếu (Phụ trách CSDL Prisma, Backend Core: Tickets, Invoices, Feedback, CI Pipeline).
+
+* **Quy tắc Kỷ luật Phân nhánh & Git Workflow Bắt buộc:**
+  * **Tuyệt đối không push code trực tiếp lên `main`**.
+  * **Không tạo thêm branch mới dưới bất kỳ hình thức nào** (không tạo các branch `feature/*`, `fix/*`, `integrate/*` cho từng chức năng hoặc từng nhiệm vụ). Mọi phát triển tính năng hay sửa lỗi đều thực hiện trực tiếp trên chính branch cá nhân của mình.
+  * **Lịch sử sao lưu toàn diện:** Toàn bộ lịch sử các branch backup cũ (`backup/*`, `backup/ref/*`, `integrate/*`) đã được đóng gói và xác minh an toàn tuyệt đối trong Git bundle độc lập (`backup-bundle-pre-cleanup-20261103.bundle`) bên ngoài repository.
+
+* **Quy trình Phát triển & Tích hợp qua Pull Request:**
+  1. **Chuyển sang nhánh cá nhân và cập nhật mã nguồn mới nhất:**
+     ```bash
+     git switch Oanh
+     git pull --rebase origin Oanh
+     ```
+  2. **Thực hiện code và kiểm thử nội bộ:**
+     ```bash
+     git add .
+     git commit -m "feat(oanh): implement assigned functionality"
+     git push origin Oanh
+     ```
+  3. **Tạo Pull Request từ branch cá nhân vào `main`:**
+     * Mở PR trên GitHub nhắm từ branch cá nhân (`Oanh`, `Đức`, `Đăng-Hoàng`, `Hiếu`, `Việt-Hoàng`) vào `main`.
+     * Chờ GitHub Actions CI tự động kiểm tra biên dịch, linting, unit test và integration test.
+     * Chờ Tech Leader review mã nguồn.
+     * Chỉ tiến hành merge khi CI và toàn bộ bài kiểm thử đạt trạng thái **PASS (Xanh)**.
+  4. **Cập nhật lại nhánh cá nhân sau khi merge:**
+     ```bash
+     git switch Oanh
+     git pull origin main
+     git push origin Oanh
+     ```
+     Sau đó tiếp tục phát triển các nhiệm vụ tiếp theo trên chính branch cá nhân đó.
 
 * **Phân biệt Rõ ràng Thành viên Trùng tên (Disambiguation):**
   * **Việt Hoàng** (Branch: `Việt-Hoàng`): Trưởng nhóm (Leader), Backend Architect / Backend Lead, Repo Owner (`hoangvit05`). Quản lý toàn bộ hạ tầng Backend, API endpoints, server entrypoint, các module nghiệp vụ Backend (Auth, Users, Rooms, Notifications, Media Asset) và phê duyệt Pull Request toàn dự án.
   * **Đăng Hoàng** (Branch: `Đăng-Hoàng`): Web Frontend Lead. Quản lý toàn bộ Web Foundation (Tailwind, Vite, Layout), Routing, Auth/RBAC frontend, Admin Accounts, phân trang an toàn AdminPagination và Web CI test suite.
   * **Nguyên tắc bất khả xâm phạm:** Tuyệt đối phân biệt Việt Hoàng và Đăng Hoàng là hai thành viên riêng biệt; không tự ý chuyển code của Việt Hoàng sang nhánh Đăng Hoàng hoặc ngược lại.
 
-* **Chính sách Bảo toàn Nhánh Backup:**
-  * Toàn bộ 11 nhánh backup với tiền tố `backup/` (như `backup/dang-hoang-pre-main-reset-...`, `backup/duc-pre-main-reset-...`, `backup/local-uncommitted-...`, `backup/ref/...`) được bảo toàn nguyên vẹn trên cả local và remote theo chính sách kiểm toán an toàn dữ liệu, tuyệt đối không được xóa hoặc ghi đè.
-* **Quy trình tạo Pull Request (PR) & Code Review `[QUY ƯỚC NHÓM ĐỀ XUẤT]`:**
+* **Quy trình tạo Pull Request (PR) & Code Review `[QUY ƯỚC BẮT BUỘC]`:**
   1. Trước khi mở PR, chạy kiểm tra biên dịch và unit tests tại local:
      ```bash
      cd backend && npx tsc --noEmit && npm test
+     cd ../web && npx tsc --noEmit && npm test
      ```
   2. Kiểm tra khoảng trắng thừa:
      ```bash
      git diff --check
      ```
-  3. Mở Pull Request nhắm vào nhánh `main`.
-  4. GitHub Actions CI sẽ tự động kích hoạt kiểm tra 15 bước: Typecheck, Whitespace, Unit tests (ghi nhận 197 tests tại thời điểm kiểm tra), Khởi tạo Docker test container, PL/pgSQL Least-Privilege ACL checks, Integration tests (ghi nhận 178 assertions tại thời điểm kiểm tra), và Safe Teardown.
-  5. Chỉ khi CI báo trạng thái **Success (Xanh)**, **Việt Hoàng (Leader)** mới tiến hành review và chấp thuận Merge vào `main`.
-
+  3. Mở Pull Request từ branch cá nhân nhắm vào nhánh `main`.
+  4. GitHub Actions CI sẽ tự động kích hoạt kiểm tra toàn diện cả Web và Backend.
+  5. Chỉ khi CI báo trạng thái **Success (Xanh)**, **Tech Leader** mới tiến hành review và chấp thuận Merge vào `main`.
 ### 2. Quy định Khi Thay đổi Schema CSDL hoặc Danh mục API
 * **Khi cần sửa đổi CSDL ([`schema.prisma`](backend/src/database/schema.prisma)):** Thành viên có nhu cầu bắt buộc phải thảo luận và được **Hiếu** phê duyệt. Hiếu chịu trách nhiệm cập nhật schema, chạy migration trên DB test và thông báo cho toàn đội.
 * **Khi cần thêm/sửa API Endpoint:** Bắt buộc cập nhật thống nhất trên [`backend/src/common/constants/api-endpoints.ts`](backend/src/common/constants/api-endpoints.ts) (do **Việt Hoàng** phụ trách Final Owner) và đồng bộ sang Web/Mobile.
