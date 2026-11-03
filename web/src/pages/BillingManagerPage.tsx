@@ -2,17 +2,35 @@
 // TRANG QUẢN LÝ HÓA ĐƠN & ĐỐI SOÁT THANH TOÁN (BILLING MANAGER PAGE)
 // Phụ trách: Thành viên Đức (Senior React + TypeScript Frontend Developer)
 // Phạm vi: web/src/pages/BillingManagerPage.tsx
-// Đợt hoàn thiện: FINAL HARDENING (No-Tailwind Scoped CSS, Anti-Race Condition,
-//                  Decimal Precision, Transparent Financial Stats, Strict Overpayment Guard)
+// Chuẩn hóa: Civic Clarity + Warm Modern Design System (WCAG 2.2 AA)
+// Đặc tả an toàn:
+//   1. Decimal Precision: Tính toán tiền tệ chính xác qua cents (chặn sai số float).
+//   2. Anti-Race Condition: Request Sequence Counters độc lập.
+//   3. Chống nộp thừa (Overpayment Guard) & Kiểm soát chuyển trạng thái.
+//   4. Chống trùng lặp: Bắt lỗi 409 chuẩn: "Căn hộ này đã được lập hóa đơn tháng này rồi".
+//   5. Đối soát thanh toán minh bạch: Không tự động chuyển PAID chỉ vì có mã QR.
 // =========================================================================
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import axiosClient from '../api/axiosClient';
 import { API_ENDPOINTS } from '../api/endpoints';
 import { ApiEnvelope } from '../utils/auth';
+import {
+  Button,
+  Card,
+  CardHeader,
+  CardTitle,
+  StatCard,
+  Badge,
+  Modal,
+  Pagination,
+  LoadingSpinner,
+  EmptyState,
+  AlertBanner,
+} from '../components/common';
 
 // -------------------------------------------------------------------------
-// ĐỊNH NGHĨA KIỂU DỮ LIỆU CỤC BỘ (STRICT TYPESCRIPT - KHÔNG DÙNG ANY)
+// ĐỊNH NGHĨA KIỂU DỮ LIỆU CỤC BỘ (STRICT TYPESCRIPT)
 // -------------------------------------------------------------------------
 
 export type InvoiceStatusType = 'UNPAID' | 'PARTIALLY_PAID' | 'PAID';
@@ -83,22 +101,10 @@ interface ApiErrorShape {
 
 // -------------------------------------------------------------------------
 // TIỆN ÍCH XỬ LÝ TIỀN TỆ DECIMAL CHÍNH XÁC TUYỆT ĐỐI (DECIMAL PRECISION HELPERS)
-// Bóc tách chuỗi thập phân thành đơn vị cent nguyên (1 VND = 100 cents).
-// TUYỆT ĐỐI KHÔNG dùng Math.round(Number(val) * 100) để tránh sai số dấu phẩy động (vd: 1.005).
-// TÁCH BIỆT RÕ RÀNG BA GIỚI HẠN DECIMAL:
-//   1. Giới hạn từng khoản phí: 999,999,999.99 VND (MAX_SAFE_FEE_CENTS)
-//   2. Giới hạn tổng hóa đơn: 9,999,999,999.99 VND theo cột DECIMAL(12,2) (MAX_INVOICE_CENTS)
-//   3. Giới hạn thanh toán: 9,999,999,999.99 VND theo cột DECIMAL(12,2) (MAX_PAYMENT_CENTS)
 // -------------------------------------------------------------------------
 
-// 1. Giới hạn cho từng khoản phí riêng lẻ (Phí quản lý, Phí gửi xe, Tiền nước, Phí khác) theo Backend validator
 export const MAX_SAFE_FEE_CENTS = 99999999999; // 999,999,999.99 VND
-
-// 2. Giới hạn tối đa cho tổng hóa đơn và số tiền còn thiếu (DECIMAL(12, 2) trong DB / Prisma)
-// Tổng 4 khoản phí tối đa: 999,999,999.99 * 4 = 3,999,999,999.96 VND (399,999,999,996 cents)
 export const MAX_INVOICE_CENTS = 999999999999; // 9,999,999,999.99 VND
-
-// 3. Giới hạn tối đa cho khoản thanh toán (paidAmount, payment amount theo DECIMAL(12, 2))
 export const MAX_PAYMENT_CENTS = 999999999999; // 9,999,999,999.99 VND
 
 export interface DecimalParseResult {
@@ -107,100 +113,78 @@ export interface DecimalParseResult {
   error?: string;
 }
 
-/**
- * Phân tích chuỗi hoặc số thành đơn vị cents nguyên
- * Kiểm tra định dạng số, chặn số âm, chặn NaN, từ chối số có nhiều hơn 2 chữ số thập phân (như 1.005)
- * Phân biệt rõ ràng:
- *   - Giá trị 0, "0", "0.00": hợp lệ với 0 cents.
- *   - Giá trị null/undefined/rỗng: không hợp lệ nếu là trường bắt buộc (isRequired = true).
- *   - Giá trị không phải số ("abc"), số âm, quá 2 số thập phân: không hợp lệ.
- * TUYỆT ĐỐI KHÔNG tự động chuyển dữ liệu sai định dạng thành 0 cents.
- */
 export function parseDecimalToCents(
   val: unknown,
   fieldName = 'Số tiền',
-  isRequired = false,
+  isRequired = true,
   maxAllowedCents: number = MAX_INVOICE_CENTS
 ): DecimalParseResult {
   if (val === undefined || val === null || val === '') {
-    if (!isRequired) {
-      return { isValid: true, cents: 0 };
+    if (isRequired) {
+      return { isValid: false, cents: 0, error: `${fieldName} không được để trống.` };
     }
-    return { isValid: false, cents: 0, error: `${fieldName} không được để trống hoặc thiếu dữ liệu.` };
+    return { isValid: true, cents: 0 };
   }
 
-  let strVal = '';
+  let str = '';
   if (typeof val === 'number') {
     if (!Number.isFinite(val) || Number.isNaN(val)) {
       return { isValid: false, cents: 0, error: `${fieldName} không phải là số hợp lệ.` };
     }
-    strVal = val.toString();
+    if (val < 0) {
+      return { isValid: false, cents: 0, error: `${fieldName} không được âm.` };
+    }
+    str = val.toString();
   } else if (typeof val === 'string') {
-    strVal = val.trim().replace(/,/g, '');
+    str = val.trim();
+    if (str === '') {
+      if (isRequired) {
+        return { isValid: false, cents: 0, error: `${fieldName} không được để trống.` };
+      }
+      return { isValid: true, cents: 0 };
+    }
   } else {
-    return { isValid: false, cents: 0, error: `${fieldName} không đúng định dạng.` };
+    return { isValid: false, cents: 0, error: `${fieldName} có kiểu dữ liệu không hợp lệ.` };
   }
 
-  if (!strVal) {
-    if (!isRequired) return { isValid: true, cents: 0 };
-    return { isValid: false, cents: 0, error: `${fieldName} không được để trống.` };
+  const parts = str.split('.');
+  if (parts.length > 2) {
+    return { isValid: false, cents: 0, error: `${fieldName} sai định dạng số thập phân.` };
   }
 
-  // Chặn số âm
-  if (strVal.startsWith('-')) {
-    return { isValid: false, cents: 0, error: `${fieldName} không được là số âm.` };
+  const intPartStr = parts[0];
+  const decPartStr = parts.length === 2 ? parts[1] : '';
+
+  if (!/^\d+$/.test(intPartStr)) {
+    return { isValid: false, cents: 0, error: `${fieldName} chứa ký tự không hợp lệ.` };
   }
 
-  // Bóc tách phần nguyên và phần thập phân
-  const match = strVal.match(/^(\d+)(?:\.(\d+))?$/);
-  if (!match) {
-    return { isValid: false, cents: 0, error: `${fieldName} phải là số thập phân hợp lệ.` };
+  if (parts.length === 2) {
+    if (!/^\d+$/.test(decPartStr)) {
+      return { isValid: false, cents: 0, error: `Phần thập phân của ${fieldName} không hợp lệ.` };
+    }
+    if (decPartStr.length > 2) {
+      return { isValid: false, cents: 0, error: `${fieldName} chỉ được tối đa 2 chữ số thập phân.` };
+    }
   }
 
-  const intPartStr = match[1];
-  const decPartStr = match[2] || '';
+  const intVal = parseInt(intPartStr, 10);
+  const decVal = decPartStr.length === 0 ? 0 : decPartStr.length === 1 ? parseInt(decPartStr, 10) * 10 : parseInt(decPartStr, 10);
 
-  // Bắt buộc từ chối nếu có nhiều hơn 2 chữ số thập phân (ví dụ 1.005)
-  if (decPartStr.length > 2) {
-    return {
-      isValid: false,
-      cents: 0,
-      error: `${fieldName} chỉ được có tối đa 2 chữ số thập phân (giá trị "${strVal}" không hợp lệ).`,
-    };
-  }
-
-  const normalizedDecStr = decPartStr.padEnd(2, '0');
-  const intPart = parseInt(intPartStr, 10);
-  const decPart = parseInt(normalizedDecStr, 10);
-
-  if (!Number.isSafeInteger(intPart) || !Number.isSafeInteger(decPart)) {
-    return { isValid: false, cents: 0, error: `${fieldName} vượt quá giới hạn số nguyên an toàn.` };
-  }
-
-  const totalCents = intPart * 100 + decPart;
+  const totalCents = intVal * 100 + decVal;
 
   if (!Number.isSafeInteger(totalCents)) {
-    return { isValid: false, cents: 0, error: `${fieldName} vượt quá giới hạn an toàn.` };
+    return { isValid: false, cents: 0, error: `${fieldName} vượt quá giới hạn tính toán an toàn của hệ thống.` };
   }
 
   if (totalCents > maxAllowedCents) {
-    const maxVndStr = (maxAllowedCents / 100).toLocaleString('vi-VN');
-    return {
-      isValid: false,
-      cents: 0,
-      error: `${fieldName} vượt quá giới hạn tối đa cho phép (${maxVndStr} VND).`,
-    };
+    const maxVndFormatted = (maxAllowedCents / 100).toLocaleString('vi-VN');
+    return { isValid: false, cents: 0, error: `${fieldName} vượt quá giới hạn tối đa cho phép (${maxVndFormatted} VND).` };
   }
 
   return { isValid: true, cents: totalCents };
 }
 
-/**
- * Tiện ích chuyển đổi an toàn sang cents.
- * Trả về cents (number) nếu dữ liệu hợp lệ (bao gồm 0 cents khi giá trị bằng 0).
- * Trả về null nếu dữ liệu không hợp lệ, không tồn tại (khi bắt buộc), sai định dạng hoặc vượt ngưỡng.
- * TUYỆT ĐỐI KHÔNG tự động chuyển 'abc' hay dữ liệu lỗi thành 0 để bảo vệ tính toàn vẹn tài chính.
- */
 export function toCents(
   val: unknown,
   isRequired = true,
@@ -210,10 +194,6 @@ export function toCents(
   return res.isValid ? res.cents : null;
 }
 
-/**
- * Cộng 2 khoản tiền theo cents (chính xác tuyệt đối).
- * Trả về null nếu một trong hai khoản không hợp lệ (null) hoặc tràn số.
- */
 export function addMoney(aCents: number | null, bCents: number | null): number | null {
   if (aCents === null || bCents === null) return null;
   if (!Number.isSafeInteger(aCents) || !Number.isSafeInteger(bCents)) return null;
@@ -221,20 +201,12 @@ export function addMoney(aCents: number | null, bCents: number | null): number |
   return Number.isSafeInteger(sum) ? sum : null;
 }
 
-/**
- * Trừ 2 khoản tiền theo cents, chặn âm.
- * Trả về null nếu một trong hai khoản không hợp lệ (null).
- */
 export function subtractMoney(aCents: number | null, bCents: number | null): number | null {
   if (aCents === null || bCents === null) return null;
   if (!Number.isSafeInteger(aCents) || !Number.isSafeInteger(bCents)) return null;
   return Math.max(0, aCents - bCents);
 }
 
-/**
- * Chuyển đổi cents sang số thực number khi gửi API cho Backend.
- * Ném lỗi nếu cents là null hoặc không hữu hạn.
- */
 export function centsToApiNumber(cents: number | null): number {
   if (cents === null || !Number.isFinite(cents) || Number.isNaN(cents)) {
     throw new Error('Số tiền không hợp lệ.');
@@ -242,10 +214,6 @@ export function centsToApiNumber(cents: number | null): number {
   return cents / 100;
 }
 
-/**
- * Định dạng tiền tệ VND từ đơn vị cents với độ chính xác tuyệt đối.
- * Trả về 'N/A' nếu cents là null, undefined, NaN hoặc không hữu hạn.
- */
 export function formatCents(cents: number | null | undefined): string {
   if (cents === null || cents === undefined || !Number.isFinite(cents) || Number.isNaN(cents)) {
     return 'N/A';
@@ -263,10 +231,6 @@ export function formatCents(cents: number | null | undefined): string {
   return `${sign}${intFormatted},${decFormatted} ₫`;
 }
 
-/**
- * Định dạng tiền tệ VND nhận vào giá trị bất kỳ (string | number | null | undefined).
- * Trả về 'N/A' nếu dữ liệu sai định dạng hoặc không thể phân tích.
- */
 export function formatCurrency(
   val: unknown,
   isRequired = false,
@@ -287,7 +251,6 @@ export function formatCurrency(
 // -------------------------------------------------------------------------
 
 export const BillingManagerPage: React.FC = () => {
-  // Chống rò rỉ bộ nhớ khi unmount
   const isMountedRef = useRef<boolean>(true);
   useEffect(() => {
     isMountedRef.current = true;
@@ -296,14 +259,12 @@ export const BillingManagerPage: React.FC = () => {
     };
   }, []);
 
-  // Chống Race Condition bằng Request Sequence Counters độc lập cho từng nhóm request
+  // Request Sequence Counters độc lập
   const invoicesListSeqRef = useRef<number>(0);
   const invoicesStatsSeqRef = useRef<number>(0);
   const roomsOptionsSeqRef = useRef<number>(0);
 
-  // -----------------------------------------------------------------------
-  // STATE: DANH SÁCH HÓA ĐƠN & PHÂN TRANG
-  // -----------------------------------------------------------------------
+  // STATE: Danh sách & phân trang
   const [invoices, setInvoices] = useState<InvoiceItem[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
@@ -314,22 +275,18 @@ export const BillingManagerPage: React.FC = () => {
     totalPages: 1,
   });
 
-  // -----------------------------------------------------------------------
-  // STATE: BỘ LỌC TÌM KIẾM HÓA ĐƠN KÈM DEBOUNCE
-  // -----------------------------------------------------------------------
+  // STATE: Bộ lọc
   const [monthFilter, setMonthFilter] = useState<string>('');
   const [roomFilter, setRoomFilter] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [availableRooms, setAvailableRooms] = useState<RoomOption[]>([]);
 
-  // -----------------------------------------------------------------------
-  // STATE: THỐNG KÊ TOÀN HỆ THỐNG ĐỘC LẬP (KHÔNG BỊ ẢNH HƯỞNG BỞI BỘ LỌC)
-  // -----------------------------------------------------------------------
+  // STATE: Thống kê hệ thống độc lập
   const [systemStats, setSystemStats] = useState<{
     totalInvoices: number | null;
     unpaidCount: number | null;
     partiallyPaidCount: number | null;
-    incompleteCount: number | null; // UNPAID + PARTIALLY_PAID
+    incompleteCount: number | null;
     paidCount: number | null;
   }>({
     totalInvoices: null,
@@ -341,13 +298,11 @@ export const BillingManagerPage: React.FC = () => {
   const [systemStatsLoading, setSystemStatsLoading] = useState<boolean>(false);
   const [systemStatsError, setSystemStatsError] = useState<string>('');
 
-  // -----------------------------------------------------------------------
-  // STATE: MODAL LẬP HÓA ĐƠN MỚI (POST /api/invoices)
-  // -----------------------------------------------------------------------
+  // STATE: Modal Tạo hóa đơn mới
   const [isCreateModalOpen, setIsCreateModalOpen] = useState<boolean>(false);
   const [createFormData, setCreateFormData] = useState({
     roomId: '',
-    month: new Date().toISOString().slice(0, 7), // Mặc định YYYY-MM hiện tại
+    month: new Date().toISOString().slice(0, 7),
     dueDate: '',
     managementFee: '0',
     parkingFee: '0',
@@ -358,18 +313,14 @@ export const BillingManagerPage: React.FC = () => {
   const [createError, setCreateError] = useState<string>('');
   const [createSuccess, setCreateSuccess] = useState<string>('');
 
-  // -----------------------------------------------------------------------
-  // STATE: MODAL XEM MÃ VIETQR (GET /api/invoices/:id/vietqr)
-  // -----------------------------------------------------------------------
+  // STATE: Modal Xem mã VietQR
   const [isQrModalOpen, setIsQrModalOpen] = useState<boolean>(false);
   const [qrLoading, setQrLoading] = useState<boolean>(false);
   const [qrError, setQrError] = useState<string>('');
   const [qrData, setQrData] = useState<VietQrData | null>(null);
   const [currentQrInvoice, setCurrentQrInvoice] = useState<InvoiceItem | null>(null);
 
-  // -----------------------------------------------------------------------
-  // STATE: MODAL ĐỐI SOÁT & XÁC NHẬN THANH TOÁN (PUT /api/invoices/:id/status)
-  // -----------------------------------------------------------------------
+  // STATE: Modal Đối soát thanh toán
   const [isPayModalOpen, setIsPayModalOpen] = useState<boolean>(false);
   const [payInvoice, setPayInvoice] = useState<InvoiceItem | null>(null);
   const [payFormData, setPayFormData] = useState({
@@ -382,17 +333,12 @@ export const BillingManagerPage: React.FC = () => {
   const [payError, setPayError] = useState<string>('');
   const [paySuccess, setPaySuccess] = useState<string>('');
 
-  // -----------------------------------------------------------------------
-  // STATE: MODAL XEM LỊCH SỬ THANH TOÁN
-  // -----------------------------------------------------------------------
+  // STATE: Modal Xem lịch sử thanh toán
   const [viewingPaymentsInvoice, setViewingPaymentsInvoice] = useState<InvoiceItem | null>(null);
 
-  // Thông báo phản hồi toàn cục
+  // Thông báo toàn trang
   const [actionNotice, setActionNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // -----------------------------------------------------------------------
-  // TIỆN ÍCH TRÍCH XUẤT LỖI
-  // -----------------------------------------------------------------------
   const parseErrorMessage = (err: unknown, fallback: string): string => {
     if (typeof err === 'object' && err !== null) {
       const apiErr = err as ApiErrorShape;
@@ -403,52 +349,45 @@ export const BillingManagerPage: React.FC = () => {
     return fallback;
   };
 
-  // -----------------------------------------------------------------------
-  // API: NẠP DANH MỤC PHÒNG CHO SELECT TÙY CHỌN (SEQUENCE COUNTER RIÊNG)
-  // -----------------------------------------------------------------------
-  const fetchRooms = useCallback(async () => {
+  // Nạp danh sách căn hộ phục vụ dropdown
+  const fetchRoomsForFilter = useCallback(async () => {
     const seq = ++roomsOptionsSeqRef.current;
     try {
-      const res = (await axiosClient.get('/api/rooms?page=1&limit=100')) as unknown as ApiEnvelope<RoomOption[]>;
-      if (seq === roomsOptionsSeqRef.current && isMountedRef.current) {
-        if (res && Array.isArray(res.data)) {
-          setAvailableRooms(res.data);
-        }
+      const res = (await axiosClient.get(
+        `${API_ENDPOINTS.ROOMS.LIST}?page=1&limit=200`
+      )) as unknown as ApiEnvelope<RoomOption[]>;
+
+      if (seq !== roomsOptionsSeqRef.current || !isMountedRef.current) return;
+      if (res && Array.isArray(res.data)) {
+        setAvailableRooms(res.data);
       }
     } catch {
-      // Bỏ qua nếu lỗi nạp phòng
+      // Giữ danh sách cũ
     }
   }, []);
 
-  // -----------------------------------------------------------------------
-  // API: THỐNG KÊ TOÀN HỆ THỐNG ĐỘC LẬP KHÔNG PHỤ THUỘC BỘ LỌC
-  // (SEQUENCE COUNTER RIÊNG: invoicesStatsSeqRef)
-  // -----------------------------------------------------------------------
+  // Nạp thống kê độc lập toàn hệ thống
   const fetchSystemStats = useCallback(async () => {
     const seq = ++invoicesStatsSeqRef.current;
     setSystemStatsLoading(true);
     setSystemStatsError('');
 
     try {
-      const [allRes, unpaidRes, partialRes, paidRes] = await Promise.allSettled([
+      const [totalRes, unpaidRes, partialRes, paidRes] = await Promise.allSettled([
         axiosClient.get(`${API_ENDPOINTS.INVOICES.LIST}?page=1&limit=1`),
         axiosClient.get(`${API_ENDPOINTS.INVOICES.LIST}?status=UNPAID&page=1&limit=1`),
         axiosClient.get(`${API_ENDPOINTS.INVOICES.LIST}?status=PARTIALLY_PAID&page=1&limit=1`),
         axiosClient.get(`${API_ENDPOINTS.INVOICES.LIST}?status=PAID&page=1&limit=1`),
       ]);
 
-      if (seq !== invoicesStatsSeqRef.current || !isMountedRef.current) {
-        return;
-      }
+      if (seq !== invoicesStatsSeqRef.current || !isMountedRef.current) return;
 
       let hasFailures = false;
       const extractTotal = (res: PromiseSettledResult<unknown>): number | null => {
         if (res.status === 'fulfilled') {
-          const env = res.value as unknown as ApiEnvelope<InvoiceItem[]>;
+          const env = res.value as unknown as ApiEnvelope<unknown[]>;
           if (
-            env &&
-            typeof env === 'object' &&
-            typeof env.pagination?.total === 'number' &&
+            typeof env?.pagination?.total === 'number' &&
             Number.isFinite(env.pagination.total) &&
             env.pagination.total >= 0
           ) {
@@ -459,15 +398,20 @@ export const BillingManagerPage: React.FC = () => {
         return null;
       };
 
-      const total = extractTotal(allRes);
+      const total = extractTotal(totalRes);
       const unpaid = extractTotal(unpaidRes);
       const partial = extractTotal(partialRes);
       const paid = extractTotal(paidRes);
 
-      const incomplete = unpaid !== null && partial !== null ? unpaid + partial : null;
+      let incomplete: number | null = null;
+      if (unpaid !== null && partial !== null) {
+        incomplete = unpaid + partial;
+      }
 
       if (hasFailures) {
-        setSystemStatsError('Không thể nạp đầy đủ số liệu thống kê hóa đơn toàn hệ thống từ máy chủ.');
+        setSystemStatsError('Không thể nạp đầy đủ số liệu thống kê hóa đơn từ máy chủ.');
+      } else {
+        setSystemStatsError('');
       }
 
       setSystemStats({
@@ -479,8 +423,7 @@ export const BillingManagerPage: React.FC = () => {
       });
     } catch (err: unknown) {
       if (seq === invoicesStatsSeqRef.current && isMountedRef.current) {
-        const msg = parseErrorMessage(err, 'Lỗi nạp thống kê hóa đơn toàn hệ thống.');
-        setSystemStatsError(msg);
+        setSystemStatsError(parseErrorMessage(err, 'Lỗi nạp thống kê hóa đơn.'));
       }
     } finally {
       if (seq === invoicesStatsSeqRef.current && isMountedRef.current) {
@@ -489,9 +432,7 @@ export const BillingManagerPage: React.FC = () => {
     }
   }, []);
 
-  // -----------------------------------------------------------------------
-  // API: TẢI DANH SÁCH HÓA ĐƠN (SEQUENCE COUNTER RIÊNG: invoicesListSeqRef)
-  // -----------------------------------------------------------------------
+  // Nạp danh sách hóa đơn theo trang và bộ lọc
   const fetchInvoices = useCallback(
     async (targetPage = 1) => {
       const currentSeq = ++invoicesListSeqRef.current;
@@ -503,8 +444,8 @@ export const BillingManagerPage: React.FC = () => {
         queryParams.set('page', String(targetPage));
         queryParams.set('limit', String(pagination.limit));
 
-        if (monthFilter.trim()) {
-          queryParams.set('month', monthFilter.trim());
+        if (monthFilter) {
+          queryParams.set('month', monthFilter);
         }
         if (roomFilter) {
           queryParams.set('roomId', roomFilter);
@@ -517,9 +458,7 @@ export const BillingManagerPage: React.FC = () => {
           `${API_ENDPOINTS.INVOICES.LIST}?${queryParams.toString()}`
         )) as unknown as ApiEnvelope<InvoiceItem[]>;
 
-        if (currentSeq !== invoicesListSeqRef.current || !isMountedRef.current) {
-          return;
-        }
+        if (currentSeq !== invoicesListSeqRef.current || !isMountedRef.current) return;
 
         let list: InvoiceItem[] = [];
         let meta: PaginationMeta = {
@@ -530,22 +469,15 @@ export const BillingManagerPage: React.FC = () => {
         };
 
         if (res && typeof res === 'object') {
-          if (Array.isArray(res.data)) {
-            list = res.data;
-          }
-          if (res.pagination) {
-            meta = res.pagination;
-          }
+          if (Array.isArray(res.data)) list = res.data;
+          if (res.pagination) meta = res.pagination;
         }
 
         setInvoices(list);
         setPagination(meta);
       } catch (err: unknown) {
-        if (currentSeq !== invoicesListSeqRef.current || !isMountedRef.current) {
-          return;
-        }
-        const msg = parseErrorMessage(err, 'Không thể tải danh sách hóa đơn từ máy chủ.');
-        setErrorMessage(msg);
+        if (currentSeq !== invoicesListSeqRef.current || !isMountedRef.current) return;
+        setErrorMessage(parseErrorMessage(err, 'Không thể nạp danh sách hóa đơn từ máy chủ.'));
         setInvoices([]);
       } finally {
         if (currentSeq === invoicesListSeqRef.current && isMountedRef.current) {
@@ -556,49 +488,43 @@ export const BillingManagerPage: React.FC = () => {
     [monthFilter, roomFilter, statusFilter, pagination.limit]
   );
 
-  // -----------------------------------------------------------------------
-  // TRIGGER LOAD DỮ LIỆU
-  // -----------------------------------------------------------------------
   useEffect(() => {
-    fetchRooms();
+    fetchRoomsForFilter();
     fetchSystemStats();
-  }, [fetchRooms, fetchSystemStats]);
+  }, [fetchRoomsForFilter, fetchSystemStats]);
 
   useEffect(() => {
     fetchInvoices(1);
   }, [fetchInvoices]);
 
-  // -----------------------------------------------------------------------
-  // TÍNH TOÁN CÁC CHỈ SỐ TIỀN THEO TRANG HIỆN TẠI (TRANSPARENT CURRENT PAGE SCOPE)
-  // Ghi rõ phạm vi trang hiện tại, sử dụng số nguyên cents chính xác tuyệt đối
-  // -----------------------------------------------------------------------
-  const pageFinancials = useMemo(() => {
+  // Tính tổng tài chính trên trang hiện tại bằng cents
+  const pageFinancialSummary = useMemo(() => {
     let sumTotalCents = 0;
     let sumPaidCents = 0;
-    let pageUnpaidCount = 0;
+    let sumRemainingCents = 0;
     let hasInvalidData = false;
 
-    invoices.forEach((inv) => {
-      const totCents = toCents(inv.totalAmount, true);
-      const paidCents = toCents(inv.paidAmount, true);
-      if (totCents === null || paidCents === null) {
-        hasInvalidData = true;
-      } else {
-        sumTotalCents += totCents;
-        sumPaidCents += paidCents;
-      }
-      if (inv.status !== 'PAID') {
-        pageUnpaidCount += 1;
-      }
-    });
+    for (const inv of invoices) {
+      const totalC = toCents(inv.totalAmount, true);
+      const paidC = toCents(inv.paidAmount, true);
 
-    const sumRemainingCents = Math.max(0, sumTotalCents - sumPaidCents);
+      if (totalC === null || paidC === null) {
+        hasInvalidData = true;
+        break;
+      }
+
+      const remC = subtractMoney(totalC, paidC);
+      if (remC === null) {
+        hasInvalidData = true;
+        break;
+      }
+
+      sumTotalCents += totalC;
+      sumPaidCents += paidC;
+      sumRemainingCents += remC;
+    }
 
     return {
-      sumTotalCents,
-      sumPaidCents,
-      sumRemainingCents,
-      pageUnpaidCount,
       hasInvalidData,
       totalFormatted: hasInvalidData ? 'N/A' : formatCents(sumTotalCents),
       paidFormatted: hasInvalidData ? 'N/A' : formatCents(sumPaidCents),
@@ -606,17 +532,13 @@ export const BillingManagerPage: React.FC = () => {
     };
   }, [invoices]);
 
-  // -----------------------------------------------------------------------
-  // TÍNH TỔNG TIỀN REALTIME KHI TẠO HÓA ĐƠN BẰNG CENTS
-  // -----------------------------------------------------------------------
+  // Tính tổng tiền realtime khi tạo hóa đơn
   const calculatedTotalNewInvoiceCents = useMemo(() => {
     const mgmt = toCents(createFormData.managementFee, false, MAX_SAFE_FEE_CENTS);
     const park = toCents(createFormData.parkingFee, false, MAX_SAFE_FEE_CENTS);
     const water = toCents(createFormData.waterFee, false, MAX_SAFE_FEE_CENTS);
     const other = toCents(createFormData.otherFee, false, MAX_SAFE_FEE_CENTS);
-    if (mgmt === null || park === null || water === null || other === null) {
-      return null;
-    }
+    if (mgmt === null || park === null || water === null || other === null) return null;
     const sum = mgmt + park + water + other;
     return Number.isSafeInteger(sum) && sum <= MAX_INVOICE_CENTS ? sum : null;
   }, [
@@ -626,9 +548,7 @@ export const BillingManagerPage: React.FC = () => {
     createFormData.otherFee,
   ]);
 
-  // -----------------------------------------------------------------------
-  // XỬ LÝ MODAL LẬP HÓA ĐƠN MỚI
-  // -----------------------------------------------------------------------
+  // Mở modal tạo hóa đơn mới
   const handleOpenCreateModal = () => {
     setCreateFormData({
       roomId: availableRooms.length > 0 ? String(availableRooms[0].id) : '',
@@ -644,21 +564,7 @@ export const BillingManagerPage: React.FC = () => {
     setIsCreateModalOpen(true);
   };
 
-  // Đóng modal bằng phím ESC
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        if (isCreateModalOpen && !createSubmitting) setIsCreateModalOpen(false);
-        if (isQrModalOpen) setIsQrModalOpen(false);
-        if (isPayModalOpen && !paySubmitting) setIsPayModalOpen(false);
-        if (viewingPaymentsInvoice) setViewingPaymentsInvoice(null);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isCreateModalOpen, createSubmitting, isQrModalOpen, isPayModalOpen, paySubmitting, viewingPaymentsInvoice]);
-
-  // Gửi Form Lập Hóa Đơn (Bắt lỗi 409 chuẩn mực)
+  // Gửi form tạo hóa đơn - Bắt lỗi 409 chuẩn: "Căn hộ này đã được lập hóa đơn tháng này rồi"
   const handleSubmitCreateInvoice = async (e: React.FormEvent) => {
     e.preventDefault();
     setCreateError('');
@@ -697,7 +603,6 @@ export const BillingManagerPage: React.FC = () => {
       return;
     }
 
-    // Kiểm tra tổng 4 khoản phí theo giới hạn MAX_INVOICE_CENTS
     const totalNewInvoiceCents = mgmtRes.cents + parkRes.cents + waterRes.cents + otherRes.cents;
     if (!Number.isSafeInteger(totalNewInvoiceCents) || totalNewInvoiceCents > MAX_INVOICE_CENTS) {
       const maxVndStr = (MAX_INVOICE_CENTS / 100).toLocaleString('vi-VN');
@@ -727,13 +632,12 @@ export const BillingManagerPage: React.FC = () => {
             setIsCreateModalOpen(false);
             setCreateSuccess('');
           }
-        }, 800);
+        }, 700);
       }
     } catch (err: unknown) {
       if (isMountedRef.current) {
         const apiErr = err as ApiErrorShape;
-        // BẮT LỖI 409 VỚI THÔNG ĐIỆP BẮT BUỘC CHÍNH XÁC:
-        // "Căn hộ này đã được lập hóa đơn tháng này rồi"
+        // Bắt lỗi 409 trùng lặp với thông điệp chuẩn xác
         if (
           apiErr?.status === 409 ||
           apiErr?.message?.includes('đã được lập hóa đơn') ||
@@ -742,8 +646,7 @@ export const BillingManagerPage: React.FC = () => {
         ) {
           setCreateError('Căn hộ này đã được lập hóa đơn tháng này rồi');
         } else {
-          const msg = parseErrorMessage(err, 'Lỗi khi lập biểu phí định kỳ.');
-          setCreateError(msg);
+          setCreateError(parseErrorMessage(err, 'Lỗi khi lập biểu phí định kỳ.'));
         }
       }
     } finally {
@@ -753,9 +656,7 @@ export const BillingManagerPage: React.FC = () => {
     }
   };
 
-  // -----------------------------------------------------------------------
-  // XỬ LÝ MỞ MODAL XEM MÃ VIETQR
-  // -----------------------------------------------------------------------
+  // Mở modal VietQR
   const handleOpenVietQrModal = async (invoice: InvoiceItem) => {
     setCurrentQrInvoice(invoice);
     setQrData(null);
@@ -775,8 +676,7 @@ export const BillingManagerPage: React.FC = () => {
       }
     } catch (err: unknown) {
       if (isMountedRef.current) {
-        const msg = parseErrorMessage(err, 'Không thể tạo mã VietQR thanh toán.');
-        setQrError(msg);
+        setQrError(parseErrorMessage(err, 'Không thể tạo mã VietQR thanh toán.'));
       }
     } finally {
       if (isMountedRef.current) {
@@ -785,9 +685,7 @@ export const BillingManagerPage: React.FC = () => {
     }
   };
 
-  // -----------------------------------------------------------------------
-  // XỬ LÝ MỞ MODAL ĐỐI SOÁT & XÁC NHẬN THANH TOÁN
-  // -----------------------------------------------------------------------
+  // Mở modal đối soát thanh toán
   const handleOpenPayModal = (invoice: InvoiceItem) => {
     if (invoice.status === 'PAID') {
       setActionNotice({
@@ -830,9 +728,7 @@ export const BillingManagerPage: React.FC = () => {
     setIsPayModalOpen(true);
   };
 
-  // -----------------------------------------------------------------------
-  // XỬ LÝ GỬI YÊU CẦU ĐỐI SOÁT / XÁC NHẬN THANH TOÁN (CHỐNG NỘP THỪA)
-  // -----------------------------------------------------------------------
+  // Gửi xác nhận đối soát thanh toán (Chống nộp thừa)
   const handleSubmitPayment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!payInvoice) return;
@@ -866,8 +762,7 @@ export const BillingManagerPage: React.FC = () => {
       return;
     }
 
-    // CHỐNG NỘP THỪA (OVERPAYMENT PROTECTION) - THÔNG ĐIỆP BẮT BUỘC CHÍNH XÁC:
-    // "Số tiền thanh toán vượt quá số tiền còn thiếu. Vui lòng kiểm tra lại."
+    // Chặn nộp thừa
     if (inputCents > remainingCents) {
       setPayError('Số tiền thanh toán vượt quá số tiền còn thiếu. Vui lòng kiểm tra lại.');
       return;
@@ -917,7 +812,7 @@ export const BillingManagerPage: React.FC = () => {
             setPaySuccess('');
             setPayInvoice(null);
           }
-        }, 800);
+        }, 700);
       }
     } catch (err: unknown) {
       if (isMountedRef.current) {
@@ -926,8 +821,7 @@ export const BillingManagerPage: React.FC = () => {
           setPayError('Xảy ra xung đột giao dịch đồng thời trên hóa đơn này. Vui lòng tải lại dữ liệu.');
           fetchInvoices(pagination.page);
         } else {
-          const msg = parseErrorMessage(err, 'Lỗi khi cập nhật thanh toán cho hóa đơn.');
-          setPayError(msg);
+          setPayError(parseErrorMessage(err, 'Lỗi khi cập nhật thanh toán cho hóa đơn.'));
         }
       }
     } finally {
@@ -937,1277 +831,937 @@ export const BillingManagerPage: React.FC = () => {
     }
   };
 
-  return (
-    <div className="billing-manager-container">
-      {/* ================================================================= */}
-      {/* TOÀN BỘ CSS THỰC SỰ - HOÀN TOÀN ĐỘC LẬP VỚI TAILWIND (NO TAILWIND) */}
-      {/* ================================================================= */}
-      <style>{`
-        .billing-manager-container {
-          width: 100%;
-          max-width: 1200px;
-          margin: 0 auto;
-          padding: 1.5rem 1rem 3rem 1rem;
-          color: #1e293b;
-          font-family: inherit;
-        }
-        .billing-manager-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          flex-wrap: wrap;
-          gap: 1rem;
-          margin-bottom: 1.5rem;
-        }
-        .billing-manager-title {
-          font-size: 1.5rem;
-          font-weight: 700;
-          color: #0f172a;
-          margin: 0;
-          letter-spacing: -0.025em;
-        }
-        .billing-manager-subtitle {
-          font-size: 0.875rem;
-          color: #64748b;
-          margin: 0.25rem 0 0 0;
-        }
-        .billing-manager-btn {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          padding: 0.5rem 1rem;
-          font-size: 0.875rem;
-          font-weight: 600;
-          border-radius: 0.5rem;
-          cursor: pointer;
-          transition: background-color 0.15s ease, border-color 0.15s ease;
-          border: 1px solid transparent;
-          text-decoration: none;
-        }
-        .billing-manager-btn:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-        .billing-manager-btn-primary {
-          background-color: #4f46e5;
-          color: #ffffff;
-        }
-        .billing-manager-btn-primary:hover:not(:disabled) {
-          background-color: #4338ca;
-        }
-        .billing-manager-btn-secondary {
-          background-color: #ffffff;
-          color: #334155;
-          border-color: #cbd5e1;
-        }
-        .billing-manager-btn-secondary:hover:not(:disabled) {
-          background-color: #f8fafc;
-        }
-        .billing-manager-btn-success {
-          background-color: #059669;
-          color: #ffffff;
-        }
-        .billing-manager-btn-success:hover:not(:disabled) {
-          background-color: #047857;
-        }
-        .billing-manager-btn-sm {
-          padding: 0.25rem 0.5rem;
-          font-size: 0.75rem;
-          border-radius: 0.375rem;
-        }
-        .billing-manager-stats-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-          gap: 0.75rem;
-          margin-bottom: 0.5rem;
-        }
-        .billing-manager-stat-card {
-          background-color: #ffffff;
-          border: 1px solid #e2e8f0;
-          border-radius: 0.75rem;
-          padding: 1rem;
-          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-        }
-        .billing-manager-stat-card-slate { border-left: 4px solid #334155; }
-        .billing-manager-stat-card-indigo { border-left: 4px solid #4f46e5; }
-        .billing-manager-stat-card-emerald { border-left: 4px solid #059669; }
-        .billing-manager-stat-card-rose { border-left: 4px solid #e11d48; }
-        .billing-manager-stat-card-amber { border-left: 4px solid #d97706; }
-        .billing-manager-stat-label {
-          font-size: 0.6875rem;
-          font-weight: 700;
-          color: #64748b;
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-          margin: 0;
-        }
-        .billing-manager-stat-value {
-          font-size: 1.375rem;
-          font-weight: 700;
-          color: #0f172a;
-          margin: 0.25rem 0 0 0;
-        }
-        .billing-manager-stat-helper {
-          font-size: 0.6875rem;
-          color: #94a3b8;
-          margin-top: 0.25rem;
-          display: block;
-        }
-        .billing-manager-stats-notice {
-          font-size: 0.6875rem;
-          color: #64748b;
-          font-style: italic;
-          margin-bottom: 1.25rem;
-        }
-        .billing-manager-card {
-          background-color: #ffffff;
-          border: 1px solid #e2e8f0;
-          border-radius: 0.75rem;
-          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-          margin-bottom: 1.25rem;
-        }
-        .billing-manager-filter-box {
-          padding: 1rem;
-        }
-        .billing-manager-filter-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-          gap: 0.75rem;
-          align-items: flex-end;
-        }
-        .billing-manager-form-group {
-          display: flex;
-          flex-direction: column;
-          gap: 0.25rem;
-        }
-        .billing-manager-form-label {
-          font-size: 0.75rem;
-          font-weight: 600;
-          color: #475569;
-        }
-        .billing-manager-input, .billing-manager-select, .billing-manager-textarea {
-          width: 100%;
-          padding: 0.4375rem 0.625rem;
-          font-size: 0.875rem;
-          border: 1px solid #cbd5e1;
-          border-radius: 0.375rem;
-          color: #0f172a;
-          background-color: #ffffff;
-          outline: none;
-          box-sizing: border-box;
-        }
-        .billing-manager-input:focus, .billing-manager-select:focus, .billing-manager-textarea:focus {
-          border-color: #4f46e5;
-          box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.1);
-        }
-        .billing-manager-alert {
-          padding: 0.875rem 1rem;
-          border-radius: 0.5rem;
-          font-size: 0.875rem;
-          margin-bottom: 1rem;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-        }
-        .billing-manager-alert-success {
-          background-color: #ecfdf5;
-          color: #065f46;
-          border: 1px solid #a7f3d0;
-        }
-        .billing-manager-alert-error {
-          background-color: #fef2f2;
-          color: #991b1b;
-          border: 1px solid #fecaca;
-        }
-        .billing-manager-table-wrap {
-          overflow-x: auto;
-          width: 100%;
-        }
-        .billing-manager-table {
-          width: 100%;
-          border-collapse: collapse;
-          font-size: 0.8125rem;
-          text-align: left;
-        }
-        .billing-manager-table th {
-          background-color: #f8fafc;
-          color: #475569;
-          font-size: 0.6875rem;
-          font-weight: 700;
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-          padding: 0.75rem 0.75rem;
-          border-bottom: 1px solid #e2e8f0;
-          white-space: nowrap;
-        }
-        .billing-manager-table td {
-          padding: 0.75rem 0.75rem;
-          border-bottom: 1px solid #f1f5f9;
-          color: #1e293b;
-          vertical-align: middle;
-        }
-        .billing-manager-table tr:hover td {
-          background-color: #f8fafc;
-        }
-        .billing-manager-badge {
-          display: inline-flex;
-          align-items: center;
-          padding: 0.2rem 0.5rem;
-          font-size: 0.6875rem;
-          font-weight: 700;
-          border-radius: 9999px;
-          white-space: nowrap;
-        }
-        .billing-manager-badge-unpaid {
-          background-color: #ffe4e6;
-          color: #be123c;
-          border: 1px solid #fecdd3;
-        }
-        .billing-manager-badge-partially {
-          background-color: #fffbeb;
-          color: #b45309;
-          border: 1px solid #fde68a;
-        }
-        .billing-manager-badge-paid {
-          background-color: #ecfdf5;
-          color: #047857;
-          border: 1px solid #a7f3d0;
-        }
-        .billing-manager-pagination {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 0.75rem 1rem;
-          border-top: 1px solid #e2e8f0;
-          font-size: 0.75rem;
-          color: #64748b;
-          flex-wrap: wrap;
-          gap: 0.5rem;
-        }
-        .billing-manager-modal-overlay {
-          position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          width: 100vw;
-          height: 100vh;
-          background-color: rgba(15, 23, 42, 0.6);
-          backdrop-filter: blur(2px);
-          z-index: 9999;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          padding: 1rem;
-          box-sizing: border-box;
-        }
-        .billing-manager-modal-box {
-          background-color: #ffffff;
-          border-radius: 0.75rem;
-          border: 1px solid #e2e8f0;
-          box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
-          width: 100%;
-          max-width: 500px;
-          max-height: 90vh;
-          overflow-y: auto;
-        }
-        .billing-manager-modal-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 1rem 1.25rem;
-          background-color: #f8fafc;
-          border-bottom: 1px solid #e2e8f0;
-        }
-        .billing-manager-modal-title {
-          font-size: 1rem;
-          font-weight: 700;
-          color: #0f172a;
-          margin: 0;
-        }
-        .billing-manager-modal-close {
-          background: none;
-          border: none;
-          font-size: 1.25rem;
-          color: #94a3b8;
-          cursor: pointer;
-          padding: 0;
-          line-height: 1;
-        }
-        .billing-manager-modal-body {
-          padding: 1.25rem;
-          display: flex;
-          flex-direction: column;
-          gap: 1rem;
-        }
-        .billing-manager-modal-footer {
-          display: flex;
-          justify-content: flex-end;
-          gap: 0.5rem;
-          padding-top: 1rem;
-          border-top: 1px solid #f1f5f9;
-        }
-      `}</style>
+  const renderStatusBadge = (status: InvoiceStatusType) => {
+    switch (status) {
+      case 'UNPAID':
+        return <Badge variant="warning">Chưa nộp</Badge>;
+      case 'PARTIALLY_PAID':
+        return <Badge variant="info">Nộp một phần</Badge>;
+      case 'PAID':
+        return <Badge variant="success">Đã hoàn tất</Badge>;
+      default:
+        return <Badge variant="neutral">{status}</Badge>;
+    }
+  };
 
-      {/* HEADER TRANG */}
-      <div className="billing-manager-header">
+  return (
+    <div style={{ width: '100%', maxWidth: '1280px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+      {/* HEADER TRANG & NÚT TẠO MỚI */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
-          <h1 className="billing-manager-title">Quản Lý Hóa Đơn & Đối Soát Thanh Toán</h1>
-          <p className="billing-manager-subtitle">
-            Phát hành biểu phí định kỳ hàng tháng, xuất mã VietQR chuyển khoản và đối soát gạch nợ
+          <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
+            Quản Lý Hóa Đơn & Đối Soát Thanh Toán
+          </h1>
+          <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', margin: '0.25rem 0 0 0' }}>
+            Lập biểu phí định kỳ, kiểm tra thanh toán qua VietQR và đối soát sổ sách kế toán chung cư
           </p>
         </div>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <button
+        <div style={{ display: 'flex', gap: '0.75rem' }}>
+          <Button
+            variant="secondary"
             onClick={() => {
               fetchInvoices(pagination.page);
               fetchSystemStats();
             }}
-            className="billing-manager-btn billing-manager-btn-secondary"
-            title="Làm mới danh sách hóa đơn"
+            isLoading={loading}
           >
             🔄 Tải lại dữ liệu
-          </button>
-          <button onClick={handleOpenCreateModal} className="billing-manager-btn billing-manager-btn-primary">
-            + Lập Biểu Phí Tháng Mới
-          </button>
+          </Button>
+          <Button variant="primary" onClick={handleOpenCreateModal}>
+            ➕ Lập hóa đơn mới
+          </Button>
         </div>
       </div>
 
-      {/* THÔNG BÁO TOÀN TRANG */}
       {actionNotice && (
-        <div
-          className={`billing-manager-alert ${
-            actionNotice.type === 'success'
-              ? 'billing-manager-alert-success'
-              : 'billing-manager-alert-error'
-          }`}
-        >
-          <span>{actionNotice.text}</span>
-          <button
-            onClick={() => setActionNotice(null)}
+        <AlertBanner
+          type={actionNotice.type}
+          message={actionNotice.text}
+          onClose={() => setActionNotice(null)}
+        />
+      )}
+
+      {/* THỐNG KÊ TỔNG QUAN 6 CHỈ SỐ BẰNG STATCARD */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+          gap: '0.75rem',
+        }}
+      >
+        <StatCard
+          title="Tổng hóa đơn hệ thống"
+          value={systemStats.totalInvoices !== null ? systemStats.totalInvoices : (systemStatsLoading ? '...' : '0')}
+          colorScheme="slate"
+        />
+        <StatCard
+          title="Chưa thanh toán"
+          value={systemStats.unpaidCount !== null ? systemStats.unpaidCount : (systemStatsLoading ? '...' : '0')}
+          colorScheme="amber"
+        />
+        <StatCard
+          title="Đã nộp một phần"
+          value={systemStats.partiallyPaidCount !== null ? systemStats.partiallyPaidCount : (systemStatsLoading ? '...' : '0')}
+          colorScheme="indigo"
+        />
+        <StatCard
+          title="Đã thanh toán 100%"
+          value={systemStats.paidCount !== null ? systemStats.paidCount : (systemStatsLoading ? '...' : '0')}
+          colorScheme="emerald"
+        />
+        <StatCard
+          title="Đã thu (Trang hiện tại)"
+          value={pageFinancialSummary.paidFormatted}
+          colorScheme="emerald"
+        />
+        <StatCard
+          title="Công nợ (Trang hiện tại)"
+          value={pageFinancialSummary.remainingFormatted}
+          colorScheme="rose"
+        />
+      </div>
+
+      {systemStatsError && <AlertBanner type="warning" message={systemStatsError} />}
+
+      {/* BỘ LỌC TÌM KIẾM */}
+      <Card>
+        <div style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          <div
             style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              fontWeight: 700,
-              textDecoration: 'underline',
-              color: 'inherit',
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+              gap: '0.75rem',
+              alignItems: 'flex-end',
             }}
           >
-            Đóng
-          </button>
-        </div>
-      )}
+            <div>
+              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>
+                Kỳ hóa đơn (tháng)
+              </label>
+              <input
+                type="month"
+                value={monthFilter}
+                onChange={(e) => setMonthFilter(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '0.5rem 0.75rem',
+                  fontSize: '0.875rem',
+                  borderRadius: '0.375rem',
+                  border: '1px solid var(--border-color)',
+                  backgroundColor: 'var(--bg-surface)',
+                  color: 'var(--text-primary)',
+                  boxSizing: 'border-box',
+                }}
+              />
+            </div>
 
-      {/* THÔNG BÁO LỖI NẾU THỐNG KÊ TOÀN HỆ THỐNG THẤT BẠI */}
-      {systemStatsError && (
-        <div className="billing-manager-alert billing-manager-alert-error" style={{ marginBottom: '1rem' }}>
-          <span>{systemStatsError}</span>
-        </div>
-      )}
+            <div>
+              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>
+                Căn hộ
+              </label>
+              <select
+                value={roomFilter}
+                onChange={(e) => setRoomFilter(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '0.5rem 0.75rem',
+                  fontSize: '0.875rem',
+                  borderRadius: '0.375rem',
+                  border: '1px solid var(--border-color)',
+                  backgroundColor: 'var(--bg-surface)',
+                  color: 'var(--text-primary)',
+                  boxSizing: 'border-box',
+                }}
+              >
+                <option value="">Tất cả căn hộ</option>
+                {availableRooms.map((r) => (
+                  <option key={r.id} value={String(r.id)}>
+                    Phòng {r.roomNumber} (Tầng {r.floor})
+                  </option>
+                ))}
+              </select>
+            </div>
 
-      {/* BẢNG THỐNG KÊ TÀI CHÍNH - PHÂN ĐỊNH RÕ RÀNG BA PHẠM VI DỮ LIỆU */}
-      <div className="billing-manager-stats-grid">
-        {/* NHÓM A: DỮ LIỆU TOÀN HỆ THỐNG (TRUY VẤN ĐỘC LẬP KHÔNG LỌC) */}
-        <div className="billing-manager-stat-card billing-manager-stat-card-slate">
-          <p className="billing-manager-stat-label">Tổng hóa đơn (Toàn hệ thống)</p>
-          <p className="billing-manager-stat-value">
-            {systemStatsLoading ? '...' : systemStats.totalInvoices !== null ? systemStats.totalInvoices : 'N/A'}
-          </p>
-          <span className="billing-manager-stat-helper">Toàn bộ hệ thống (không lọc)</span>
-        </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>
+                Trạng thái thanh toán
+              </label>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '0.5rem 0.75rem',
+                  fontSize: '0.875rem',
+                  borderRadius: '0.375rem',
+                  border: '1px solid var(--border-color)',
+                  backgroundColor: 'var(--bg-surface)',
+                  color: 'var(--text-primary)',
+                  boxSizing: 'border-box',
+                }}
+              >
+                <option value="">Tất cả trạng thái</option>
+                <option value="UNPAID">Chưa thanh toán (UNPAID)</option>
+                <option value="PARTIALLY_PAID">Thanh toán một phần (PARTIALLY_PAID)</option>
+                <option value="PAID">Đã thanh toán đầy đủ (PAID)</option>
+              </select>
+            </div>
+          </div>
 
-        <div className="billing-manager-stat-card billing-manager-stat-card-amber">
-          <p className="billing-manager-stat-label" style={{ color: '#d97706' }}>
-            Chưa thanh toán (Toàn hệ thống)
-          </p>
-          <p className="billing-manager-stat-value" style={{ color: '#d97706' }}>
-            {systemStatsLoading ? '...' : systemStats.unpaidCount !== null ? systemStats.unpaidCount : 'N/A'}
-          </p>
-          <span className="billing-manager-stat-helper">Trạng thái UNPAID</span>
+          {(monthFilter || roomFilter || statusFilter) && (
+            <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: '0.5rem' }}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setMonthFilter('');
+                  setRoomFilter('');
+                  setStatusFilter('');
+                }}
+              >
+                ✕ Xóa bộ lọc
+              </Button>
+            </div>
+          )}
         </div>
+      </Card>
 
-        <div className="billing-manager-stat-card billing-manager-stat-card-rose">
-          <p className="billing-manager-stat-label" style={{ color: '#e11d48' }}>
-            Hóa đơn chưa thu đủ (Toàn hệ thống)
-          </p>
-          <p className="billing-manager-stat-value" style={{ color: '#e11d48' }}>
-            {systemStatsLoading ? '...' : systemStats.incompleteCount !== null ? systemStats.incompleteCount : 'N/A'}
-          </p>
-          <span className="billing-manager-stat-helper">UNPAID + PARTIALLY_PAID</span>
-        </div>
+      {/* DANH SÁCH HÓA ĐƠN */}
+      <Card>
+        <CardHeader>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <CardTitle>
+              Danh Mục Hóa Đơn ({pagination.total} bản ghi)
+            </CardTitle>
+            {loading && <LoadingSpinner size="sm" />}
+          </div>
+        </CardHeader>
 
-        {/* NHÓM B: DỮ LIỆU THEO BỘ LỌC HIỆN TẠI (NẾU ĐANG LỌC) */}
-        {(Boolean(monthFilter) || Boolean(roomFilter) || Boolean(statusFilter)) && (
-          <div className="billing-manager-stat-card" style={{ borderLeft: '4px solid #0284c7' }}>
-            <p className="billing-manager-stat-label" style={{ color: '#0284c7' }}>
-              Hóa đơn theo bộ lọc
-            </p>
-            <p className="billing-manager-stat-value" style={{ color: '#0284c7' }}>
-              {loading ? '...' : pagination.total}
-            </p>
-            <span className="billing-manager-stat-helper">Khớp điều kiện tìm kiếm</span>
+        {errorMessage && (
+          <div style={{ padding: '0 1.25rem 1rem 1.25rem' }}>
+            <AlertBanner type="error" message={errorMessage} />
           </div>
         )}
 
-        {/* NHÓM C: CHỈ SỐ TIỀN THEO TRANG HIỆN TẠI */}
-        <div className="billing-manager-stat-card billing-manager-stat-card-indigo">
-          <p className="billing-manager-stat-label" style={{ color: '#4f46e5' }}>
-            Tổng phải thu (Trang hiện tại)
-          </p>
-          <p className="billing-manager-stat-value" style={{ color: '#4f46e5', fontSize: '1.25rem' }}>
-            {pageFinancials.totalFormatted}
-          </p>
-          <span className="billing-manager-stat-helper">Trang {pagination.page}/{pagination.totalPages}</span>
-        </div>
-
-        <div className="billing-manager-stat-card billing-manager-stat-card-emerald">
-          <p className="billing-manager-stat-label" style={{ color: '#059669' }}>
-            Đã thu (Trang hiện tại)
-          </p>
-          <p className="billing-manager-stat-value" style={{ color: '#059669', fontSize: '1.25rem' }}>
-            {pageFinancials.paidFormatted}
-          </p>
-          <span className="billing-manager-stat-helper">Trang {pagination.page}/{pagination.totalPages}</span>
-        </div>
-
-        <div className="billing-manager-stat-card billing-manager-stat-card-rose">
-          <p className="billing-manager-stat-label" style={{ color: '#be123c' }}>
-            Công nợ còn thiếu (Trang hiện tại)
-          </p>
-          <p className="billing-manager-stat-value" style={{ color: '#be123c', fontSize: '1.25rem' }}>
-            {pageFinancials.remainingFormatted}
-          </p>
-          <span className="billing-manager-stat-helper">Trang {pagination.page}/{pagination.totalPages}</span>
-        </div>
-      </div>
-      <p className="billing-manager-stats-notice">
-        * Ghi chú: Chỉ số tiền được tính từ các hóa đơn đang hiển thị trên trang hiện tại ({invoices.length} hóa đơn, trang {pagination.page}/{pagination.totalPages}). Các chỉ số số lượng được thống kê độc lập trên toàn bộ hệ thống.
-      </p>
-
-      {/* BỘ LỌC HÓA ĐƠN */}
-      <div className="billing-manager-card billing-manager-filter-box">
-        <div className="billing-manager-filter-grid">
-          <div className="billing-manager-form-group">
-            <label className="billing-manager-form-label">Kỳ hóa đơn (tháng)</label>
-            <input
-              type="month"
-              value={monthFilter}
-              onChange={(e) => setMonthFilter(e.target.value)}
-              className="billing-manager-input"
+        {loading ? (
+          <div style={{ padding: '3rem', textAlign: 'center' }}>
+            <LoadingSpinner size="lg" text="Đang nạp dữ liệu hóa đơn..." />
+          </div>
+        ) : invoices.length === 0 ? (
+          <div style={{ padding: '2rem' }}>
+            <EmptyState
+              title="Không có hóa đơn nào"
+              description={
+                monthFilter || roomFilter || statusFilter
+                  ? 'Không tìm thấy hóa đơn nào phù hợp với bộ lọc đã chọn.'
+                  : 'Hiện tại hệ thống chưa lập hóa đơn nào cho tòa nhà.'
+              }
+              actionLabel={
+                (monthFilter || roomFilter || statusFilter)
+                  ? 'Xóa bộ lọc'
+                  : 'Lập hóa đơn đầu tiên'
+              }
+              onAction={
+                (monthFilter || roomFilter || statusFilter)
+                  ? () => {
+                      setMonthFilter('');
+                      setRoomFilter('');
+                      setStatusFilter('');
+                    }
+                  : handleOpenCreateModal
+              }
             />
           </div>
+        ) : (
+          <>
+            <div style={{ overflowX: 'auto', width: '100%' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.875rem' }}>
+                <thead>
+                  <tr style={{ backgroundColor: 'var(--bg-muted, #f8fafc)', borderBottom: '1px solid var(--border-color)' }}>
+                    <th style={{ padding: '0.75rem 1rem', fontWeight: 600, color: 'var(--text-secondary)', fontSize: '0.75rem', textTransform: 'uppercase' }}>
+                      Mã HĐ / Kỳ
+                    </th>
+                    <th style={{ padding: '0.75rem 1rem', fontWeight: 600, color: 'var(--text-secondary)', fontSize: '0.75rem', textTransform: 'uppercase' }}>
+                      Căn hộ
+                    </th>
+                    <th style={{ padding: '0.75rem 1rem', fontWeight: 600, color: 'var(--text-secondary)', fontSize: '0.75rem', textTransform: 'uppercase' }}>
+                      Chi tiết biểu phí
+                    </th>
+                    <th style={{ padding: '0.75rem 1rem', fontWeight: 600, color: 'var(--text-secondary)', fontSize: '0.75rem', textTransform: 'uppercase' }}>
+                      Tổng tiền
+                    </th>
+                    <th style={{ padding: '0.75rem 1rem', fontWeight: 600, color: 'var(--text-secondary)', fontSize: '0.75rem', textTransform: 'uppercase' }}>
+                      Đã nộp / Còn thiếu
+                    </th>
+                    <th style={{ padding: '0.75rem 1rem', fontWeight: 600, color: 'var(--text-secondary)', fontSize: '0.75rem', textTransform: 'uppercase' }}>
+                      Trạng thái
+                    </th>
+                    <th style={{ padding: '0.75rem 1rem', fontWeight: 600, color: 'var(--text-secondary)', fontSize: '0.75rem', textTransform: 'uppercase', textAlign: 'right' }}>
+                      Thao tác
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {invoices.map((inv) => {
+                    const totalCents = toCents(inv.totalAmount, true);
+                    const paidCents = toCents(inv.paidAmount, true);
+                    const remainingCents = totalCents !== null && paidCents !== null ? subtractMoney(totalCents, paidCents) : null;
 
-          <div className="billing-manager-form-group">
-            <label className="billing-manager-form-label">Căn hộ</label>
-            <select
-              value={roomFilter}
-              onChange={(e) => setRoomFilter(e.target.value)}
-              className="billing-manager-select"
-            >
-              <option value="">Tất cả căn hộ</option>
-              {availableRooms.map((r) => (
-                <option key={r.id} value={r.id}>
-                  Phòng {r.roomNumber} (Tầng {r.floor})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="billing-manager-form-group">
-            <label className="billing-manager-form-label">Trạng thái thanh toán</label>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="billing-manager-select"
-            >
-              <option value="">Tất cả trạng thái</option>
-              <option value="UNPAID">Chưa thanh toán (UNPAID)</option>
-              <option value="PARTIALLY_PAID">Thanh toán một phần (PARTIALLY_PAID)</option>
-              <option value="PAID">Đã thanh toán đủ (PAID)</option>
-            </select>
-          </div>
-
-          <div>
-            <button
-              type="button"
-              onClick={() => {
-                setMonthFilter('');
-                setRoomFilter('');
-                setStatusFilter('');
-              }}
-              className="billing-manager-btn billing-manager-btn-secondary"
-              style={{ width: '100%' }}
-            >
-              Xóa bộ lọc
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* LỖI NẾU CÓ */}
-      {errorMessage && (
-        <div className="billing-manager-alert billing-manager-alert-error">
-          <span>{errorMessage}</span>
-          <button
-            onClick={() => fetchInvoices(pagination.page)}
-            className="billing-manager-btn billing-manager-btn-sm billing-manager-btn-secondary"
-          >
-            Thử lại
-          </button>
-        </div>
-      )}
-
-      {/* BẢNG DANH SÁCH HÓA ĐƠN */}
-      <div className="billing-manager-card">
-        <div className="billing-manager-table-wrap">
-          <table className="billing-manager-table">
-            <thead>
-              <tr>
-                <th>Mã</th>
-                <th>Căn Hộ</th>
-                <th>Kỳ Tháng</th>
-                <th>Phí QL</th>
-                <th>Phí Xe</th>
-                <th>Tiền Nước</th>
-                <th>Phí Khác</th>
-                <th>Tổng Tiền</th>
-                <th>Đã Nộp</th>
-                <th>Còn Thiếu</th>
-                <th>Hạn Nộp</th>
-                <th>Trạng Thái</th>
-                <th style={{ textAlign: 'right' }}>Thao Tác</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan={13} style={{ textAlign: 'center', padding: '2.5rem', color: '#94a3b8' }}>
-                    ⏳ Đang tải danh sách hóa đơn...
-                  </td>
-                </tr>
-              ) : invoices.length === 0 ? (
-                <tr>
-                  <td colSpan={13} style={{ textAlign: 'center', padding: '3rem', color: '#94a3b8' }}>
-                    <p style={{ margin: 0, fontWeight: 600, color: '#475569' }}>
-                      Chưa có hóa đơn nào phù hợp
-                    </p>
-                    <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.75rem' }}>
-                      Bấm "+ Lập Biểu Phí Tháng Mới" để bắt đầu phát hành hóa đơn
-                    </p>
-                  </td>
-                </tr>
-              ) : (
-                invoices.map((invoice) => {
-                  const totalCents = toCents(invoice.totalAmount, true);
-                  const paidCents = toCents(invoice.paidAmount, true);
-                  const remainingCents = subtractMoney(totalCents, paidCents);
-
-                  const dueFormatted = invoice.dueDate
-                    ? new Date(invoice.dueDate).toLocaleDateString('vi-VN')
-                    : '-';
-
-                  return (
-                    <tr key={invoice.id}>
-                      <td style={{ fontFamily: 'monospace', fontWeight: 700, color: '#475569' }}>
-                        #{invoice.id}
-                      </td>
-                      <td>
-                        <span style={{ fontWeight: 700, color: '#4f46e5' }}>
-                          P.{invoice.room?.roomNumber || invoice.roomId}
-                        </span>
-                        {invoice.room?.floor !== undefined && (
-                          <span style={{ fontSize: '0.6875rem', color: '#94a3b8', display: 'block' }}>
-                            Tầng {invoice.room.floor}
-                          </span>
-                        )}
-                      </td>
-                      <td style={{ fontWeight: 600, color: '#0f172a' }}>{invoice.month}</td>
-                      <td>{formatCurrency(invoice.managementFee, true, MAX_SAFE_FEE_CENTS)}</td>
-                      <td>{formatCurrency(invoice.parkingFee, true, MAX_SAFE_FEE_CENTS)}</td>
-                      <td>{formatCurrency(invoice.waterFee, true, MAX_SAFE_FEE_CENTS)}</td>
-                      <td>{formatCurrency(invoice.otherFee, true, MAX_SAFE_FEE_CENTS)}</td>
-                      <td style={{ fontWeight: 700, color: '#0f172a' }}>{formatCents(totalCents)}</td>
-                      <td style={{ fontWeight: 600, color: '#059669' }}>{formatCents(paidCents)}</td>
-                      <td style={{ fontWeight: 700, color: '#e11d48' }}>{formatCents(remainingCents)}</td>
-                      <td style={{ fontSize: '0.75rem', color: '#64748b', whiteSpace: 'nowrap' }}>
-                        {dueFormatted}
-                      </td>
-                      <td>
-                        {invoice.status === 'UNPAID' && (
-                          <span className="billing-manager-badge billing-manager-badge-unpaid">
-                            Chưa thanh toán
-                          </span>
-                        )}
-                        {invoice.status === 'PARTIALLY_PAID' && (
-                          <span className="billing-manager-badge billing-manager-badge-partially">
-                            Trả một phần
-                          </span>
-                        )}
-                        {invoice.status === 'PAID' && (
-                          <span className="billing-manager-badge billing-manager-badge-paid">
-                            ✓ Đã thanh toán
-                          </span>
-                        )}
-                      </td>
-                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                        <div style={{ display: 'flex', gap: '0.375rem', justifyContent: 'flex-end' }}>
-                          <button
-                            onClick={() => handleOpenVietQrModal(invoice)}
-                            className="billing-manager-btn billing-manager-btn-sm billing-manager-btn-secondary"
-                            title="Xuất mã VietQR thanh toán"
-                          >
-                            QR VietQR
-                          </button>
-
-                          {invoice.status !== 'PAID' ? (
-                            <button
-                              onClick={() => handleOpenPayModal(invoice)}
-                              className="billing-manager-btn billing-manager-btn-sm billing-manager-btn-success"
-                              title="Đối soát và thu tiền"
-                            >
-                              Thu tiền
-                            </button>
-                          ) : (
-                            <span
-                              style={{
-                                fontSize: '0.6875rem',
-                                color: '#059669',
-                                fontWeight: 700,
-                                padding: '0.25rem 0.5rem',
-                              }}
-                            >
-                              Đã thu đủ
+                    return (
+                      <tr key={inv.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                        <td style={{ padding: '0.875rem 1rem', verticalAlign: 'middle' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
+                              #{inv.id}
                             </span>
-                          )}
+                            <span style={{ fontSize: '0.8125rem', color: 'var(--primary-color, #2563eb)', fontWeight: 600 }}>
+                              Kỳ: {inv.month}
+                            </span>
+                            {inv.dueDate && (
+                              <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                                Hạn: {new Date(inv.dueDate).toLocaleDateString('vi-VN')}
+                              </span>
+                            )}
+                          </div>
+                        </td>
 
-                          {invoice.payments && invoice.payments.length > 0 && (
-                            <button
-                              onClick={() => setViewingPaymentsInvoice(invoice)}
-                              className="billing-manager-btn billing-manager-btn-sm billing-manager-btn-secondary"
-                              title="Xem các lần nộp tiền"
+                        <td style={{ padding: '0.875rem 1rem', verticalAlign: 'middle' }}>
+                          <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                            {inv.room?.roomNumber ? `Phòng ${inv.room.roomNumber}` : `Phòng #${inv.roomId}`}
+                          </span>
+                        </td>
+
+                        <td style={{ padding: '0.875rem 1rem', verticalAlign: 'middle', fontSize: '0.8125rem' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.125rem', color: 'var(--text-secondary)' }}>
+                            <span>Quản lý: {formatCurrency(inv.managementFee)}</span>
+                            <span>Gửi xe: {formatCurrency(inv.parkingFee)}</span>
+                            <span>Nước: {formatCurrency(inv.waterFee)}</span>
+                            {Number(inv.otherFee) > 0 && <span>Khác: {formatCurrency(inv.otherFee)}</span>}
+                          </div>
+                        </td>
+
+                        <td style={{ padding: '0.875rem 1rem', verticalAlign: 'middle' }}>
+                          <span style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '0.9375rem' }}>
+                            {formatCurrency(inv.totalAmount, true)}
+                          </span>
+                        </td>
+
+                        <td style={{ padding: '0.875rem 1rem', verticalAlign: 'middle' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.125rem' }}>
+                            <span style={{ color: '#059669', fontWeight: 600 }}>
+                              Đã nộp: {formatCurrency(inv.paidAmount, true)}
+                            </span>
+                            <span style={{ color: remainingCents === 0 ? '#059669' : '#e11d48', fontWeight: 600 }}>
+                              Thiếu: {formatCents(remainingCents)}
+                            </span>
+                          </div>
+                        </td>
+
+                        <td style={{ padding: '0.875rem 1rem', verticalAlign: 'middle' }}>
+                          {renderStatusBadge(inv.status)}
+                        </td>
+
+                        <td style={{ padding: '0.875rem 1rem', verticalAlign: 'middle', textAlign: 'right' }}>
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', flexWrap: 'nowrap' }}>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => handleOpenVietQrModal(inv)}
+                              title="Xem mã VietQR ngân hàng"
                             >
-                              Lịch sử ({invoice.payments.length})
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* PHÂN TRANG HÓA ĐƠN */}
-        {pagination.totalPages > 1 && (
-          <div className="billing-manager-pagination">
-            <span>
-              Trang {pagination.page} / {pagination.totalPages} (Tổng số {pagination.total} hóa đơn)
-            </span>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button
-                disabled={pagination.page <= 1}
-                onClick={() => fetchInvoices(pagination.page - 1)}
-                className="billing-manager-btn billing-manager-btn-sm billing-manager-btn-secondary"
-              >
-                Trang trước
-              </button>
-              <button
-                disabled={pagination.page >= pagination.totalPages}
-                onClick={() => fetchInvoices(pagination.page + 1)}
-                className="billing-manager-btn billing-manager-btn-sm billing-manager-btn-secondary"
-              >
-                Trang sau
-              </button>
+                              📱 VietQR
+                            </Button>
+                            {inv.status !== 'PAID' && (
+                              <Button
+                                variant="primary"
+                                size="sm"
+                                onClick={() => handleOpenPayModal(inv)}
+                                title="Đối soát và ghi nhận thu tiền"
+                              >
+                                💵 Thu tiền
+                              </Button>
+                            )}
+                            {inv.payments && inv.payments.length > 0 && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setViewingPaymentsInvoice(inv)}
+                                title="Xem lịch sử các đợt nộp tiền"
+                              >
+                                📋 Lịch sử
+                              </Button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
-          </div>
+
+            {pagination.totalPages > 1 && (
+              <div style={{ padding: '1rem', borderTop: '1px solid var(--border-color)' }}>
+                <Pagination
+                  currentPage={pagination.page}
+                  totalPages={pagination.totalPages}
+                  totalRecords={pagination.total}
+                  onPageChange={(p) => fetchInvoices(p)}
+                />
+              </div>
+            )}
+          </>
         )}
-      </div>
+      </Card>
 
       {/* =================================================================== */}
-      {/* MODAL 1: LẬP BIỂU PHÍ MỚI (POST /api/invoices - BẮT 409 CHUẨN MỰC) */}
+      {/* MODAL 1: LẬP HÓA ĐƠN MỚI (CREATE INVOICE)                           */}
       {/* =================================================================== */}
       {isCreateModalOpen && (
-        <div
-          className="billing-manager-modal-overlay"
-          onClick={(e) => {
-            if (e.target === e.currentTarget && !createSubmitting) {
-              setIsCreateModalOpen(false);
-            }
+        <Modal
+          isOpen={isCreateModalOpen}
+          onClose={() => {
+            if (!createSubmitting) setIsCreateModalOpen(false);
           }}
+          title="Lập Biểu Phí Định Kỳ Cho Căn Hộ"
         >
-          <div className="billing-manager-modal-box">
-            <div className="billing-manager-modal-header">
-              <h3 className="billing-manager-modal-title">Lập Biểu Phí Hóa Đơn Định Kỳ Mới</h3>
-              <button
-                type="button"
-                onClick={() => !createSubmitting && setIsCreateModalOpen(false)}
-                className="billing-manager-modal-close"
-              >
-                ✕
-              </button>
-            </div>
+          <form onSubmit={handleSubmitCreateInvoice} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            {createError && <AlertBanner type="error" message={createError} />}
+            {createSuccess && <AlertBanner type="success" message={createSuccess} />}
 
-            <form onSubmit={handleSubmitCreateInvoice}>
-              <div className="billing-manager-modal-body">
-                {createError && (
-                  <div className="billing-manager-alert billing-manager-alert-error" style={{ margin: 0 }}>
-                    {createError}
-                  </div>
-                )}
-                {createSuccess && (
-                  <div
-                    className="billing-manager-alert billing-manager-alert-success"
-                    style={{ margin: 0 }}
-                  >
-                    {createSuccess}
-                  </div>
-                )}
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                  <div className="billing-manager-form-group">
-                    <label className="billing-manager-form-label">
-                      Căn hộ áp dụng <span style={{ color: '#ef4444' }}>*</span>
-                    </label>
-                    <select
-                      required
-                      value={createFormData.roomId}
-                      onChange={(e) => setCreateFormData({ ...createFormData, roomId: e.target.value })}
-                      className="billing-manager-select"
-                    >
-                      <option value="">-- Chọn căn hộ --</option>
-                      {availableRooms.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          Phòng {r.roomNumber} (Tầng {r.floor})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="billing-manager-form-group">
-                    <label className="billing-manager-form-label">
-                      Kỳ hóa đơn (tháng) <span style={{ color: '#ef4444' }}>*</span>
-                    </label>
-                    <input
-                      type="month"
-                      required
-                      value={createFormData.month}
-                      onChange={(e) => setCreateFormData({ ...createFormData, month: e.target.value })}
-                      className="billing-manager-input"
-                    />
-                  </div>
-                </div>
-
-                <div className="billing-manager-form-group">
-                  <label className="billing-manager-form-label">Hạn nộp tiền (dueDate)</label>
-                  <input
-                    type="date"
-                    value={createFormData.dueDate}
-                    onChange={(e) => setCreateFormData({ ...createFormData, dueDate: e.target.value })}
-                    className="billing-manager-input"
-                  />
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                  <div className="billing-manager-form-group">
-                    <label className="billing-manager-form-label">Phí quản lý (VND)</label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="any"
-                      value={createFormData.managementFee}
-                      onChange={(e) =>
-                        setCreateFormData({ ...createFormData, managementFee: e.target.value })
-                      }
-                      className="billing-manager-input"
-                    />
-                  </div>
-
-                  <div className="billing-manager-form-group">
-                    <label className="billing-manager-form-label">Phí gửi xe (VND)</label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="any"
-                      value={createFormData.parkingFee}
-                      onChange={(e) =>
-                        setCreateFormData({ ...createFormData, parkingFee: e.target.value })
-                      }
-                      className="billing-manager-input"
-                    />
-                  </div>
-
-                  <div className="billing-manager-form-group">
-                    <label className="billing-manager-form-label">Tiền nước sinh hoạt (VND)</label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="any"
-                      value={createFormData.waterFee}
-                      onChange={(e) =>
-                        setCreateFormData({ ...createFormData, waterFee: e.target.value })
-                      }
-                      className="billing-manager-input"
-                    />
-                  </div>
-
-                  <div className="billing-manager-form-group">
-                    <label className="billing-manager-form-label">Chi phí khác (VND)</label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="any"
-                      value={createFormData.otherFee}
-                      onChange={(e) =>
-                        setCreateFormData({ ...createFormData, otherFee: e.target.value })
-                      }
-                      className="billing-manager-input"
-                    />
-                  </div>
-                </div>
-
-                {/* TÍNH TOÁN REALTIME TỔNG TIỀN BẰNG CENTS */}
-                <div
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.375rem' }}>
+                  Căn hộ áp dụng <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <select
+                  required
+                  value={createFormData.roomId}
+                  onChange={(e) => setCreateFormData({ ...createFormData, roomId: e.target.value })}
+                  disabled={createSubmitting}
                   style={{
-                    padding: '0.75rem',
-                    backgroundColor: '#eef2ff',
-                    borderRadius: '0.5rem',
-                    border: '1px solid #c7d2fe',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
+                    width: '100%',
+                    padding: '0.5rem 0.75rem',
+                    fontSize: '0.875rem',
+                    borderRadius: '0.375rem',
+                    border: '1px solid var(--border-color)',
+                    backgroundColor: 'var(--bg-surface)',
+                    color: 'var(--text-primary)',
+                    boxSizing: 'border-box',
                   }}
                 >
-                  <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#312e81' }}>
-                    Tổng tiền dự kiến:
-                  </span>
-                  <span style={{ fontSize: '1rem', fontWeight: 700, color: '#4f46e5' }}>
-                    {formatCents(calculatedTotalNewInvoiceCents)}
-                  </span>
-                </div>
-
-                <div className="billing-manager-modal-footer">
-                  <button
-                    type="button"
-                    onClick={() => setIsCreateModalOpen(false)}
-                    disabled={createSubmitting}
-                    className="billing-manager-btn billing-manager-btn-secondary"
-                  >
-                    Hủy bỏ
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={createSubmitting}
-                    className="billing-manager-btn billing-manager-btn-primary"
-                  >
-                    {createSubmitting ? 'Đang tạo...' : 'Xác Nhận Lập Hóa Đơn'}
-                  </button>
-                </div>
+                  <option value="">-- Chọn căn hộ --</option>
+                  {availableRooms.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      Phòng {r.roomNumber} (Tầng {r.floor})
+                    </option>
+                  ))}
+                </select>
               </div>
-            </form>
-          </div>
-        </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.375rem' }}>
+                  Kỳ hóa đơn (tháng) <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <input
+                  type="month"
+                  required
+                  value={createFormData.month}
+                  onChange={(e) => setCreateFormData({ ...createFormData, month: e.target.value })}
+                  disabled={createSubmitting}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem 0.75rem',
+                    fontSize: '0.875rem',
+                    borderRadius: '0.375rem',
+                    border: '1px solid var(--border-color)',
+                    backgroundColor: 'var(--bg-surface)',
+                    color: 'var(--text-primary)',
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.375rem' }}>
+                Hạn nộp tiền (dueDate)
+              </label>
+              <input
+                type="date"
+                value={createFormData.dueDate}
+                onChange={(e) => setCreateFormData({ ...createFormData, dueDate: e.target.value })}
+                disabled={createSubmitting}
+                style={{
+                  width: '100%',
+                  padding: '0.5rem 0.75rem',
+                  fontSize: '0.875rem',
+                  borderRadius: '0.375rem',
+                  border: '1px solid var(--border-color)',
+                  backgroundColor: 'var(--bg-surface)',
+                  color: 'var(--text-primary)',
+                  boxSizing: 'border-box',
+                }}
+              />
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.375rem' }}>
+                  Phí quản lý (VND)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
+                  value={createFormData.managementFee}
+                  onChange={(e) => setCreateFormData({ ...createFormData, managementFee: e.target.value })}
+                  disabled={createSubmitting}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem 0.75rem',
+                    fontSize: '0.875rem',
+                    borderRadius: '0.375rem',
+                    border: '1px solid var(--border-color)',
+                    backgroundColor: 'var(--bg-surface)',
+                    color: 'var(--text-primary)',
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.375rem' }}>
+                  Phí gửi xe (VND)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
+                  value={createFormData.parkingFee}
+                  onChange={(e) => setCreateFormData({ ...createFormData, parkingFee: e.target.value })}
+                  disabled={createSubmitting}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem 0.75rem',
+                    fontSize: '0.875rem',
+                    borderRadius: '0.375rem',
+                    border: '1px solid var(--border-color)',
+                    backgroundColor: 'var(--bg-surface)',
+                    color: 'var(--text-primary)',
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.375rem' }}>
+                  Tiền nước sinh hoạt (VND)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
+                  value={createFormData.waterFee}
+                  onChange={(e) => setCreateFormData({ ...createFormData, waterFee: e.target.value })}
+                  disabled={createSubmitting}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem 0.75rem',
+                    fontSize: '0.875rem',
+                    borderRadius: '0.375rem',
+                    border: '1px solid var(--border-color)',
+                    backgroundColor: 'var(--bg-surface)',
+                    color: 'var(--text-primary)',
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.375rem' }}>
+                  Chi phí khác (VND)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
+                  value={createFormData.otherFee}
+                  onChange={(e) => setCreateFormData({ ...createFormData, otherFee: e.target.value })}
+                  disabled={createSubmitting}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem 0.75rem',
+                    fontSize: '0.875rem',
+                    borderRadius: '0.375rem',
+                    border: '1px solid var(--border-color)',
+                    backgroundColor: 'var(--bg-surface)',
+                    color: 'var(--text-primary)',
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* TỔNG TIỀN DỰ KIẾN REALTIME */}
+            <div
+              style={{
+                padding: '0.75rem 1rem',
+                backgroundColor: 'rgba(79, 70, 229, 0.08)',
+                borderRadius: '0.5rem',
+                border: '1px solid rgba(79, 70, 229, 0.25)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}
+            >
+              <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                Tổng tiền dự kiến:
+              </span>
+              <span style={{ fontSize: '1.125rem', fontWeight: 700, color: '#4f46e5' }}>
+                {formatCents(calculatedTotalNewInvoiceCents)}
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border-color)' }}>
+              <Button
+                variant="secondary"
+                disabled={createSubmitting}
+                onClick={() => setIsCreateModalOpen(false)}
+              >
+                Hủy bỏ
+              </Button>
+              <Button
+                variant="primary"
+                isLoading={createSubmitting}
+                type="submit"
+              >
+                Xác nhận tạo hóa đơn
+              </Button>
+            </div>
+          </form>
+        </Modal>
       )}
 
       {/* =================================================================== */}
-      {/* MODAL 2: XEM MÃ VIETQR (GET /api/invoices/:id/vietqr) */}
+      {/* MODAL 2: XEM MÃ THANH TOÁN VIETQR NGÂN HÀNG                        */}
       {/* =================================================================== */}
-      {isQrModalOpen && (
-        <div
-          className="billing-manager-modal-overlay"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) {
-              setIsQrModalOpen(false);
-            }
-          }}
+      {isQrModalOpen && currentQrInvoice && (
+        <Modal
+          isOpen={isQrModalOpen}
+          onClose={() => setIsQrModalOpen(false)}
+          title={`Mã VietQR Thanh Toán [Phòng ${currentQrInvoice.room?.roomNumber || currentQrInvoice.roomId} - Kỳ ${currentQrInvoice.month}]`}
         >
-          <div className="billing-manager-modal-box">
-            <div className="billing-manager-modal-header">
-              <h3 className="billing-manager-modal-title">Mã VietQR Thanh Toán Hóa Đơn</h3>
-              <button
-                type="button"
-                onClick={() => setIsQrModalOpen(false)}
-                className="billing-manager-modal-close"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="billing-manager-modal-body">
-              {qrLoading ? (
-                <div style={{ textAlign: 'center', padding: '2.5rem', color: '#94a3b8' }}>
-                  ⏳ Đang kết nối cổng VietQR sinh mã thanh toán...
-                </div>
-              ) : qrError ? (
-                <div className="billing-manager-alert billing-manager-alert-error" style={{ margin: 0 }}>
-                  {qrError}
-                </div>
-              ) : qrData ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  <div
-                    style={{
-                      backgroundColor: '#f8fafc',
-                      padding: '0.75rem',
-                      borderRadius: '0.5rem',
-                      border: '1px solid #e2e8f0',
-                      fontSize: '0.75rem',
-                      lineHeight: '1.6',
-                    }}
-                  >
-                    <div>
-                      <strong>Hóa đơn:</strong> #{qrData.invoiceId} - Căn hộ:{' '}
-                      <span style={{ fontWeight: 700, color: '#4f46e5' }}>P.{qrData.roomNumber}</span>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
+            {qrLoading ? (
+              <div style={{ padding: '2rem 0' }}>
+                <LoadingSpinner size="lg" text="Đang sinh mã VietQR từ ngân hàng..." />
+              </div>
+            ) : qrError ? (
+              <AlertBanner type="error" message={qrError} />
+            ) : qrData ? (
+              <>
+                {qrData.isFullyPaid ? (
+                  <div style={{ padding: '1.5rem', textAlign: 'center' }}>
+                    <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>✅</div>
+                    <div style={{ fontWeight: 700, color: '#059669', fontSize: '1.125rem' }}>
+                      Hóa đơn đã được thanh toán 100%!
                     </div>
-                    <div>
-                      <strong>Tổng tiền:</strong> {formatCurrency(qrData.totalAmount, true)}
-                    </div>
-                    <div>
-                      <strong>Đã nộp:</strong> {formatCurrency(qrData.paidAmount, true)}
-                    </div>
-                    <div>
-                      <strong>Số tiền còn lại cần nộp:</strong>{' '}
-                      <span style={{ fontWeight: 700, color: '#e11d48' }}>
-                        {formatCurrency(qrData.remainingAmount, true)}
-                      </span>
-                    </div>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', margin: '0.25rem 0 0 0' }}>
+                      Không cần quét mã chuyển khoản thêm.
+                    </p>
                   </div>
-
-                  {qrData.isFullyPaid ? (
+                ) : (
+                  <>
                     <div
                       style={{
-                        padding: '1.25rem',
-                        backgroundColor: '#ecfdf5',
-                        borderRadius: '0.5rem',
-                        textAlign: 'center',
-                        border: '1px solid #a7f3d0',
-                        color: '#065f46',
+                        padding: '0.5rem',
+                        backgroundColor: '#ffffff',
+                        border: '2px solid #e2e8f0',
+                        borderRadius: '0.75rem',
+                        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
                       }}
                     >
-                      <strong style={{ fontSize: '1rem', display: 'block' }}>
-                        ✓ Hóa đơn đã được thanh toán 100%
-                      </strong>
-                      <span style={{ fontSize: '0.75rem' }}>Căn hộ không còn công nợ kỳ này.</span>
-                    </div>
-                  ) : qrData.vietQrUrl && qrData.vietQrUrl.startsWith('https://') ? (
-                    <div style={{ textAlign: 'center', padding: '0.5rem 0' }}>
-                      <div
-                        style={{
-                          display: 'inline-block',
-                          padding: '0.75rem',
-                          backgroundColor: '#ffffff',
-                          border: '2px solid #e0e7ff',
-                          borderRadius: '0.75rem',
-                          boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-                        }}
-                      >
+                      {qrData.vietQrUrl ? (
                         <img
                           src={qrData.vietQrUrl}
-                          alt="Mã VietQR Thanh Toán"
-                          style={{ width: '220px', height: 'auto', display: 'block' }}
+                          alt="Mã VietQR thanh toán"
+                          style={{ width: '280px', height: '280px', display: 'block', objectFit: 'contain' }}
                         />
-                      </div>
-                      <span
-                        style={{
-                          fontSize: '0.6875rem',
-                          color: '#64748b',
-                          display: 'block',
-                          marginTop: '0.5rem',
-                        }}
-                      >
-                        Quét mã trên ứng dụng ngân hàng để chuyển khoản nhanh 24/7
-                      </span>
+                      ) : (
+                        <div style={{ width: '280px', height: '280px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}>
+                          Không có URL ảnh QR
+                        </div>
+                      )}
                     </div>
-                  ) : (
+
                     <div
                       style={{
-                        padding: '1rem',
-                        backgroundColor: '#fffbeb',
-                        color: '#92400e',
+                        width: '100%',
+                        padding: '0.75rem',
+                        backgroundColor: 'var(--bg-muted, #f8fafc)',
                         borderRadius: '0.5rem',
-                        fontSize: '0.75rem',
-                        textAlign: 'center',
-                        border: '1px solid #fde68a',
+                        border: '1px solid var(--border-color)',
+                        fontSize: '0.875rem',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.25rem',
                       }}
                     >
-                      Cổng sinh mã VietQR tạm thời không phản hồi. Vui lòng chuyển khoản thông thường tới số tài khoản BQL.
+                      <div>
+                        <strong>Số tiền còn phải nộp:</strong>{' '}
+                        <span style={{ fontWeight: 700, color: '#e11d48' }}>
+                          {formatCurrency(qrData.remainingAmount, true)}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                        Nội dung chuyển khoản tự động tích hợp thông tin phòng và kỳ hóa đơn để đối soát tức thời 24/7.
+                      </div>
                     </div>
-                  )}
+                  </>
+                )}
+              </>
+            ) : null}
 
-                  {/* CẢNH BÁO BẮT BUỘC NGUYÊN VĂN THEO CHỈ THỊ */}
-                  <div
-                    style={{
-                      padding: '0.75rem',
-                      backgroundColor: '#fffbeb',
-                      border: '1px solid #fde68a',
-                      borderRadius: '0.5rem',
-                      fontSize: '0.75rem',
-                      color: '#92400e',
-                      lineHeight: '1.5',
-                      fontWeight: 600,
-                    }}
-                  >
-                    ⚠️ Lưu ý: Quét mã VietQR chỉ hỗ trợ điền thông tin chuyển khoản tự động, không tự động gạch nợ. Ban quản lý cần đối soát sao kê ngân hàng trước khi bấm xác nhận thanh toán.
-                  </div>
-                </div>
-              ) : null}
-
-              <div className="billing-manager-modal-footer">
-                <button
-                  type="button"
-                  onClick={() => setIsQrModalOpen(false)}
-                  className="billing-manager-btn billing-manager-btn-secondary"
-                >
-                  Đóng
-                </button>
-              </div>
+            <div style={{ width: '100%', display: 'flex', justifyContent: 'flex-end', paddingTop: '0.5rem', borderTop: '1px solid var(--border-color)' }}>
+              <Button variant="secondary" onClick={() => setIsQrModalOpen(false)}>
+                Đóng
+              </Button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* =================================================================== */}
-      {/* MODAL 3: ĐỐI SOÁT & XÁC NHẬN THANH TOÁN (CHỐNG NỘP THỪA) */}
+      {/* MODAL 3: ĐỐI SOÁT & XÁC NHẬN THU TIỀN (STRICT OVERPAYMENT GUARD)     */}
       {/* =================================================================== */}
       {isPayModalOpen && payInvoice && (
-        <div
-          className="billing-manager-modal-overlay"
-          onClick={(e) => {
-            if (e.target === e.currentTarget && !paySubmitting) {
-              setIsPayModalOpen(false);
-            }
+        <Modal
+          isOpen={isPayModalOpen}
+          onClose={() => {
+            if (!paySubmitting) setIsPayModalOpen(false);
           }}
+          title={`Đối Soát & Xác Nhận Thu Tiền [HĐ #${payInvoice.id}]`}
         >
-          <div className="billing-manager-modal-box">
-            <div className="billing-manager-modal-header">
-              <h3 className="billing-manager-modal-title">
-                Đối Soát & Xác Nhận Thu Tiền [Hóa đơn #{payInvoice.id}]
-              </h3>
-              <button
-                type="button"
-                onClick={() => !paySubmitting && setIsPayModalOpen(false)}
-                className="billing-manager-modal-close"
-              >
-                ✕
-              </button>
+          <form onSubmit={handleSubmitPayment} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            {payError && <AlertBanner type="error" message={payError} />}
+            {paySuccess && <AlertBanner type="success" message={paySuccess} />}
+
+            <div
+              style={{
+                backgroundColor: 'var(--bg-muted, #f8fafc)',
+                padding: '0.75rem 1rem',
+                borderRadius: '0.5rem',
+                border: '1px solid var(--border-color)',
+                fontSize: '0.8125rem',
+                lineHeight: '1.6',
+              }}
+            >
+              <div>
+                <strong>Căn hộ:</strong> P.{payInvoice.room?.roomNumber || payInvoice.roomId} - Kỳ:{' '}
+                <span style={{ fontWeight: 700, color: '#4f46e5' }}>{payInvoice.month}</span>
+              </div>
+              <div>
+                <strong>Tổng tiền:</strong> {formatCurrency(payInvoice.totalAmount, true)}
+              </div>
+              <div>
+                <strong>Đã nộp trước:</strong> {formatCurrency(payInvoice.paidAmount, true)}
+              </div>
+              <div>
+                <strong>Số tiền còn thiếu:</strong>{' '}
+                <span style={{ fontWeight: 700, color: '#e11d48' }}>
+                  {formatCents(
+                    subtractMoney(
+                      toCents(payInvoice.totalAmount, true),
+                      toCents(payInvoice.paidAmount, true)
+                    )
+                  )}
+                </span>
+              </div>
             </div>
 
-            <form onSubmit={handleSubmitPayment}>
-              <div className="billing-manager-modal-body">
-                {payError && (
-                  <div className="billing-manager-alert billing-manager-alert-error" style={{ margin: 0 }}>
-                    {payError}
-                  </div>
-                )}
-                {paySuccess && (
-                  <div
-                    className="billing-manager-alert billing-manager-alert-success"
-                    style={{ margin: 0 }}
-                  >
-                    {paySuccess}
-                  </div>
-                )}
+            <div>
+              <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.375rem' }}>
+                Số tiền thực thu lần này (VND) <span style={{ color: '#ef4444' }}>*</span>
+              </label>
+              <input
+                type="number"
+                required
+                min="0.01"
+                step="any"
+                value={payFormData.paidAmount}
+                onChange={(e) => setPayFormData({ ...payFormData, paidAmount: e.target.value })}
+                disabled={paySubmitting}
+                style={{
+                  width: '100%',
+                  padding: '0.5rem 0.75rem',
+                  fontSize: '0.875rem',
+                  borderRadius: '0.375rem',
+                  border: '1px solid var(--border-color)',
+                  backgroundColor: 'var(--bg-surface)',
+                  color: 'var(--text-primary)',
+                  boxSizing: 'border-box',
+                }}
+              />
+            </div>
 
-                <div
-                  style={{
-                    backgroundColor: '#f8fafc',
-                    padding: '0.75rem',
-                    borderRadius: '0.5rem',
-                    border: '1px solid #e2e8f0',
-                    fontSize: '0.75rem',
-                    lineHeight: '1.6',
-                  }}
-                >
-                  <div>
-                    <strong>Căn hộ:</strong> P.{payInvoice.room?.roomNumber || payInvoice.roomId} - Kỳ:{' '}
-                    <span style={{ fontWeight: 700, color: '#4f46e5' }}>{payInvoice.month}</span>
-                  </div>
-                  <div>
-                    <strong>Tổng tiền:</strong> {formatCurrency(payInvoice.totalAmount, true)}
-                  </div>
-                  <div>
-                    <strong>Đã nộp trước:</strong> {formatCurrency(payInvoice.paidAmount, true)}
-                  </div>
-                  <div>
-                    <strong>Số tiền còn thiếu:</strong>{' '}
-                    <span style={{ fontWeight: 700, color: '#e11d48' }}>
-                      {formatCents(
-                        subtractMoney(
-                          toCents(payInvoice.totalAmount, true),
-                          toCents(payInvoice.paidAmount, true)
-                        )
-                      )}
-                    </span>
-                  </div>
-                </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.375rem' }}>
+                Phương thức thanh toán <span style={{ color: '#ef4444' }}>*</span>
+              </label>
+              <select
+                value={payFormData.paymentMethod}
+                onChange={(e) =>
+                  setPayFormData({
+                    ...payFormData,
+                    paymentMethod: e.target.value as PaymentMethodType,
+                  })
+                }
+                disabled={paySubmitting}
+                style={{
+                  width: '100%',
+                  padding: '0.5rem 0.75rem',
+                  fontSize: '0.875rem',
+                  borderRadius: '0.375rem',
+                  border: '1px solid var(--border-color)',
+                  backgroundColor: 'var(--bg-surface)',
+                  color: 'var(--text-primary)',
+                  boxSizing: 'border-box',
+                }}
+              >
+                <option value="VIETQR">Quét mã VietQR ngân hàng</option>
+                <option value="BANK_TRANSFER">Chuyển khoản trực tiếp</option>
+                <option value="CASH">Tiền mặt tại quầy Ban quản lý</option>
+              </select>
+            </div>
 
-                <div className="billing-manager-form-group">
-                  <label className="billing-manager-form-label">
-                    Số tiền thực thu lần này (VND) <span style={{ color: '#ef4444' }}>*</span>
-                  </label>
-                  <input
-                    type="number"
-                    required
-                    min="0.01"
-                    step="any"
-                    value={payFormData.paidAmount}
-                    onChange={(e) => setPayFormData({ ...payFormData, paidAmount: e.target.value })}
-                    className="billing-manager-input"
-                  />
-                </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.375rem' }}>
+                Mã chuẩn chi / Mã giao dịch ngân hàng (transactionCode)
+              </label>
+              <input
+                type="text"
+                maxLength={100}
+                placeholder="Ví dụ: FT2610..., VCB987..."
+                value={payFormData.transactionCode}
+                onChange={(e) => setPayFormData({ ...payFormData, transactionCode: e.target.value })}
+                disabled={paySubmitting}
+                style={{
+                  width: '100%',
+                  padding: '0.5rem 0.75rem',
+                  fontSize: '0.875rem',
+                  borderRadius: '0.375rem',
+                  border: '1px solid var(--border-color)',
+                  backgroundColor: 'var(--bg-surface)',
+                  color: 'var(--text-primary)',
+                  boxSizing: 'border-box',
+                }}
+              />
+            </div>
 
-                <div className="billing-manager-form-group">
-                  <label className="billing-manager-form-label">
-                    Phương thức thanh toán <span style={{ color: '#ef4444' }}>*</span>
-                  </label>
-                  <select
-                    value={payFormData.paymentMethod}
-                    onChange={(e) =>
-                      setPayFormData({
-                        ...payFormData,
-                        paymentMethod: e.target.value as PaymentMethodType,
-                      })
-                    }
-                    className="billing-manager-select"
-                  >
-                    <option value="VIETQR">Quét mã VietQR ngân hàng</option>
-                    <option value="BANK_TRANSFER">Chuyển khoản trực tiếp</option>
-                    <option value="CASH">Tiền mặt tại quầy Ban quản lý</option>
-                  </select>
-                </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.375rem' }}>
+                Ghi chú đối soát sao kê (note)
+              </label>
+              <textarea
+                rows={2}
+                maxLength={500}
+                placeholder="Ghi chú xác nhận khớp tiền..."
+                value={payFormData.note}
+                onChange={(e) => setPayFormData({ ...payFormData, note: e.target.value })}
+                disabled={paySubmitting}
+                style={{
+                  width: '100%',
+                  padding: '0.5rem 0.75rem',
+                  fontSize: '0.875rem',
+                  borderRadius: '0.375rem',
+                  border: '1px solid var(--border-color)',
+                  backgroundColor: 'var(--bg-surface)',
+                  color: 'var(--text-primary)',
+                  boxSizing: 'border-box',
+                }}
+              />
+            </div>
 
-                <div className="billing-manager-form-group">
-                  <label className="billing-manager-form-label">
-                    Mã chuẩn chi / Mã giao dịch ngân hàng (transactionCode)
-                  </label>
-                  <input
-                    type="text"
-                    maxLength={100}
-                    placeholder="Ví dụ: FT2610..., VCB987..."
-                    value={payFormData.transactionCode}
-                    onChange={(e) =>
-                      setPayFormData({ ...payFormData, transactionCode: e.target.value })
-                    }
-                    className="billing-manager-input"
-                  />
-                </div>
-
-                <div className="billing-manager-form-group">
-                  <label className="billing-manager-form-label">Ghi chú đối soát sao kê (note)</label>
-                  <textarea
-                    rows={2}
-                    maxLength={500}
-                    placeholder="Ghi chú xác nhận khớp tiền..."
-                    value={payFormData.note}
-                    onChange={(e) => setPayFormData({ ...payFormData, note: e.target.value })}
-                    className="billing-manager-textarea"
-                  />
-                </div>
-
-                <div className="billing-manager-modal-footer">
-                  <button
-                    type="button"
-                    onClick={() => setIsPayModalOpen(false)}
-                    disabled={paySubmitting}
-                    className="billing-manager-btn billing-manager-btn-secondary"
-                  >
-                    Hủy bỏ
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={paySubmitting}
-                    className="billing-manager-btn billing-manager-btn-success"
-                  >
-                    {paySubmitting ? 'Đang đối soát...' : 'Xác Nhận Đã Thu Tiền'}
-                  </button>
-                </div>
-              </div>
-            </form>
-          </div>
-        </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border-color)' }}>
+              <Button
+                variant="secondary"
+                disabled={paySubmitting}
+                onClick={() => setIsPayModalOpen(false)}
+              >
+                Hủy bỏ
+              </Button>
+              <Button
+                variant="primary"
+                isLoading={paySubmitting}
+                type="submit"
+              >
+                Xác nhận đã thu tiền
+              </Button>
+            </div>
+          </form>
+        </Modal>
       )}
 
       {/* =================================================================== */}
-      {/* MODAL 4: XEM LỊCH SỬ THANH TOÁN (PAYMENTS HISTORY) */}
+      {/* MODAL 4: XEM LỊCH SỬ THANH TOÁN (PAYMENTS HISTORY)                  */}
       {/* =================================================================== */}
       {viewingPaymentsInvoice && (
-        <div
-          className="billing-manager-modal-overlay"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) {
-              setViewingPaymentsInvoice(null);
-            }
-          }}
+        <Modal
+          isOpen={!!viewingPaymentsInvoice}
+          onClose={() => setViewingPaymentsInvoice(null)}
+          title={`Lịch Sử Thanh Toán [Hóa Đơn #${viewingPaymentsInvoice.id}]`}
         >
-          <div className="billing-manager-modal-box">
-            <div className="billing-manager-modal-header">
-              <h3 className="billing-manager-modal-title">
-                Lịch Sử Thanh Toán [Hóa Đơn #{viewingPaymentsInvoice.id}]
-              </h3>
-              <button
-                type="button"
-                onClick={() => setViewingPaymentsInvoice(null)}
-                className="billing-manager-modal-close"
-              >
-                ✕
-              </button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '280px', overflowY: 'auto' }}>
+              {viewingPaymentsInvoice.payments?.map((payment) => (
+                <div
+                  key={payment.id}
+                  style={{
+                    padding: '0.75rem',
+                    backgroundColor: 'var(--bg-muted, #f8fafc)',
+                    borderRadius: '0.5rem',
+                    border: '1px solid var(--border-color)',
+                    fontSize: '0.8125rem',
+                    lineHeight: '1.5',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontWeight: 700, color: '#059669', fontSize: '0.9375rem' }}>
+                      +{formatCurrency(payment.amount, true, MAX_PAYMENT_CENTS)}
+                    </span>
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>
+                      {payment.paidAt ? new Date(payment.paidAt).toLocaleString('vi-VN') : '-'}
+                    </span>
+                  </div>
+                  <div>
+                    <strong>Phương thức:</strong> {payment.paymentMethod}
+                  </div>
+                  {payment.transactionCode && (
+                    <div>
+                      <strong>Mã chuẩn chi:</strong>{' '}
+                      <span style={{ fontFamily: 'monospace' }}>{payment.transactionCode}</span>
+                    </div>
+                  )}
+                  {payment.note && (
+                    <div>
+                      <strong>Ghi chú:</strong> {payment.note}
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
 
-            <div className="billing-manager-modal-body">
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '280px', overflowY: 'auto' }}>
-                {viewingPaymentsInvoice.payments?.map((payment) => (
-                  <div
-                    key={payment.id}
-                    style={{
-                      padding: '0.75rem',
-                      backgroundColor: '#f8fafc',
-                      borderRadius: '0.5rem',
-                      border: '1px solid #e2e8f0',
-                      fontSize: '0.75rem',
-                      lineHeight: '1.5',
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontWeight: 700, color: '#059669', fontSize: '0.875rem' }}>
-                        +{formatCurrency(payment.amount, true, MAX_PAYMENT_CENTS)}
-                      </span>
-                      <span style={{ color: '#94a3b8' }}>
-                        {payment.paidAt ? new Date(payment.paidAt).toLocaleString('vi-VN') : '-'}
-                      </span>
-                    </div>
-                    <div>
-                      <strong>Phương thức:</strong> {payment.paymentMethod}
-                    </div>
-                    {payment.transactionCode && (
-                      <div>
-                        <strong>Mã chuẩn chi:</strong>{' '}
-                        <span style={{ fontFamily: 'monospace' }}>{payment.transactionCode}</span>
-                      </div>
-                    )}
-                    {payment.note && (
-                      <div>
-                        <strong>Ghi chú:</strong> {payment.note}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              <div className="billing-manager-modal-footer">
-                <button
-                  type="button"
-                  onClick={() => setViewingPaymentsInvoice(null)}
-                  className="billing-manager-btn billing-manager-btn-secondary"
-                >
-                  Đóng
-                </button>
-              </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: '0.5rem', borderTop: '1px solid var(--border-color)' }}>
+              <Button variant="secondary" onClick={() => setViewingPaymentsInvoice(null)}>
+                Đóng
+              </Button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );
 };
+
+export default BillingManagerPage;
