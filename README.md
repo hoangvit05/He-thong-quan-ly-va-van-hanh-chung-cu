@@ -12,9 +12,9 @@
 | **Cơ sở dữ liệu (PostgreSQL 16)** | **[ĐÃ HOÀN THIỆN]** | 7 Models, 5 Enums, Constraints, Indexes tại [`backend/src/database/schema.prisma#L58`](backend/src/database/schema.prisma#L58) | **Hiếu** |
 | **Backend Core (Tickets, Invoices, Feedback)** | **[ĐÃ HOÀN THIỆN]** | 149 Unit tests PASS (tại thời điểm kiểm tra), ACID Transactions, Row-Locking `SELECT FOR UPDATE`, VietQR NAPAS | **Hiếu** |
 | **Backend Auth Module** | **[ĐÃ HOÀN THIỆN]** | 48 Unit tests PASS (tại thời điểm kiểm tra), Bcrypt Hashing, JWT HS256, Anti-Brute-Force Throttle, `/me` | **Việt Hoàng** & **Hiếu** |
-| **Backend Stubs (Users & Notifications)** | **[KHUNG CHỜ / ĐANG PHÁT TRIỂN]** | Đã tạo scaffold controller; `[CẦN XÁC NHẬN]` bổ sung auth middleware & kết nối DB thật | **Việt Hoàng** |
+| **Backend Modules (Users, Rooms, Notifications, Media)** | **[ĐÃ HOÀN THIỆN]** | Đã hoàn thiện controllers, validators, Socket.IO realtime, Cloudinary upload, kết nối CSDL và test suites | **Việt Hoàng** |
 | **Hạ tầng CI/CD & Testing Sandbox** | **[ĐÃ HOÀN THIỆN]** | GitHub Actions Workflow [`ci.yml`](.github/workflows/ci.yml), Least-Privilege PL/pgSQL Assertions, Safe Teardown | **Hiếu** |
-| **Web Portal Admin & BQL (React + Vite)** | **[KHUNG SCAFFOLD / ĐANG PHÁT TRIỂN]** | 8 Pages & Layout đã scaffold; thiếu entry point `index.html` (bắt buộc với Vite) và cấu hình `vite.config.ts` (React plugin); chưa cài dependencies và chưa kiểm chứng build | **Đăng Hoàng**, **Đức**, **Oanh** |
+| **Web Portal Admin & BQL (React + Vite)** | **[ĐANG PHÁT TRIỂN / TÍCH HỢP]** | PR1 (Web Foundation & Auth/RBAC) và PR2 (Residents, Tickets, Billing) đã tích hợp vào main; đang chờ PR3 (Technician, Announcements, Feedback) | **Đăng Hoàng**, **Đức**, **Oanh** |
 | **Mobile App Cư dân (React Native)** | **[KHUNG SCAFFOLD / ĐANG PHÁT TRIỂN]** | 8 Screens & Navigation đã scaffold; `[CẦN BỔ SUNG]` gói `expo`, Token Interceptor; chưa cài dependencies và chưa kiểm chứng build | **Nguyệt**, **Thuần** |
 
 ---
@@ -54,7 +54,9 @@ He-thong-quan-ly-va-van-hanh-chung-cu/
 │   │   ├── modules/
 │   │   │   ├── auth/                  # [Việt Hoàng & Hiếu] Đăng nhập, đổi mật khẩu, cấp JWT, xem hồ sơ /me
 │   │   │   ├── users/                 # [Việt Hoàng] Admin quản lý tài khoản BQL & Thợ, duyệt cư dân mới
+│   │   │   ├── rooms/                 # [Việt Hoàng] Quản lý căn hộ & phòng, phân tầng, diện tích
 │   │   │   ├── notifications/         # [Việt Hoàng] Thông báo tòa nhà & Socket.IO realtime
+│   │   │   ├── media/                 # [Việt Hoàng] Tải lên đa phương tiện Cloudinary
 │   │   │   ├── tickets/               # [Hiếu] Báo hỏng, lọc trùng 24h, gán thợ, kê khai vật tư, chấm sao
 │   │   │   ├── invoices/              # [Hiếu] Lập biểu phí, snapshot totalAmount, VietQR, chống Overpayment
 │   │   │   └── feedback/              # [Hiếu] Hòm thư góp ý, Anti-Enumeration (404), phản hồi BQL
@@ -76,6 +78,13 @@ He-thong-quan-ly-va-van-hanh-chung-cu/
 │   │   ├── components/Layout/         # [Đăng Hoàng] Layout khung: AppLayout, Header, Sidebar
 │   │   ├── routes/
 │   │   │   └── AppRoutes.tsx          # [Đăng Hoàng] Hệ thống định tuyến Web
+│   │   ├── utils/
+│   │   │   ├── auth.ts                # [Đăng Hoàng] Quản lý phiên làm việc & phân quyền vai trò
+│   │   │   ├── adminPagination.ts     # [Đăng Hoàng] Thuật toán phân trang an toàn & recovery
+│   │   │   └── roomValidation.ts      # [Đức] Tiền kiểm tra trạng thái phòng trước khi duyệt (BUG-05)
+│   │   ├── test/
+│   │   │   ├── auth-rbac.test.js      # [Đăng Hoàng] Test suite 45 ca kiểm thử Auth/RBAC & Pagination
+│   │   │   └── room-validation.test.js# [Đức] Test suite 8 ca kiểm thử tiền kiểm phòng BUG-05
 │   │   └── pages/
 │   │       ├── LoginPage.tsx              # [Đăng Hoàng] Màn hình đăng nhập Web Admin/BQL/Thợ
 │   │       ├── AdminAccountsPage.tsx      # [Đăng Hoàng] Admin tạo tài khoản BQL & Thợ kỹ thuật
@@ -240,9 +249,9 @@ Nhóm cần nắm rõ trạng thái thực tế của từng API để không hi
 
 | Thành viên | Vai trò chính | Phân hệ phụ trách | Vị trí File & Thư mục chính | Nhiệm vụ trọng tâm |
 | :--- | :--- | :--- | :--- | :--- |
-| **Việt Hoàng** *(Leader)* | Trưởng nhóm, Backend Architect | 🖥️ Backend Framework & Auth/Users | `backend/src/main.ts`<br>`backend/src/app.module.ts`<br>`backend/src/modules/auth/`, `users/`, `notifications/` | Quản lý khung server, bảo mật JWT, API quản lý user & duyệt cư dân, Socket.IO, review & merge PR toàn dự án |
-| **Hiếu** | Kỹ sư CSDL & Backend Core | 🗄️ Database, Core API & Testing | `backend/src/database/`<br>`backend/src/common/utils/`<br>`backend/src/modules/tickets/`, `invoices/`, `feedback/`<br>`backend/src/test/`, `docker/`, `.github/` | Thiết kế CSDL Prisma, tiện ích bảo mật/tiền tệ/VietQR, nghiệp vụ Sự cố/Hóa đơn/Góp ý, bảo đảm các bộ test hiện có (197 unit tests, 178 integration assertions tại thời điểm kiểm tra) và CI Pipeline luôn PASS |
-| **Đăng Hoàng** | Web Frontend Lead | 🌐 Web Layout & Quản trị Admin | `web/src/components/Layout/`<br>`web/src/routes/AppRoutes.tsx`<br>`web/src/pages/LoginPage.tsx`, `AdminAccountsPage.tsx` | Xây dựng khung Web (Sidebar, Header, Layout), cấu hình Router, màn hình Đăng nhập, Admin tạo tài khoản BQL & Thợ |
+| **Việt Hoàng** *(Leader)* | Trưởng nhóm, Backend Architect | 🖥️ Backend Framework & Auth/Users/Rooms/Media | `backend/src/main.ts`<br>`backend/src/app.module.ts`<br>`backend/src/common/constants/api-endpoints.ts`<br>`backend/src/modules/auth/`, `users/`, `rooms/`, `notifications/`, `media/`<br>`docs/api-media.md`, `docs/api-notifications.md` | Quản lý khung server, bảo mật JWT, API quản lý user, căn hộ, thông báo Socket.IO, upload Cloudinary, review & merge PR toàn dự án. Nhánh chính thức: `Việt-Hoàng` |
+| **Hiếu** | Kỹ sư CSDL & Backend Core | 🗄️ Database, Core API & Testing | `backend/src/database/`<br>`backend/src/common/utils/`<br>`backend/src/modules/tickets/`, `invoices/`, `feedback/`<br>`backend/src/test/`, `docker/`, `.github/` | Thiết kế CSDL Prisma, tiện ích bảo mật/tiền tệ/VietQR, nghiệp vụ Sự cố/Hóa đơn/Góp ý, bảo đảm test suites và CI Pipeline luôn PASS. Nhánh chính thức: `Hiếu` |
+| **Đăng Hoàng** | Web Frontend Lead | 🌐 Web Layout, Auth/RBAC & Quản trị Admin | `web/src/components/Layout/`<br>`web/src/routes/AppRoutes.tsx`, `RouteGuard.tsx`<br>`web/src/pages/LoginPage.tsx`, `AdminAccountsPage.tsx`, `UnauthorizedPage.tsx`<br>`web/src/utils/auth.ts`, `adminPagination.ts`<br>`web/vite.config.ts`, `web/test/auth-rbac.test.js` | Xây dựng Web Foundation (Vite, Tailwind, Layout), định tuyến RouteGuard, xác thực Auth/RBAC frontend, phân trang an toàn, kiểm thử tự động Web CI. Nhánh chính thức: `Đăng-Hoàng` |
 | **Nguyệt** | Mobile Frontend Lead | 📱 Mobile App (Khung & Căn hộ) | `mobile/src/navigation/AppNavigator.tsx`<br>`mobile/src/api/apiClient.ts`<br>`mobile/src/screens/AuthScreen.tsx`, `ProfileScreen.tsx`, `NotificationScreen.tsx`, `InvoiceScreen.tsx` | Khung điều hướng Mobile, Đăng nhập cư dân, Hồ sơ căn hộ, Bảng tin tòa nhà, Tra cứu hóa đơn & quét mã VietQR |
 | **Thuần** | Mobile Developer | 📱 Mobile App (Sự cố & Góp ý) | `mobile/src/screens/CreateTicketScreen.tsx`, `TicketTimelineScreen.tsx`<br>`mobile/src/screens/RatingScreen.tsx`, `FeedbackScreen.tsx` | Màn hình Báo hỏng (ảnh/video link), Dòng thời gian tiến độ sửa chữa, Nghiệm thu đánh giá 1-5 sao, Gửi góp ý BQL |
 | **Đức** | Web Developer | 🌐 Web Quản lý Căn hộ & Điều phối | `web/src/pages/ResidentsPage.tsx`<br>`web/src/pages/TicketDispatchPage.tsx`<br>`web/src/pages/BillingManagerPage.tsx` | Quản lý danh mục phòng & duyệt cư dân, Bảng điều phối sự cố & cảnh báo trùng, Lập biểu phí định kỳ & đối soát thanh toán |
@@ -274,15 +283,19 @@ Nhóm cần nắm rõ trạng thái thực tế của từng API để không hi
 
 ## IV. BẢNG PHÂN CÔNG CÔNG VIỆC CHI TIẾT TỪNG THÀNH VIÊN
 
-### 1. 👤 VIỆT HOÀNG — Trưởng nhóm, Backend Framework, Auth, Users & Notifications
-* **Phạm vi nghiệp vụ:** Quản lý kiến trúc máy chủ Backend, luồng xác thực an toàn (Authentication), cấp phát tài khoản nội bộ cho Ban quản lý & Thợ kỹ thuật, duyệt tài khoản cư dân mới, phát thông báo tòa nhà, duy trì Socket.IO và duyệt Pull Request toàn dự án.
+### 1. 👤 VIỆT HOÀNG — Trưởng nhóm, Backend Architect, Auth, Users, Rooms, Notifications & Media
+* **Nhánh làm việc chính thức:** `Việt-Hoàng`
+* **Phạm vi nghiệp vụ:** Quản lý kiến trúc máy chủ Backend, luồng xác thực an toàn (Authentication), cấp phát tài khoản nội bộ cho Ban quản lý & Thợ kỹ thuật, duyệt tài khoản cư dân mới, quản lý căn hộ & phòng (Rooms), thông báo tòa nhà & Socket.IO realtime (Notifications), tải lên đa phương tiện Cloudinary (Media Asset), và duyệt Pull Request toàn dự án.
 * **Tệp tin phụ trách trực tiếp:**
   * [`backend/src/main.ts`](backend/src/main.ts)
   * [`backend/src/app.module.ts`](backend/src/app.module.ts)
   * [`backend/src/modules/auth/auth.controller.ts`](backend/src/modules/auth/auth.controller.ts) *(phối hợp cùng Hiếu)*
   * [`backend/src/modules/auth/auth.validator.ts`](backend/src/modules/auth/auth.validator.ts)
-  * [`backend/src/modules/users/users.controller.ts`](backend/src/modules/users/users.controller.ts)
-  * [`backend/src/modules/notifications/notifications.controller.ts`](backend/src/modules/notifications/notifications.controller.ts)
+  * [`backend/src/modules/users/`](backend/src/modules/users/) (`users.controller.ts`, `users.validator.ts`, `users.test.ts`, `users.integration.test.ts`)
+  * [`backend/src/modules/rooms/`](backend/src/modules/rooms/) (`rooms.controller.ts`, `rooms.validator.ts`, `rooms.test.ts`, `rooms.integration.test.ts`)
+  * [`backend/src/modules/notifications/`](backend/src/modules/notifications/) (`notifications.controller.ts`, `notifications.service.ts`, `notifications.socket.ts`, `notifications.validator.ts`, `notifications.test.ts`, `notifications.integration.test.ts`)
+  * [`backend/src/modules/media/`](backend/src/modules/media/) (`media.controller.ts`, `media.service.ts`, `media.validator.ts`, `media.config.ts`, `media.test.ts`, `media.integration.test.ts`)
+  * [`docs/api-media.md`](docs/api-media.md), [`docs/api-notifications.md`](docs/api-notifications.md)
 * **Tệp dùng chung được phép sửa:** [`backend/src/common/constants/api-endpoints.ts`](backend/src/common/constants/api-endpoints.ts) *(Việt Hoàng - Final Owner)*.
 * **API Dependencies cung cấp cho nhóm:**
   * `[ĐÃ TRIỂN KHAI]`: `POST /api/auth/login`, `POST /api/auth/change-password`, `GET /api/auth/me`.
@@ -542,18 +555,22 @@ npm start
 ### 1. Quy ước Phân nhánh Git (Branching Strategy)
 * **`main`**: Nhánh chính của dự án. Theo **chính sách nội bộ của nhóm**, `main` được quy ước là nhánh bảo vệ (Protected Branch theo quy ước nội bộ): chỉ chứa mã nguồn đã vượt qua kiểm tra biên dịch, unit tests và CI Pipeline; tuyệt đối không push code trực tiếp lên `main`.
   * *Phân biệt quy ước nội bộ và cấu hình GitHub:* Chính sách bảo vệ nhánh `main` hiện là cam kết kỷ luật nội bộ của nhóm (`[QUY ƯỚC NỘI BỘ]`). Việc kích hoạt cấu hình Branch Protection Rule hoặc Ruleset kỹ thuật thực tế trên GitHub repository (`[CẦN XÁC MINH CẤU HÌNH GITHUB THỰC TẾ]`) cần được Trưởng nhóm (Repo Admin - Việt Hoàng) thiết lập và xác minh trực tiếp trên phần Settings của GitHub repository; hiện tại chưa có bằng chứng xác nhận cấu hình này đã được bật trên GitHub.
-* **Trạng thái Nhánh Git Thực tế & Quy ước Đặt tên:**
-  * **Các nhánh đã xác minh tồn tại trong Git repository (`git branch -a`):**
-    * `main`: Nhánh chính của repository.
-    * `Hiếu`: Nhánh phát triển local của Hiếu (Backend Core & DB).
-    * `remotes/origin/Đăng-Hoàng`: Nhánh phát triển remote của Đăng Hoàng (Web Lead).
-  * **Quy ước phân nhánh cho các thành viên còn lại `[ĐỀ XUẤT CẦN TẠO KHI BẮT ĐẦU PHÁT TRIỂN]`:**
-    * Việt Hoàng: `viet-hoang` (hoặc `feature/auth-users`)
-    * Đức: `duc` (hoặc `feature/web-management`)
-    * Oanh: `oanh` (hoặc `feature/web-technician`)
-    * Nguyệt: `nguyet` (hoặc `feature/mobile-core`)
-    * Thuần: `thuan` (hoặc `feature/mobile-tickets`)
-    * *Ghi chú:* Các nhánh cá nhân của Việt Hoàng, Đức, Oanh, Nguyệt, Thuần **không xuất hiện trong kết quả `git branch -a` tại thời điểm kiểm tra**; đây là các nhánh dự kiến sẽ tạo khi các thành viên bắt đầu triển khai code. Quy ước đặt tên nhánh thống nhất: `feature/<ten-thanh-vien>-<chuc-nang>` hoặc `<ten-thanh-vien>`.
+* **Kiến trúc Đúng 6 Nhánh làm việc Chính (Active Working Branches):**
+  Dự án chuẩn hóa đúng 6 nhánh làm việc chính, bao gồm nhánh `main` và 5 nhánh cá nhân độc lập của 5 thành viên phát triển:
+  1. **`main`**: Nhánh tích hợp trung tâm của dự án (Production baseline).
+  2. **`Đức`**: Nhánh cá nhân của Đức (Phụ trách Web Quản lý Căn hộ, Điều phối sự cố & Hóa đơn).
+  3. **`Đăng-Hoàng`**: Nhánh cá nhân của Đăng Hoàng (Phụ trách Web Frontend Lead, Web Foundation, Auth/RBAC & Admin Accounts).
+  4. **`Việt-Hoàng`**: Nhánh cá nhân của Việt Hoàng (Trưởng nhóm, Phụ trách Backend Framework, Auth, Users, Rooms, Notifications, Media).
+  5. **`Oanh`**: Nhánh cá nhân của Oanh (Phụ trách Web Vận hành Thợ, Thông báo tòa nhà & Góp ý).
+  6. **`Hiếu`**: Nhánh cá nhân của Hiếu (Phụ trách CSDL Prisma, Backend Core: Tickets, Invoices, Feedback, CI Pipeline).
+
+* **Phân biệt Rõ ràng Thành viên Trùng tên (Disambiguation):**
+  * **Việt Hoàng** (Branch: `Việt-Hoàng`): Trưởng nhóm (Leader), Backend Architect / Backend Lead, Repo Owner (`hoangvit05`). Quản lý toàn bộ hạ tầng Backend, API endpoints, server entrypoint, các module nghiệp vụ Backend (Auth, Users, Rooms, Notifications, Media Asset) và phê duyệt Pull Request toàn dự án.
+  * **Đăng Hoàng** (Branch: `Đăng-Hoàng`): Web Frontend Lead. Quản lý toàn bộ Web Foundation (Tailwind, Vite, Layout), Routing, Auth/RBAC frontend, Admin Accounts, phân trang an toàn AdminPagination và Web CI test suite.
+  * **Nguyên tắc bất khả xâm phạm:** Tuyệt đối phân biệt Việt Hoàng và Đăng Hoàng là hai thành viên riêng biệt; không tự ý chuyển code của Việt Hoàng sang nhánh Đăng Hoàng hoặc ngược lại.
+
+* **Chính sách Bảo toàn Nhánh Backup:**
+  * Toàn bộ 11 nhánh backup với tiền tố `backup/` (như `backup/dang-hoang-pre-main-reset-...`, `backup/duc-pre-main-reset-...`, `backup/local-uncommitted-...`, `backup/ref/...`) được bảo toàn nguyên vẹn trên cả local và remote theo chính sách kiểm toán an toàn dữ liệu, tuyệt đối không được xóa hoặc ghi đè.
 * **Quy trình tạo Pull Request (PR) & Code Review `[QUY ƯỚC NHÓM ĐỀ XUẤT]`:**
   1. Trước khi mở PR, chạy kiểm tra biên dịch và unit tests tại local:
      ```bash
