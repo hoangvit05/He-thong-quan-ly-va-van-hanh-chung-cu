@@ -8,6 +8,11 @@ export interface MenuItem {
 
 export const MENU_ITEMS: MenuItem[] = [
   {
+    title: 'Bàn làm việc tổng quan',
+    path: '/dashboard',
+    roles: ['BQL', 'ADMIN'],
+  },
+  {
     title: 'Quản lý tài khoản',
     path: '/admin/accounts',
     roles: ['ADMIN'],

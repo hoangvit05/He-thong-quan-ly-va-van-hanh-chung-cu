@@ -7,7 +7,9 @@ import { UnauthorizedPage } from '../pages/UnauthorizedPage';
 import { RequireAuth, RequireRole, RootRedirect } from './RouteGuard';
 
 // Khai báo cố định React.lazy ngoài phạm vi component để tránh tái khởi tạo mỗi lần render.
-// Trả về đúng component export, tuyệt đối không sử dụng hàm rỗng fallback âm thầm để TypeScript kiểm soát tính đúng đắn.
+const DashboardPage = React.lazy(() =>
+  import('../pages/DashboardPage').then((m) => ({ default: m.DashboardPage }))
+);
 const ResidentsPage = React.lazy(() =>
   import('../pages/ResidentsPage').then((m) => ({ default: m.ResidentsPage }))
 );
@@ -43,6 +45,11 @@ export const AppRoutes: React.FC = () => {
           {/* Chuyển hướng tương thích cho các đường dẫn cũ từ Ngày 1 */}
           <Route path="/ticket-dispatch" element={<Navigate to="/tickets/dispatch" replace />} />
           <Route path="/technician-tasks" element={<Navigate to="/technician/tasks" replace />} />
+
+          {/* Tuyến đường Bàn làm việc tổng quan dành cho BQL và ADMIN */}
+          <Route element={<RequireRole allowedRoles={['BQL', 'ADMIN']} />}>
+            <Route path="/dashboard" element={<DashboardPage />} />
+          </Route>
 
           {/* Tuyến đường chỉ dành cho Quản trị viên (ADMIN) */}
           <Route element={<RequireRole allowedRoles={['ADMIN']} />}>
