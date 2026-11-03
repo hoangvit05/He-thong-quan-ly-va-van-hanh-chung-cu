@@ -860,7 +860,7 @@ describe('5. Pagination Recovery & Request Flow Regression Suite', () => {
 
     // Giá trị active VITE_API_URL= phải để trống, không được gán sẵn localhost
     assert(
-      envSource.includes('VITE_API_URL=\n') || envSource.endsWith('VITE_API_URL='),
+      envSource.includes('VITE_API_URL=\n') || envSource.includes('VITE_API_URL=\r\n') || envSource.trim().endsWith('VITE_API_URL='),
       'VITE_API_URL mặc định phải để trống (same-origin)'
     );
 
