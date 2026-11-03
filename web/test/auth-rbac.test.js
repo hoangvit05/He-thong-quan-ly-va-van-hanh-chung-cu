@@ -259,14 +259,14 @@ describe('2. Role-Based Access Control (RBAC) & Route Guards', () => {
 
   it('TC19: getRootRedirectPath điều hướng chuẩn xác theo từng vai trò', () => {
     assert.strictEqual(getRootRedirectPath('ADMIN'), '/admin/accounts');
-    assert.strictEqual(getRootRedirectPath('BQL'), '/residents');
+    assert.strictEqual(getRootRedirectPath('BQL'), '/dashboard');
     assert.strictEqual(getRootRedirectPath('TECHNICIAN'), '/technician/tasks');
     assert.strictEqual(getRootRedirectPath('RESIDENT'), '/login');
     assert.strictEqual(getRootRedirectPath(undefined), '/login');
   });
 
   it('TC20: Kiểm tra MENU_ITEMS production - Không chứa role MANAGER và không chứa RESIDENT', () => {
-    assert.strictEqual(MENU_ITEMS.length, 7);
+    assert.strictEqual(MENU_ITEMS.length, 8);
     MENU_ITEMS.forEach((item) => {
       assert.strictEqual(
         item.roles.includes('MANAGER'),
@@ -436,6 +436,7 @@ describe('4. Direct Production Source Assertions & Integrity Checks', () => {
     const menuSource = fs.readFileSync(menuPath, 'utf8');
 
     assert(menuSource.includes('export const MENU_ITEMS: MenuItem[]'), 'menu.ts phải export MENU_ITEMS');
+    assert(menuSource.includes("'/dashboard'"), 'Chứa route /dashboard');
     assert(menuSource.includes("'/admin/accounts'"), 'Chứa route /admin/accounts');
     assert(menuSource.includes("'/residents'"), 'Chứa route /residents');
     assert(menuSource.includes("'/tickets/dispatch'"), 'Chứa route /tickets/dispatch');

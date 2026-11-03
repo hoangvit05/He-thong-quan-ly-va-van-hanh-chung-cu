@@ -121,7 +121,7 @@ export function getRootRedirectPath(role?: AppRole): string {
     case 'ADMIN':
       return '/admin/accounts';
     case 'BQL':
-      return '/residents';
+      return '/dashboard';
     case 'TECHNICIAN':
       return '/technician/tasks';
     case 'RESIDENT':
