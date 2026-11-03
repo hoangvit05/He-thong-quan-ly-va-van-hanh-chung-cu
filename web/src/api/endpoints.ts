@@ -3,13 +3,21 @@
 // ========================================================
 
 export const API_ENDPOINTS = {
-  // 1. Phân hệ Auth & Quản lý User (Phụ trách: Đặng Hoàng)
+  // 1. Phân hệ Auth & Quản lý User (Phụ trách: Đăng Hoàng)
   AUTH: {
     LOGIN: '/api/auth/login',
     CHANGE_PASSWORD: '/api/auth/change-password',
     ADMIN_USERS: '/api/admin/users',
     RESIDENTS: '/api/apartments/residents',
     APPROVE_RESIDENT: (id: string | number) => `/api/apartments/residents/${id}/approve`,
+    ASSIGN_ROOM: (id: string | number) => `/api/apartments/residents/${id}/room`,
+  },
+
+  // 1b. Phân hệ Quản lý Căn hộ (Rooms)
+  ROOMS: {
+    LIST: '/api/rooms',
+    CREATE: '/api/rooms',
+    UPDATE: (id: string | number) => `/api/rooms/${id}`,
   },
 
   // 2. Phân hệ Báo hỏng & Luồng Sự cố (Phụ trách: Hiếu)
@@ -41,7 +49,7 @@ export const API_ENDPOINTS = {
     REPLY: (id: string | number) => `/api/feedback/${id}/reply`,
   },
 
-  // 5. Phân hệ Thông báo & Push Notification (Phụ trách: Đặng Hoàng)
+  // 5. Phân hệ Thông báo & Push Notification (Phụ trách: Đăng Hoàng)
   NOTIFICATIONS: {
     CREATE: '/api/notifications',
     LIST: '/api/notifications',

@@ -2,21 +2,18 @@ name: CI Pipeline
 
 'on':
   push:
-    branches: [ "Hiếu", "main" ]
+    branches: [ "main", "Hiếu", "Đăng-Hoàng", "Đức", "Oanh", "fix/**", "integrate/**" ]
   pull_request:
-    branches: [ "Hiếu", "main" ]
+    branches: [ "main", "Hiếu" ]
 
 permissions:
   contents: read
 
 jobs:
-  test:
-    name: Backend Typecheck, Unit & Integration Tests
+  whitespace:
+    name: Check Git Whitespace Errors
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      COMPOSE_PROJECT_NAME: ci-${{ github.run_id }}-${{ github.run_attempt }}
-      POSTGRES_PORT: 5432
+    timeout-minutes: 5
 
     steps:
       - name: 1. Checkout Repository
@@ -95,30 +92,45 @@ jobs:
           fi
           echo "Git whitespace check passed for the selected comparison range."
 
-      - name: 3. Setup Node.js 24 LTS
+  backend:
+    name: Backend Typecheck, Unit & Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      COMPOSE_PROJECT_NAME: ci-${{ github.run_id }}-${{ github.run_attempt }}
+      POSTGRES_PORT: 5432
+
+    steps:
+      - name: 1. Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: 2. Setup Node.js 24 LTS
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: 'npm'
           cache-dependency-path: backend/package-lock.json
 
-      - name: 4. Install Dependencies
+      - name: 3. Install Dependencies
         working-directory: backend
         run: npm ci
 
-      - name: 5. Generate Prisma Client
+      - name: 4. Generate Prisma Client
         working-directory: backend
         run: npm run prisma:generate
 
-      - name: 6. TypeScript Compile Check
+      - name: 5. TypeScript Compile Check
         working-directory: backend
         run: npx tsc --noEmit
 
-      - name: 7. Run Unit Tests (Mocked)
+      - name: 6. Run Unit Tests (Mocked)
         working-directory: backend
         run: npm test
 
-      - name: 8. Start Isolated PostgreSQL Test Container
+      - name: 7. Start Isolated PostgreSQL Test Container
         run: |
           set -euo pipefail
           echo "POSTGRES_SETUP_STARTED=true" >> "$GITHUB_ENV"
@@ -134,7 +146,7 @@ jobs:
           POSTGRES_PORT="$POSTGRES_PORT" POSTGRES_PASSWORD="$ADMIN_PW" POSTGRES_APP_PASSWORD="$APP_PW" \
             docker compose -f docker-compose.test.yml -p "$COMPOSE_PROJECT_NAME" up -d
 
-      - name: 9. Wait for PostgreSQL Healthcheck
+      - name: 8. Wait for PostgreSQL Healthcheck
         run: |
           set -euo pipefail
           CONTAINER_ID=$(docker compose -f docker-compose.test.yml -p "$COMPOSE_PROJECT_NAME" ps -q postgres-test)
@@ -158,20 +170,20 @@ jobs:
             exit 1
           fi
 
-      - name: 10. Verify Init Script Execution
+      - name: 9. Verify Init Script Execution
         run: |
           set -euo pipefail
           CONTAINER_ID=$(docker compose -f docker-compose.test.yml -p "$COMPOSE_PROJECT_NAME" ps -q postgres-test)
           docker logs "$CONTAINER_ID" 2>&1 | grep "Least privilege role 'test_app_user' successfully initialized."
 
-      - name: 11. Push Schema via Admin Role
+      - name: 10. Push Schema via Admin Role
         working-directory: backend
         run: |
           set -euo pipefail
           DATABASE_URL="postgresql://test_user:${POSTGRES_PASSWORD}@127.0.0.1:${POSTGRES_PORT}/apartment_test?schema=public" \
             npx prisma db push --schema=src/database/schema.prisma
 
-      - name: 12. Run PL/pgSQL ACL Assertions (Fail-Closed)
+      - name: 11. Run PL/pgSQL ACL Assertions (Fail-Closed)
         run: |
           set -euo pipefail
           PGPASSWORD="${POSTGRES_PASSWORD}" psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -p "${POSTGRES_PORT}" -U test_user -d apartment_test <<-'EOSQL'
@@ -356,21 +368,21 @@ jobs:
           END $$;
           EOSQL
 
-      - name: 13. Verify Live App Role Connection & Read
+      - name: 12. Verify Live App Role Connection & Read
         run: |
           set -euo pipefail
           PGPASSWORD="${POSTGRES_APP_PASSWORD}" psql -v ON_ERROR_STOP=1 \
             -h 127.0.0.1 -p "${POSTGRES_PORT}" -U test_app_user -d apartment_test \
             -c "SELECT current_user, current_database(); SELECT COUNT(*) AS user_count FROM \"User\";"
 
-      - name: 14. Run Integration Tests (Least Privilege App Role)
+      - name: 13. Run Integration Tests (Least Privilege App Role)
         working-directory: backend
         run: |
           set -euo pipefail
           DATABASE_URL="postgresql://test_app_user:${POSTGRES_APP_PASSWORD}@127.0.0.1:${POSTGRES_PORT}/apartment_test?schema=public" \
             npm run test:integration
 
-      - name: 15. Teardown Isolated Test Container
+      - name: 14. Teardown Isolated Test Container
         if: always()
         run: |
           set -euo pipefail
@@ -401,3 +413,38 @@ jobs:
           echo "Executing project-scoped teardown for '$COMPOSE_PROJECT_NAME'..."
           docker compose -f docker-compose.test.yml -p "$COMPOSE_PROJECT_NAME" down -v --remove-orphans
           echo "Teardown completed successfully for project '$COMPOSE_PROJECT_NAME'."
+
+  web:
+    name: Web Frontend Typecheck, Test & Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: 1. Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: 2. Setup Node.js 24 LTS
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: 3. Install Web Dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: 4. TypeScript Compile Check
+        working-directory: web
+        run: npx tsc --noEmit
+
+      - name: 5. Run Web Tests (Auth & RBAC)
+        working-directory: web
+        run: npm test
+
+      - name: 6. Web Production Build
+        working-directory: web
+        run: npm run build
