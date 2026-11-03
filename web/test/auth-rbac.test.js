@@ -561,6 +561,12 @@ describe('4. Direct Production Source Assertions & Integrity Checks', () => {
     const recNormal = calculatePageRecovery(2, 5, 50, false);
     assert.strictEqual(recNormal.shouldRecover, false);
     assert.strictEqual(recNormal.targetPage, 2);
+
+    // 6. Kiểm tra isRecovery ngay cả trong trường hợp totalRecords = 0 (Tech Leader requirement)
+    const recZeroHalt = calculatePageRecovery(3, 1, 0, true);
+    assert.strictEqual(recZeroHalt.shouldRecover, false, 'Khi total = 0 và isRecovery = true, phải dừng loop');
+    assert.strictEqual(recZeroHalt.attemptsExceeded, true, 'attemptsExceeded phải là true');
+    assert.strictEqual(recZeroHalt.targetPage, 1);
   });
 
   it('TC37: getApiBaseUrl - Chuẩn hóa API URL theo môi trường và loại bỏ trailing /api', async () => {
@@ -602,5 +608,274 @@ describe('4. Direct Production Source Assertions & Integrity Checks', () => {
 
     // Đảm bảo các lazy import không sử dụng fallback () => null âm thầm
     assert(!routesSource.includes('() => null'), 'Không sử dụng fallback () => null âm thầm trong lazy import');
+  });
+});
+
+describe('5. Pagination Recovery & Request Flow Regression Suite', () => {
+  // Mock dữ liệu nhân viên chuẩn cho các bài test phân trang
+  const makeMockStaff = (id, role = 'BQL') => ({
+    id,
+    username: `staff_user_${id}`,
+    fullName: `Nhân Viên Số ${id}`,
+    role,
+    isApproved: true,
+  });
+
+  it('TC39: Trang 3 giảm xuống 2 trang - Kiểm tra logic recovery và luồng request thực tế', async () => {
+    const { calculatePageRecovery, executePaginatedRequestFlow } = await import(
+      '../src/utils/adminPagination.ts'
+    );
+
+    // 1. Kiểm tra logic recovery
+    const rec = calculatePageRecovery(3, 2, 15, 0);
+    assert.strictEqual(rec.shouldRecover, true);
+    assert.strictEqual(rec.targetPage, 2);
+
+    // 2. Kiểm tra luồng request thực tế
+    const requestedPages = [];
+    const mockFetch = async (page) => {
+      requestedPages.push(page);
+      if (page === 3) {
+        // Trang 3 đã bị trống vì tổng dữ liệu giảm xuống 15 (2 trang)
+        return {
+          success: true,
+          data: [],
+          pagination: { page: 3, limit: 10, total: 15, totalPages: 2 },
+        };
+      }
+      if (page === 2) {
+        // Trang 2 chứa 5 bản ghi cuối cùng (11 -> 15)
+        return {
+          success: true,
+          data: [
+            makeMockStaff(11),
+            makeMockStaff(12),
+            makeMockStaff(13),
+            makeMockStaff(14),
+            makeMockStaff(15),
+          ],
+          pagination: { page: 2, limit: 10, total: 15, totalPages: 2 },
+        };
+      }
+      throw new Error(`Unexpected page requested: ${page}`);
+    };
+
+    const result = await executePaginatedRequestFlow(3, mockFetch, 2);
+    assert.strictEqual(result.success, true);
+    assert.strictEqual(result.requestsCount, 2, 'Tổng số request phải là 2 (trang 3 -> trang 2)');
+    assert.deepStrictEqual(requestedPages, [3, 2]);
+    assert.strictEqual(result.pagination.page, 2, 'Trang cuối cùng phải là trang 2');
+    assert.strictEqual(result.pagination.totalPages, 2);
+    assert.strictEqual(result.users.length, 5);
+    assert.strictEqual(result.users[0].id, 11);
+  });
+
+  it('TC40: Trang 3 giảm xuống 1 trang - Hồi phục trực tiếp về trang 1 và đồng nhất metadata', async () => {
+    const { calculatePageRecovery, executePaginatedRequestFlow } = await import(
+      '../src/utils/adminPagination.ts'
+    );
+
+    // 1. Kiểm tra logic recovery
+    const rec = calculatePageRecovery(3, 1, 8, 0);
+    assert.strictEqual(rec.shouldRecover, true);
+    assert.strictEqual(rec.targetPage, 1);
+
+    // 2. Kiểm tra luồng request thực tế
+    const requestedPages = [];
+    const mockFetch = async (page) => {
+      requestedPages.push(page);
+      if (page === 3) {
+        return {
+          success: true,
+          data: [],
+          pagination: { page: 3, limit: 10, total: 8, totalPages: 1 },
+        };
+      }
+      if (page === 1) {
+        return {
+          success: true,
+          data: [makeMockStaff(1), makeMockStaff(2)],
+          pagination: { page: 1, limit: 10, total: 8, totalPages: 1 },
+        };
+      }
+      throw new Error(`Unexpected page: ${page}`);
+    };
+
+    const result = await executePaginatedRequestFlow(3, mockFetch, 2);
+    assert.strictEqual(result.success, true);
+    assert.strictEqual(result.requestsCount, 2, 'Request 1: trang 3, Request 2: hồi phục về trang 1');
+    assert.deepStrictEqual(requestedPages, [3, 1]);
+    assert.strictEqual(result.pagination.page, 1);
+    assert.strictEqual(result.pagination.totalPages, 1);
+    assert.strictEqual(result.users.length, 2);
+  });
+
+  it('TC41: Dữ liệu bị xóa hết (totalRecords = 0) - Kiểm tra isRecovery và ngăn chặn lặp vô hạn', async () => {
+    const { calculatePageRecovery, executePaginatedRequestFlow } = await import(
+      '../src/utils/adminPagination.ts'
+    );
+
+    // 1. Logic check: Khi chưa recovery, total = 0 và page > 1 -> Phải hồi phục về trang 1
+    const recFirst = calculatePageRecovery(3, 1, 0, false);
+    assert.strictEqual(recFirst.shouldRecover, true);
+    assert.strictEqual(recFirst.targetPage, 1);
+
+    // 2. Logic check: Khi đã recovery (isRecovery = true hoặc attempt >= maxAttempts) -> PHẢI DỪNG
+    const recSecond = calculatePageRecovery(3, 1, 0, true);
+    assert.strictEqual(
+      recSecond.shouldRecover,
+      false,
+      'Phải dừng loop khi isRecovery = true ngay cả khi total = 0'
+    );
+    assert.strictEqual(recSecond.attemptsExceeded, true);
+
+    // 3. Luồng request thực tế khi dữ liệu bị xóa hết trong lúc ở trang 3
+    let callCount = 0;
+    const requestedPages = [];
+    const mockFetch = async (page) => {
+      callCount++;
+      requestedPages.push(page);
+      return {
+        success: true,
+        data: [],
+        pagination: { page, limit: 10, total: 0, totalPages: 1 },
+      };
+    };
+
+    const result = await executePaginatedRequestFlow(3, mockFetch, 2);
+    assert.strictEqual(result.success, true);
+    assert.strictEqual(result.requestsCount, 2, 'Chỉ thực hiện đúng 2 request (trang 3 -> trang 1)');
+    assert.deepStrictEqual(requestedPages, [3, 1]);
+    assert.strictEqual(result.pagination.page, 1);
+    assert.strictEqual(result.pagination.total, 0);
+    assert.strictEqual(result.pagination.totalPages, 1);
+    assert.deepStrictEqual(result.users, []);
+  });
+
+  it('TC42: Dữ liệu tiếp tục thay đổi trong lúc recovery (Page 3 -> Page 2 -> Page 1)', async () => {
+    const { executePaginatedRequestFlow } = await import('../src/utils/adminPagination.ts');
+
+    // Mô phỏng dữ liệu liên tục bị xóa trong quá trình phục hồi:
+    // Lần 1: request trang 3 -> total = 15 (cần về trang 2)
+    // Lần 2: request trang 2 -> dữ liệu vừa bị xóa tiếp, total = 5 (cần về trang 1)
+    // Lần 3: request trang 1 -> dữ liệu ổn định ở 5 bản ghi
+    const requestedPages = [];
+    const mockDynamicFetch = async (page) => {
+      requestedPages.push(page);
+      if (page === 3) {
+        return {
+          success: true,
+          data: [],
+          pagination: { page: 3, limit: 10, total: 15, totalPages: 2 },
+        };
+      }
+      if (page === 2) {
+        return {
+          success: true,
+          data: [],
+          pagination: { page: 2, limit: 10, total: 5, totalPages: 1 },
+        };
+      }
+      if (page === 1) {
+        return {
+          success: true,
+          data: [
+            makeMockStaff(1),
+            makeMockStaff(2),
+            makeMockStaff(3),
+            makeMockStaff(4),
+            makeMockStaff(5),
+          ],
+          pagination: { page: 1, limit: 10, total: 5, totalPages: 1 },
+        };
+      }
+      throw new Error(`Unexpected page: ${page}`);
+    };
+
+    const result = await executePaginatedRequestFlow(3, mockDynamicFetch, 2);
+    assert.strictEqual(result.success, true);
+    assert.strictEqual(result.requestsCount, 3, 'Phải thực hiện 3 requests: 3 -> 2 -> 1');
+    assert.deepStrictEqual(requestedPages, [3, 2, 1]);
+    assert.strictEqual(result.pagination.page, 1);
+    assert.strictEqual(result.pagination.totalPages, 1);
+    assert.strictEqual(result.pagination.total, 5);
+    assert.strictEqual(result.users.length, 5);
+  });
+
+  it('TC43: Dữ liệu biến động liên tục vượt quá retry limit - Dừng dứt khoát không lặp vô hạn và báo lỗi rõ ràng', async () => {
+    const { executePaginatedRequestFlow } = await import('../src/utils/adminPagination.ts');
+
+    // Mô phỏng server trả về lỗi đồng bộ khiến trang yêu cầu luôn lớn hơn totalPages
+    let callCount = 0;
+    const requestedPages = [];
+    const mockBrokenServer = async (page) => {
+      callCount++;
+      requestedPages.push(page);
+      return {
+        success: true,
+        data: [],
+        pagination: { page, limit: 10, total: 5, totalPages: Math.max(1, page - 1) },
+      };
+    };
+
+    // Giới hạn maxAttempts = 2 -> tối đa 3 requests (1 initial + 2 recoveries)
+    const result = await executePaginatedRequestFlow(5, mockBrokenServer, 2);
+    assert.strictEqual(result.success, false, 'Phải đánh dấu thất bại khi vượt quá giới hạn thử lại');
+    assert.strictEqual(result.requestsCount, 3, 'Tuyệt đối không chạy quá maxAttempts + 1');
+    assert.strictEqual(callCount, 3, 'Không phát sinh request vô hạn');
+    assert.match(result.error, /Không thể đồng bộ trang dữ liệu sau các lần thử phục hồi/);
+    assert.deepStrictEqual(result.users, [], 'Không trả về danh sách dữ liệu khi phục hồi thất bại');
+  });
+
+  it('TC44: Bảo đảm tính đồng nhất giữa dữ liệu và metadata (Tuyệt đối không hiển thị dữ liệu trang 2 với nhãn trang 1)', async () => {
+    const { executePaginatedRequestFlow } = await import('../src/utils/adminPagination.ts');
+
+    // Kiểm tra trường hợp trả về hợp lệ: dữ liệu trang 2 đi kèm metadata trang 2
+    const mockFetchValidPage2 = async (page) => {
+      return {
+        success: true,
+        data: [makeMockStaff(21), makeMockStaff(22)],
+        pagination: { page: 2, limit: 10, total: 20, totalPages: 2 },
+      };
+    };
+
+    const result = await executePaginatedRequestFlow(2, mockFetchValidPage2, 2);
+    assert.strictEqual(result.success, true);
+    assert.strictEqual(result.pagination.page, 2);
+    assert.strictEqual(result.users.length, 2);
+    assert.strictEqual(result.users[0].id, 21, 'Dữ liệu phải đúng của trang 2');
+
+    // Không được có hiện tượng metadata ép về trang 1 trong khi dữ liệu là của trang 2
+    assert.notStrictEqual(
+      result.pagination.page,
+      1,
+      'Metadata không được hiển thị trang 1 khi data là trang 2'
+    );
+  });
+
+  it('TC45: Kiểm tra template môi trường web/.env.example không chứa localhost làm giá trị mặc định', () => {
+    const envPath = path.join(__dirname, '../.env.example');
+    assert.strictEqual(fs.existsSync(envPath), true, '.env.example phải tồn tại');
+    const envSource = fs.readFileSync(envPath, 'utf8');
+
+    // Giá trị active VITE_API_URL= phải để trống, không được gán sẵn localhost
+    assert(
+      envSource.includes('VITE_API_URL=\n') || envSource.endsWith('VITE_API_URL='),
+      'VITE_API_URL mặc định phải để trống (same-origin)'
+    );
+
+    // Đảm bảo không có dòng active VITE_API_URL=http://localhost:5000 (chỉ xuất hiện trong chú thích #)
+    const lines = envSource.split(/\r?\n/).map((l) => l.trim());
+    const activeUrlLine = lines.find((l) => !l.startsWith('#') && l.startsWith('VITE_API_URL='));
+    assert.strictEqual(
+      activeUrlLine,
+      'VITE_API_URL=',
+      'Dòng active VITE_API_URL phải là VITE_API_URL= (không chứa localhost)'
+    );
+
+    // Kiểm tra có đầy đủ hướng dẫn Development và Production
+    assert(envSource.includes('Development'), 'Chứa hướng dẫn Development');
+    assert(envSource.includes('Production'), 'Chứa hướng dẫn Production');
+    assert(envSource.includes('Same-Origin'), 'Chứa hướng dẫn Same-Origin');
   });
 });

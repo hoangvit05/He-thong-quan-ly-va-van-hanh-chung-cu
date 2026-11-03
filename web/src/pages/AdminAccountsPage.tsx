@@ -6,8 +6,8 @@ import { AppRole } from '../constants/menu';
 import {
   StaffAccount,
   PaginationMeta,
-  validateAdminUsersResponse,
-  calculatePageRecovery,
+  executePaginatedRequestFlow,
+  DEFAULT_MAX_RECOVERY_ATTEMPTS,
 } from '../utils/adminPagination';
 
 export type { StaffAccount };
@@ -41,48 +41,31 @@ export const AdminAccountsPage: React.FC = () => {
   const currentUser = getStoredUser();
   const isAdmin = currentUser?.role === 'ADMIN';
 
-  const fetchAccounts = async (targetPage = 1, isRecovery = false) => {
+  const fetchAccounts = async (targetPage = 1) => {
     const seq = ++fetchAccountsSeqRef.current;
     setFetchError('');
     setTableLoading(true);
     try {
-      const res = await axiosClient.get(
-        `${API_ENDPOINTS.AUTH.ADMIN_USERS}?page=${targetPage}&limit=10`
+      const result = await executePaginatedRequestFlow(
+        targetPage,
+        (page) => axiosClient.get(`${API_ENDPOINTS.AUTH.ADMIN_USERS}?page=${page}&limit=10`),
+        DEFAULT_MAX_RECOVERY_ATTEMPTS
       );
 
       if (seq !== fetchAccountsSeqRef.current || !isMountedRef.current) {
         return; // Stale request or unmounted component
       }
 
-      // Validate nghiêm ngặt response Backend theo hợp đồng
-      const validation = validateAdminUsersResponse(res, targetPage, 10);
-      if (!validation.isValid) {
+      if (!result.success) {
         setAccounts([]);
-        setFetchError(validation.error);
+        setFetchError(result.error || 'Lỗi khi tải danh sách tài khoản.');
+        setPaginationMeta(result.pagination);
         return;
       }
 
-      // Xử lý trường hợp trang hiện tại vượt quá tổng số trang (Page Overshoot Recovery)
-      const recovery = calculatePageRecovery(
-        validation.pagination.page,
-        validation.pagination.totalPages,
-        validation.pagination.total,
-        isRecovery
-      );
-
-      if (recovery.shouldRecover) {
-        await fetchAccounts(recovery.targetPage, true);
-        return;
-      }
-
-      // Đảm bảo số trang hiển thị luôn hợp lệ (không bao giờ hiển thị "Trang 3 / 1")
-      const finalPagination: PaginationMeta = {
-        ...validation.pagination,
-        page: Math.min(validation.pagination.page, Math.max(1, validation.pagination.totalPages)),
-      };
-
-      setAccounts(validation.users);
-      setPaginationMeta(finalPagination);
+      // Đảm bảo dữ liệu và pagination metadata luôn đồng nhất từ cùng 1 phản hồi hợp lệ
+      setAccounts(result.users);
+      setPaginationMeta(result.pagination);
     } catch (e: unknown) {
       if (seq !== fetchAccountsSeqRef.current || !isMountedRef.current) {
         return;

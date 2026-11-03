@@ -206,30 +206,65 @@ export function validateAdminUsersResponse(
   };
 }
 
+export const DEFAULT_MAX_RECOVERY_ATTEMPTS = 2;
+
+export interface PageRecoveryResult {
+  shouldRecover: boolean;
+  targetPage: number;
+  reason?: string;
+  attemptsExceeded: boolean;
+}
+
+export interface PaginatedFlowResult {
+  success: boolean;
+  users: StaffAccount[];
+  pagination: PaginationMeta;
+  error?: string;
+  requestsCount: number;
+}
+
 /**
  * Tính toán khả năng hồi phục số trang khi người dùng ở trang vượt quá tổng số trang
- * (ví dụ: đang ở trang 3 thì dữ liệu bị xóa hết chỉ còn 2 trang).
+ * (ví dụ: đang ở trang 3 thì dữ liệu bị xóa bớt chỉ còn 2 trang hoặc bị xóa sạch).
+ *
+ * Hỗ trợ kiểm soát số lần thử phục hồi tối đa (maxAttempts) để ngăn chặn vòng lặp vô hạn
+ * ngay cả khi dữ liệu liên tục thay đổi hoặc khi totalRecords === 0.
  */
 export function calculatePageRecovery(
   currentPage: number,
   totalPages: number,
   totalRecords: number,
-  isRecovery = false
-): {
-  shouldRecover: boolean;
-  targetPage: number;
-  reason?: string;
-} {
+  isRecovery: boolean | number = false,
+  maxAttempts: number = DEFAULT_MAX_RECOVERY_ATTEMPTS
+): PageRecoveryResult {
+  // Chuẩn hóa trạng thái kiểm tra giới hạn:
+  // - boolean true: coi như đã có lần recovery trước đó và chạm giới hạn (tương thích ngược).
+  // - boolean false: lần đầu tiên (attempt = 0).
+  // - number: số lần recovery đã thực hiện, so sánh với maxAttempts.
+  const isLimitReached =
+    typeof isRecovery === 'boolean'
+      ? isRecovery
+      : typeof isRecovery === 'number' && isRecovery >= maxAttempts;
+
   // 1. Trường hợp không có dữ liệu nào (totalRecords = 0)
   if (totalRecords === 0) {
     if (currentPage > 1) {
+      if (isLimitReached) {
+        return {
+          shouldRecover: false,
+          targetPage: 1,
+          reason: 'Zero records persists after recovery attempt. Halting loop.',
+          attemptsExceeded: true,
+        };
+      }
       return {
         shouldRecover: true,
         targetPage: 1,
         reason: `Total records is 0 while on page ${currentPage}. Recovering to page 1.`,
+        attemptsExceeded: false,
       };
     }
-    return { shouldRecover: false, targetPage: 1 };
+    return { shouldRecover: false, targetPage: 1, attemptsExceeded: false };
   }
 
   // Đảm bảo tổng số trang hiệu lực tối thiểu là 1
@@ -237,19 +272,108 @@ export function calculatePageRecovery(
 
   // 2. Trường hợp trang hiện tại vượt quá tổng số trang (currentPage > totalPages)
   if (currentPage > effectiveTotalPages) {
-    if (isRecovery) {
+    if (isLimitReached) {
       return {
         shouldRecover: false,
         targetPage: effectiveTotalPages,
         reason: 'Overshoot persists after recovery attempt. Halting loop.',
+        attemptsExceeded: true,
       };
     }
     return {
       shouldRecover: true,
       targetPage: effectiveTotalPages,
       reason: `Current page ${currentPage} exceeds totalPages ${effectiveTotalPages}. Recovering to page ${effectiveTotalPages}.`,
+      attemptsExceeded: false,
     };
   }
 
-  return { shouldRecover: false, targetPage: currentPage };
+  return { shouldRecover: false, targetPage: currentPage, attemptsExceeded: false };
+}
+
+/**
+ * Điều phối luồng request phân trang và phục hồi an toàn (State Machine / Runner)
+ * Dùng chung cho UI Hook/Component và Unit/Integration Regression Tests.
+ *
+ * Đảm bảo:
+ * 1. Không phát sinh request vô hạn (giới hạn cứng maxAttempts + 1).
+ * 2. Bảo đảm dữ liệu và pagination metadata luôn đồng nhất (tuyệt đối không ghép data trang 2 với metadata trang 1).
+ * 3. Xử lý lỗi rõ ràng khi recovery vượt quá số lần thử cho phép.
+ */
+export async function executePaginatedRequestFlow(
+  initialPage: number,
+  fetchFn: (page: number) => Promise<unknown>,
+  maxAttempts: number = DEFAULT_MAX_RECOVERY_ATTEMPTS
+): Promise<PaginatedFlowResult> {
+  let targetPage = initialPage;
+  let attempt = 0;
+  let requestsCount = 0;
+
+  // Giới hạn vòng lặp tối đa = maxAttempts + 1 requests
+  while (requestsCount <= maxAttempts + 1) {
+    requestsCount++;
+    const rawRes = await fetchFn(targetPage);
+
+    const validation = validateAdminUsersResponse(rawRes, targetPage, 10);
+    if (!validation.isValid) {
+      return {
+        success: false,
+        users: [],
+        pagination: validation.pagination,
+        error: validation.error,
+        requestsCount,
+      };
+    }
+
+    const recovery = calculatePageRecovery(
+      validation.pagination.page,
+      validation.pagination.totalPages,
+      validation.pagination.total,
+      attempt,
+      maxAttempts
+    );
+
+    if (recovery.shouldRecover) {
+      targetPage = recovery.targetPage;
+      attempt++;
+      continue;
+    }
+
+    if (recovery.attemptsExceeded) {
+      return {
+        success: false,
+        users: [],
+        pagination: {
+          page: 1,
+          limit: validation.pagination.limit,
+          total: validation.pagination.total,
+          totalPages: Math.max(1, validation.pagination.totalPages),
+        },
+        error: 'Không thể đồng bộ trang dữ liệu sau các lần thử phục hồi. Vui lòng làm mới danh sách.',
+        requestsCount,
+      };
+    }
+
+    // Trạng thái dữ liệu hợp lệ và nhất quán tuyệt đối giữa users và pagination
+    return {
+      success: true,
+      users: validation.users,
+      pagination: validation.pagination,
+      requestsCount,
+    };
+  }
+
+  // Chốt an toàn phòng ngừa vòng lặp ngoài dự kiến
+  return {
+    success: false,
+    users: [],
+    pagination: {
+      page: 1,
+      limit: 10,
+      total: 0,
+      totalPages: 1,
+    },
+    error: 'Đã vượt quá số lần thử tải trang cho phép.',
+    requestsCount,
+  };
 }
