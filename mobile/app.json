@@ -1,0 +1,14 @@
+{
+  "expo": {
+    "name": "Apartment Resident",
+    "slug": "apartment-resident-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "platforms": [
+      "android",
+      "ios",
+      "web"
+    ]
+  }
+}
