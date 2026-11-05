@@ -5,10 +5,13 @@
     "start": "expo start"
   },
   "dependencies": {
+    "@react-navigation/bottom-tabs": "^6.5.20",
+    "@react-navigation/native": "^6.1.17",
+    "@types/react": "~18.2.79",
+    "axios": "^1.7.2",
+    "expo": "~51.0.28",
     "react": "18.2.0",
     "react-native": "0.74.1",
-    "@react-navigation/native": "^6.1.17",
-    "@react-navigation/bottom-tabs": "^6.5.20",
-    "axios": "^1.7.2"
+    "typescript": "~5.3.3"
   }
 }
