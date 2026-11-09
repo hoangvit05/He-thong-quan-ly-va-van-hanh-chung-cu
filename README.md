@@ -15,7 +15,7 @@
 | **Backend Modules (Users, Rooms, Notifications, Media)** | **[ĐÃ HOÀN THIỆN]** | Đã hoàn thiện controllers, validators, Socket.IO realtime, Cloudinary upload, kết nối CSDL và test suites | **Việt Hoàng** |
 | **Hạ tầng CI/CD & Testing Sandbox** | **[ĐÃ HOÀN THIỆN]** | GitHub Actions Workflow [`ci.yml`](.github/workflows/ci.yml), Least-Privilege PL/pgSQL Assertions, Safe Teardown | **Hiếu** |
 | **Web Portal Admin & BQL (React + Vite)** | **[ĐANG PHÁT TRIỂN / TÍCH HỢP]** | PR1 (Web Foundation & Auth/RBAC) và PR2 (Residents, Tickets, Billing) đã tích hợp vào main; đang chờ PR3 (Technician, Announcements, Feedback) | **Đăng Hoàng**, **Đức**, **Oanh** |
-| **Mobile App Cư dân (React Native)** | **[KHUNG SCAFFOLD / ĐANG PHÁT TRIỂN]** | 8 Screens & Navigation đã scaffold; `[CẦN BỔ SUNG]` gói `expo`, Token Interceptor; chưa cài dependencies và chưa kiểm chứng build | **Nguyệt**, **Thuần** |
+| **Mobile App Cư dân (React Native)** | **[KHUNG SCAFFOLD / ĐANG PHÁT TRIỂN]** | Expo SDK 51 và Navigation đã cấu hình; base URL hỗ trợ Android Emulator, iOS Simulator và Expo Go qua `EXPO_PUBLIC_API_URL`; chưa kiểm chứng trên thiết bị thật | **Nguyệt**, **Thuần** |
 
 ---
 
@@ -528,25 +528,25 @@ npm install
 npm run dev
 ```
 
-### 4. Khởi chạy Mobile App (Dự kiến sau khi bổ sung cấu hình Expo)
+### 4. Khởi chạy Mobile App
 
-> [!WARNING]
-> **HIỆN TRẠNG KỸ THUẬT PHÂN HỆ MOBILE:**
-> * Phân hệ Mobile hiện tại mới là **khung scaffold khởi tạo ban đầu**, chưa được cài đặt `node_modules` và chưa kiểm chứng chạy thực tế.
-> * Trong tệp `mobile/package.json`, script `"start": "expo start"` đã được khai báo nhưng danh sách `dependencies` **chưa chứa gói `expo`** (chỉ mới có `react`, `react-native`, `@react-navigation/...`, `axios`). Do đó, nếu chạy `npm start` ngay sẽ gặp lỗi thiếu Expo CLI.
-> * Không tự ý sửa `package.json` hay cài đặt package trong nhiệm vụ tài liệu này; các thành viên phụ trách Mobile (**Nguyệt**, **Thuần**) cần đối chiếu cấu hình Expo tương thích với phiên bản `react-native` (0.74.1) trước khi bắt đầu.
-> * Các lệnh dưới đây là **quy trình dự kiến** để khởi chạy app sau khi hoàn thiện dependencies:
+Phân hệ Mobile dùng Expo SDK 51 và React Navigation. Từ thư mục gốc:
 
 ```bash
-# Quy trình dự kiến (sau khi hoàn thiện khai báo Expo dependency trong mobile/package.json):
 cd mobile
 
-# 1. Cài đặt dependencies (sau khi đã bổ sung expo)
 npm install
 
-# 2. Khởi chạy app cư dân qua Expo bundler (dự kiến)
 npm start
 ```
+
+Mặc định API dùng `http://10.0.2.2:5000` trên Android Emulator và `http://localhost:5000` trên iOS Simulator/web. Khi chạy Expo Go trên thiết bị thật, tạo `mobile/.env` từ `mobile/.env.example` và đặt IP LAN của máy chạy backend, ví dụ:
+
+```dotenv
+EXPO_PUBLIC_API_URL=http://192.168.1.20:5000
+```
+
+Thiết bị và máy tính phải cùng mạng LAN; backend vẫn chạy ở cổng `5000`.
 
 ---
 
