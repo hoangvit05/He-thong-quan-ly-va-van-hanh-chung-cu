@@ -9,7 +9,7 @@ export const TicketTimelineScreen = () => {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Tiến Độ Sửa Chữa</Text>
-      <Text style={styles.subtitle}>Mới gửi -> Đã gán thợ -> Đang sửa -> Đã xong</Text>
+      <Text style={styles.subtitle}>Mới gửi {'->'} Đã gán thợ {'->'} Đang sửa {'->'} Đã xong</Text>
       {/* TODO (Thuần): Dòng thời gian tiến độ trạng thái phiếu */}
     </View>
   );
