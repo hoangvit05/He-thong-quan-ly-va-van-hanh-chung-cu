@@ -88,17 +88,17 @@ Expected output:
 
 ## MILESTONE 06 — TICKET GENERATOR
 
-- [ ] Generate 150–200 tickets.
-- [ ] Generate all valid ticket statuses.
-- [ ] Ensure technicians have the correct role.
-- [ ] Ensure valid technician assignments.
-- [ ] Include common-area tickets.
-- [ ] Include duplicate and non-duplicate scenarios.
-- [ ] Reproduce the exact 24-hour duplicate detection algorithm.
-- [ ] Use only eligible previous ticket statuses.
-- [ ] Generate completed and closed scenarios.
-- [ ] Generate ratings only for accepted completion cases.
-- [ ] Generate realistic materials descriptions.
+- [x] Generate 150–200 tickets.
+- [x] Generate all valid ticket statuses.
+- [x] Ensure technicians have the correct role.
+- [x] Ensure valid technician assignments.
+- [x] Include common-area tickets.
+- [x] Include duplicate and non-duplicate scenarios.
+- [x] Reproduce the exact 24-hour duplicate detection algorithm.
+- [x] Use only eligible previous ticket statuses.
+- [x] Generate completed and closed scenarios.
+- [x] Generate ratings only for accepted completion cases.
+- [x] Generate realistic materials descriptions.
 
 Expected output:
 - `backend/dataset/seed/generators/ticket.generator.ts`
