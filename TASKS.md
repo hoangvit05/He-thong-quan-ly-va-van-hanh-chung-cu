@@ -69,17 +69,17 @@ Expected output:
 
 ## MILESTONE 05 — INVOICE AND PAYMENT GENERATORS
 
-- [ ] Generate 400–600 invoices.
-- [ ] Respect unique roomId/month constraint.
-- [ ] Generate all four fee components.
-- [ ] Use Prisma.Decimal for all calculations.
-- [ ] Generate unpaid invoices.
-- [ ] Generate partially paid invoices.
-- [ ] Generate fully paid invoices.
-- [ ] Generate 300–500 payment records.
-- [ ] Ensure sum(Payment.amount) equals Invoice.paidAmount.
-- [ ] Ensure no overpayment.
-- [ ] Ensure invoice status matches actual paid amount.
+- [x] Generate 400–600 invoices.
+- [x] Respect unique roomId/month constraint.
+- [x] Generate all four fee components.
+- [x] Use Prisma.Decimal for all calculations.
+- [x] Generate unpaid invoices.
+- [x] Generate partially paid invoices.
+- [x] Generate fully paid invoices.
+- [x] Generate 300–500 payment records.
+- [x] Ensure sum(Payment.amount) equals Invoice.paidAmount.
+- [x] Ensure no overpayment.
+- [x] Ensure invoice status matches actual paid amount.
 
 Expected output:
 - `backend/dataset/seed/generators/invoice.generator.ts`
