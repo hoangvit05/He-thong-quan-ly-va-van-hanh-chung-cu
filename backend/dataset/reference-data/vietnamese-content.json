@@ -1,0 +1,531 @@
+{
+  "tickets": [
+    {
+      "category": "dien-chieu-sang",
+      "title": "Aptomat tổng trong căn hộ liên tục bị nhảy",
+      "description": "Khoảng 20h tối qua, khi gia đình bật đồng thời bếp từ và bình nóng lạnh thì aptomat tổng trong tủ điện căn hộ tự ngắt. Đã thử ngắt bớt thiết bị công suất lớn và gạt lại nhưng aptomat vẫn nhảy sau 5-10 phút hoạt động, sờ bề mặt thấy ấm bất thường. Kính đề nghị kỹ thuật viên hỗ trợ đo kiểm tải và kiểm tra tiếp xúc dây dẫn."
+    },
+    {
+      "category": "dien-chieu-sang",
+      "title": "Bóng đèn chiếu sáng hành lang trước sảnh thang máy bị nhấp nháy",
+      "description": "Bóng đèn LED chiếu sáng gắn trần tại khu vực hành lang trước sảnh thang máy bị nhấp nháy liên tục từ sáng sớm nay, gây chói mắt và khó chịu cho cư dân khi đi lại qua khu vực. Đề nghị kỹ thuật tòa nhà kiểm tra chấn lưu hoặc thay bóng mới."
+    },
+    {
+      "category": "dien-chieu-sang",
+      "title": "Ổ cắm điện khu vực bếp phát tiếng kêu rè rè và có mùi khét",
+      "description": "Ổ cắm điện đôi âm tường phía trên bàn đá bếp khi cắm nồi cơm điện thì phát ra tiếng rè rè nhỏ kèm mùi khét nhẹ của nhựa. Gia đình đã tạm thời rút phích cắm và dán cảnh báo không sử dụng. Nhờ kỹ thuật viên kiểm tra đấu nối bên trong hộp âm tường để đảm bảo an toàn PCCC."
+    },
+    {
+      "category": "dien-chieu-sang",
+      "title": "Đèn thoát hiểm Exit tại lối cầu thang bộ không sáng",
+      "description": "Đèn chỉ dẫn thoát hiểm khẩn cấp (Exit) gắn phía trên cửa cầu thang bộ thoát hiểm có vẻ đã hết pin dự phòng hoặc cháy bóng LED, không thấy phát sáng tín hiệu xanh. Đề nghị bộ phận kỹ thuật kiểm tra và thay thế để đảm bảo tiêu chuẩn an toàn khi có sự cố."
+    },
+    {
+      "category": "dien-chieu-sang",
+      "title": "Mất nguồn điện cục bộ toàn bộ khu vực phòng ngủ phụ",
+      "description": "Toàn bộ bóng đèn chiếu sáng và ổ cắm tại phòng ngủ phụ bị mất điện hoàn toàn từ chiều nay, trong khi phòng khách và các phòng khác vẫn có điện bình thường. Đã kiểm tra tủ điện nhánh trong nhà nhưng không thấy aptomat con nào bị nhảy. Cần kỹ thuật hỗ trợ dò dây tín hiệu."
+    },
+    {
+      "category": "cap-thoat-nuoc",
+      "title": "Đường ống cấp nước dưới gầm chậu rửa bát bị rỉ giọt",
+      "description": "Dây cấp nước mềm nối vào vòi chậu rửa bát trong khu bếp có hiện tượng rỉ nước tại khớp nối gioăng cao su. Nước chảy rỉ thành giọt đọng vào sàn tủ bếp gỗ gây ẩm mốc. Gia đình đã khóa tạm van chặn góc bên dưới, nhờ kỹ thuật viên tới thay gioăng hoặc bấm lại đầu nối."
+    },
+    {
+      "category": "cap-thoat-nuoc",
+      "title": "Nước thoát sàn nhà tắm chính thoát rất chậm và trào bọt",
+      "description": "Phễu thoát sàn khu vực cabin tắm đứng thoát nước rất chậm, khi tắm khoảng 3 phút nước đã dâng ngập quá mắt cá chân và bắt đầu trào ngược bọt xà phòng lên sàn ngoài. Đã thử vệ sinh lưới lọc rác bề mặt nhưng tình trạng nghẽn bên trong ống xi-phông vẫn không cải thiện."
+    },
+    {
+      "category": "cap-thoat-nuoc",
+      "title": "Áp lực nước sinh hoạt trong căn hộ giảm đột ngột",
+      "description": "Từ sáng hôm nay, áp lực nước cấp vào vòi sen và bồn rửa mặt rất yếu, nước chảy nhỏ giọt ngắt quãng khiến máy giặt báo lỗi nguồn cấp nước không đủ áp. Nhờ ban quản lý kiểm tra van giảm áp tổng của tầng tại hộp gen kỹ thuật ngoài hành lang."
+    },
+    {
+      "category": "cap-thoat-nuoc",
+      "title": "Phao cấp bồn cầu không tự ngắt gây thất thoát nước liên tục",
+      "description": "Bộ xả bồn cầu tại nhà vệ sinh khách bị hỏng phao cơ, nước sau khi bơm đầy két vẫn tiếp tục tràn qua ống xả tràn chảy róc rách vào lòng bồn cầu không ngừng. Cần kỹ thuật hỗ trợ chỉnh lại cụm phao hoặc thay phao cấp nước mới để tránh lãng phí nước sạch."
+    },
+    {
+      "category": "cap-thoat-nuoc",
+      "title": "Mùi hôi bốc lên từ hệ thống thoát sàn và lỗ thoát bồn rửa mặt",
+      "description": "Khoảng 3 ngày nay, nhà vệ sinh thường xuyên xuất hiện mùi hôi khó chịu nồng nặc bốc lên từ lỗ thoát sàn và xi-phông chậu lavabo, đặc biệt nồng vào buổi tối khi lượng sử dụng nước của tòa nhà tăng cao. Nghi ngờ đường ống bẫy mùi (con thỏ) bị cạn nước hoặc hở ống thông hơi trục đứng."
+    },
+    {
+      "category": "thang-may",
+      "title": "Thang máy số 2 có tiếng kêu rít và rung giật khi qua các tầng giữa",
+      "description": "Khi di chuyển bằng cabin thang máy số 2 qua khoảng các tầng từ 10 đến 15, thang phát ra tiếng kêu cọ xát rít chói tai kèm theo hiện tượng rung lắc giật nhẹ thân thang khiến cư dân rất lo lắng. Kính đề nghị đơn vị bảo trì thang máy kiểm tra ray dẫn hướng và cáp tải khẩn cấp."
+    },
+    {
+      "category": "thang-may",
+      "title": "Nút bấm gọi tầng tại bảng điều khiển thang máy bị kẹt cứng",
+      "description": "Nút bấm chọn tầng số 8 trên bảng điều khiển bên trong cabin thang máy số 1 bị thụt sâu vào trong và kẹt cứng, đèn báo không sáng khi nhấn. Cư dân muốn lên tầng phải nhờ người đi cùng bấm tầng lân cận rồi đi bộ. Đề nghị kỹ thuật mở bảng mạch xử lý lò xo đàn hồi."
+    },
+    {
+      "category": "thang-may",
+      "title": "Cửa thang máy đóng mở chập chờn và kẹp người nhẹ",
+      "description": "Cảm biến quang điện mắt thần tại cánh cửa thang máy khu vực sảnh cư dân phản hồi rất chậm, cửa đang đóng lại dù có người bước vào vẫn tiếp tục ép lại chứ không tự động lùi ra ngay. Đã xảy ra va chạm nhẹ vào tay một cư dân. Đề nghị kiểm tra cảm biến an toàn ngay."
+    },
+    {
+      "category": "thang-may",
+      "title": "Màn hình hiển thị số tầng bên ngoài sảnh thang máy bị mất nét",
+      "description": "Màn hình LED hiển thị vị trí tầng và hướng di chuyển của thang máy tải khách phía sảnh ngoài tầng 5 bị nhòe nét, mất một nửa chữ số khiến cư dân không rõ thang đang dừng ở đâu hay đang đi lên đi xuống. Cần kiểm tra cáp tín hiệu hiển thị."
+    },
+    {
+      "category": "thang-may",
+      "title": "Quạt thông gió bên trong cabin thang máy kêu ù rất lớn",
+      "description": "Quạt hút gió trên nóc cabin thang máy chở hàng phát ra tiếng ồn ù ù trầm và rung mạnh liên tục trong suốt hành trình di chuyển, gây áp lực lên tai người sử dụng. Kính nhờ kỹ thuật bảo trì tháo vệ sinh cánh quạt và tra dầu ổ trục."
+    },
+    {
+      "category": "pccc-bao-chay",
+      "title": "Đầu báo khói trong căn hộ phát tín hiệu tít ngắt quãng",
+      "description": "Đầu cảm biến báo cháy gắn trần phòng khách thỉnh thoảng phát ra tiếng bíp ngắn và nhấp nháy đèn đỏ ngắt quãng mà trong phòng không hề có khói hay nấu nướng. Khả năng thiết bị bị bám bụi bẩn hoặc báo pin yếu, đề nghị kỹ thuật tòa nhà kiểm tra và vệ sinh màng lọc cảm biến."
+    },
+    {
+      "category": "pccc-bao-chay",
+      "title": "Cửa thoát hiểm chống cháy bị chèn vật cản không tự đóng kín",
+      "description": "Cửa chống cháy mở vào buồng thang bộ thoát hiểm tầng 9 thường xuyên bị ai đó dùng một khúc gỗ chèn dưới chân để mở toang lấy gió. Tay co thủy lực không thể kéo cửa tự đóng kín theo đúng quy chuẩn PCCC. Đề nghị ban quản lý nhắc nhở và kiểm tra lại lực kéo tay co."
+    },
+    {
+      "category": "pccc-bao-chay",
+      "title": "Tủ PCCC vách tường ngoài hành lang bị hỏng khóa kính",
+      "description": "Hộp tủ đựng cuộn vòi chữa cháy và bình cứu hỏa ngoài hành lang chung bị nứt góc kính bảo vệ và chốt khóa tay gạt bị gãy, cánh tủ tự hé mở ra ngoài hành lang dễ gây va quẹt cho trẻ em khi vui chơi. Cần bảo trì thay chốt khóa hộp cứu hỏa."
+    },
+    {
+      "category": "pccc-bao-chay",
+      "title": "Đồng hồ đo áp lực trên bình cứu hỏa bột báo vạch đỏ",
+      "description": "Khi kiểm tra định kỳ bình chữa cháy xách tay MFZ4 đặt tại chiếu nghỉ thang bộ tầng 12, kim đồng hồ đo áp suất đã tụt hẳn xuống vạch đỏ (khu vực thiếu áp suất). Đề nghị tổ bảo trì thu hồi nạp sạc lại khí đẩy hoặc thay bình cứu hỏa mới đạt chuẩn."
+    },
+    {
+      "category": "pccc-bao-chay",
+      "title": "Loa thông báo khẩn cấp hệ thống PA tại hành lang bị rè",
+      "description": "Trong đợt phát thanh kiểm tra định kỳ sáng nay, cụm loa thông báo khẩn cấp gắn trần hành lang nghe rất nhỏ và rè đứt quãng, không nghe rõ khẩu lệnh phát ra. Đề nghị kỹ thuật kiểm tra đường truyền âm thanh từ trung tâm điều khiển PCCC."
+    },
+    {
+      "category": "cua-khoa-nhom-kinh",
+      "title": "Khóa cửa điện tử thông minh không nhận vân tay và mật mã chập chờn",
+      "description": "Khóa điện tử cửa chính căn hộ khoảng 2 ngày nay nhận diện vân tay rất khó khăn, phải chạm 4-5 lần mới mở được, màn hình cảm ứng số sáng mờ dù đã thử thay bộ pin kiềm mới 100%. Nhờ kỹ thuật kiểm tra phần cứng hoặc hỗ trợ kết nối lại bộ khóa."
+    },
+    {
+      "category": "cua-khoa-nhom-kinh",
+      "title": "Cửa sổ lùa phòng ngủ bị kẹt cứng trên ray trượt",
+      "description": "Cánh cửa sổ nhôm kính dạng trượt lùa tại phòng ngủ lớn bị kẹt bánh xe bên dưới, kéo rất nặng tay và cọ xát tạo vết xước sâu trên thanh ray nhôm. Cần kỹ thuật viên hỗ trợ căn chỉnh lại bánh xe trượt và bôi trơn rãnh dẫn hướng."
+    },
+    {
+      "category": "cua-khoa-nhom-kinh",
+      "title": "Tay nắm cửa ra ban công bị rơ lỏng ốc hãm bên trong",
+      "description": "Bộ tay nắm khóa gạt cửa kính ban công bị lung lay mạnh khi đóng mở cửa, chốt lưỡi gà bên trong khóa không ngậm hết vào khung nhôm khiến cửa dễ bị gió giật bung ra khi trời mưa to. Cần siết lại trục khóa và chỉnh lại yếm khóa."
+    },
+    {
+      "category": "cua-khoa-nhom-kinh",
+      "title": "Gioăng cao su viền cửa ra vào bị bong rách làm lọt gió ồn",
+      "description": "Đoạn gioăng cao su giảm chấn và cách âm dán mép khung bao cửa chính căn hộ bị bong keo tuột xuống đất. Khi hành lang có gió lùa cửa phát ra tiếng rít gió lớn và va đập cành cạch. Đề nghị bảo dưỡng dán lại dải gioăng mới."
+    },
+    {
+      "category": "cua-khoa-nhom-kinh",
+      "title": "Cửa kính trượt tự động sảnh chính thỉnh thoảng không tự mở",
+      "description": "Cửa kính tự động sảnh lễ tân tầng trệt cảm biến mắt nhận chuyển động lúc được lúc không, nhiều cư dân xách đồ đứng sát cửa nhưng cửa không tự mở mà phải dùng tay đẩy nhẹ. Đề nghị đơn vị bảo trì kiểm tra căn chỉnh vùng quét mắt thần."
+    },
+    {
+      "category": "mang-internet-vien-thong",
+      "title": "Màn hình chuông cửa Intercom không lên hình và mất chuông",
+      "description": "Màn hình chuông hình nội bộ Intercom trong căn hộ bị tắt ngóm màn hình, khi lễ tân hoặc khách bấm chuông từ sảnh tầng trệt thì máy không đổ chuông và không hiện video. Đã kiểm tra nguồn cắm vẫn có điện. Kính nhờ kỹ thuật kiểm tra cáp mạng nội bộ."
+    },
+    {
+      "category": "mang-internet-vien-thong",
+      "title": "Cáp quang ngoài hộp kỹ thuật tầng bị tuột gập góc",
+      "description": "Trong quá trình đơn vị viễn thông thi công cho căn hộ bên cạnh, đường dây cáp quang kéo vào nhà bị kéo căng và gập góc ngoài nẹp hộp gen hành lang làm mất hoàn toàn tín hiệu mạng Internet. Cần kỹ thuật tòa nhà giám sát và hỗ trợ điều chỉnh lại đường dây."
+    },
+    {
+      "category": "mang-internet-vien-thong",
+      "title": "Mất sóng di động tại khu vực thang máy và hành lang cụt",
+      "description": "Sóng di động của các nhà mạng lớn khi vào khu vực sảnh thang máy và đoạn cuối hành lang tầng bị mất sóng hoàn toàn (No Service), không thể nhận cuộc gọi khẩn cấp. Kính đề nghị ban quản lý liên hệ nhà mạng kiểm tra hệ thống phát sóng trong nhà (IBS)."
+    },
+    {
+      "category": "mang-internet-vien-thong",
+      "title": "Nắp hộp kỹ thuật viễn thông hành lang bị bung bản lề",
+      "description": "Cánh cửa sắt của hộp tủ gen kỹ thuật điện nhẹ tại hành lang tầng bị gãy bản lề trên, cánh cửa xệ xuống và hở toang để lộ toàn bộ dây tín hiệu chằng chịt bên trong, vừa mất thẩm mỹ vừa tiềm ẩn nguy cơ chập cháy. Đề nghị hàn hoặc thay bản lề tủ."
+    },
+    {
+      "category": "mang-internet-vien-thong",
+      "title": "Nút bấm chuông cửa trước cửa căn hộ bị kẹt lún",
+      "description": "Nút chuông bấm cơ đặt bên ngoài cửa ra vào căn hộ bị lún sâu vào bên trong đế nhựa, thỉnh thoảng tự dính tiếp điểm khiến chuông reo liên hồi giữa đêm. Cần kỹ thuật tháo mặt nạ ra chỉnh lại lẫy hồi vị."
+    },
+    {
+      "category": "ve-sinh-canh-quan",
+      "title": "Phòng thu gom rác tầng bốc mùi hôi nồng nặc và nước rỉ rác",
+      "description": "Cửa phòng rác của tầng đóng không khít do gioăng đáy bị hỏng, bên trong thùng rác đã đầy ứ từ tối qua chưa được chuyển xuống hầm, nước rỉ rác rỉ ra sàn hành lang gây mùi hôi thối nồng nặc. Đề nghị đội vệ sinh dọn rác và xịt khử khuẩn sàn ngay."
+    },
+    {
+      "category": "ve-sinh-canh-quan",
+      "title": "Hành lang chung trước cửa các căn hộ chưa được hút bụi lau sàn",
+      "description": "Hai ngày nay khu vực hành lang dãy chẵn tầng không thấy nhân viên tạp vụ tới quét dọn hay lau sàn, trên thảm và sàn gạch có nhiều vết bùn đất do thời tiết mưa ẩm. Kính đề nghị ban quản lý đôn đốc lịch trực nhật vệ sinh đúng quy trình."
+    },
+    {
+      "category": "ve-sinh-canh-quan",
+      "title": "Cành cây xanh tại khuôn viên sân chơi trẻ em bị gãy sà xuống lối đi",
+      "description": "Sau cơn mưa dông chiều qua, một cành cây lớn ở bồn hoa cạnh xích đu sân chơi trẻ em bị gãy tét và treo lơ lửng ngay phía trên lối đi nội bộ, rất nguy hiểm cho các cháu nhỏ chơi đùa. Kính đề nghị đội cây xanh tới cắt tỉa và thu gom cành gãy."
+    },
+    {
+      "category": "ve-sinh-canh-quan",
+      "title": "Mùi hôi bốc lên từ hố ga thoát nước mưa cạnh bãi đỗ xe ngoài trời",
+      "description": "Hố ga thu gom nước mặt tại góc sân cạnh bãi đỗ xe ngoài trời bốc mùi cống rất nồng và có nhiều lăng quăng, muỗi xuất hiện nhiều quanh khu vực ghế đá. Đề nghị ban quản lý cho nạo vét bùn lắng và phun thuốc diệt muỗi định kỳ."
+    },
+    {
+      "category": "ve-sinh-canh-quan",
+      "title": "Kính lan can hành lang thông tầng bám bụi bẩn lâu ngày",
+      "description": "Các vách kính an toàn dọc theo ban công hành lang giếng trời tầng bị bám nhiều vệt ố nước mưa và bụi xi măng công trình mờ đặc, ảnh hưởng đến tầm nhìn và mỹ quan chung của tòa nhà. Nhờ bố trí đội lau kính chuyên nghiệp vệ sinh bề mặt ngoài."
+    },
+    {
+      "category": "dieu-hoa-thong-gio",
+      "title": "Ống thoát nước ngưng điều hòa phòng khách bị tắc tràn nước",
+      "description": "Dàn lạnh điều hòa phòng khách khi bật được khoảng 30 phút thì nước bắt đầu nhỏ giọt từ máng nước ngưng chảy tràn xuống tường làm ướt giấy dán tường và sàn gỗ bên dưới. Đã tắt máy để tránh hư hỏng đồ gỗ, kính nhờ kỹ thuật viên tới thông ống thoát nước thải."
+    },
+    {
+      "category": "dieu-hoa-thong-gio",
+      "title": "Quạt thông gió hút mùi nhà vệ sinh phát tiếng ồn rít rất to",
+      "description": "Quạt hút mùi âm trần trong phòng tắm mỗi khi bật công tắc là phát ra tiếng rít cơ khí chói tai và rung bần bật khung trần thạch cao. Khả năng cánh quạt bám quá nhiều xơ vải bụi bẩn hoặc khô dầu bạc đạn. Cần tháo mặt nạ bảo dưỡng vệ sinh."
+    },
+    {
+      "category": "dieu-hoa-thong-gio",
+      "title": "Cục nóng điều hòa tại logia rung giật lắc mạnh khung treo",
+      "description": "Cục nóng điều hòa Multi treo tại khu vực lô-gia khi lốc máy khởi động rung lắc rất mạnh và truyền rung chấn tiếng ù vào tận phòng ngủ bên trong. Kiểm tra thấy đệm cao su giảm chấn dưới chân máy đã bị lão hóa mủn nát. Đề nghị thay chân cao su chống rung mới."
+    },
+    {
+      "category": "dieu-hoa-thong-gio",
+      "title": "Hệ thống cấp gió tươi hành lang không hoạt động gây ngột ngạt",
+      "description": "Khu vực hành lang tầng mấy ngày nay cảm giác rất bí bách và ngột ngạt, đặt tay trước cửa miệng cấp gió tươi trên trần không thấy luồng gió thổi ra. Đề nghị kỹ thuật tòa nhà kiểm tra quạt cấp gió tươi tổng đặt trên tầng mái."
+    },
+    {
+      "category": "dieu-hoa-thong-gio",
+      "title": "Cửa gió điều hòa trung tâm sảnh lễ tân bị đọng sương rỉ nước",
+      "description": "Các miệng gió khuếch tán bằng nhôm tại sảnh lễ tân tầng 1 bị đọng sương thành giọt nước lớn rơi lộp bộp xuống ghế sofa tiếp khách bên dưới. Đề nghị đơn vị vận hành điều chỉnh nhiệt độ cài đặt và kiểm tra lưu lượng gió hồi."
+    },
+    {
+      "category": "bai-do-xe-giao-thong",
+      "title": "Cổng barrier tự động lối ra tầng hầm không nhận lệnh mở",
+      "description": "Sáng nay tại làn ra ô tô tầng hầm B1, barrier tự động sau khi quẹt thẻ hợp lệ không chịu nâng cần lên khiến dòng xe xếp hàng ùn tắc kéo dài. Bảo vệ phải chuyển sang nâng cần bằng tay cơ. Đề nghị kỹ thuật kiểm tra mô-tơ và cảm biến vòng từ."
+    },
+    {
+      "category": "bai-do-xe-giao-thong",
+      "title": "Đầu đọc thẻ giữ xe máy tại cửa vào hầm phản hồi rất chậm",
+      "description": "Thiết bị quẹt thẻ từ xe máy tại làn vào hầm B2 nhận diện rất chậm, phải áp sát thẻ và đợi 5-7 giây camera mới chụp hình biển số mở barrier, gây ách tắc vào giờ cao điểm đi làm từ 7h30 đến 8h15. Cần bảo trì hệ thống phần mềm và mắt đọc."
+    },
+    {
+      "category": "bai-do-xe-giao-thong",
+      "title": "Vệt dầu nhớt xe máy rỉ loang lổ trên sàn dốc hầm xe trơn trượt",
+      "description": "Tại khúc cua đường dốc từ hầm B1 xuống B2 có một vệt dầu nhớt xe máy khá lớn chảy tràn trên nền sơn epoxy bóng, rất trơn trượt dễ ngã xe máy cho người điều khiển phương tiện. Đề nghị ban quản lý rải cát thấm dầu và lau sạch khẩn cấp."
+    },
+    {
+      "category": "bai-do-xe-giao-thong",
+      "title": "Đèn chiếu sáng khu vực đỗ xe ô tô hầm B2 bị cháy nhiều bóng",
+      "description": "Dãy đèn LED chiếu sáng tại khu vực đỗ xe ô tô vị trí từ A12 đến A25 dưới tầng hầm B2 bị tắt ngóm 4 bóng liên tiếp, không gian rất tối tăm gây khó khăn cho cư dân khi lùi xe vào chuồng và tiềm ẩn mất an ninh. Nhờ kỹ thuật thay bóng mới."
+    },
+    {
+      "category": "bai-do-xe-giao-thong",
+      "title": "Vạch sơn kẻ phân ô đỗ xe tại hầm bị mờ nhạt khó quan sát",
+      "description": "Các vạch sơn vàng đánh dấu ranh giới ô đỗ xe ô tô tại khu vực phía tây tầng hầm đã bị mòn vẹt mờ gần hết do bánh xe ma sát lâu ngày, dẫn đến tình trạng nhiều xe đỗ lấn làn chèn vạch. Kính đề nghị ban quản lý có kế hoạch sơn kẻ lại làn xe."
+    },
+    {
+      "category": "khu-vuc-chung-tien-ich",
+      "title": "Thiết bị tập thể dục ngoài trời bị lung lay chân trụ ốc",
+      "description": "Máy tập xoay eo ngoài trời tại công viên nội khu bị lỏng bu-lông chân đế gắn sàn bê tông, khi cư dân đứng lên tập máy bị nghiêng lắc phát tiếng cót két nguy hiểm. Kính đề nghị đội bảo trì siết lại ốc nở hoặc hàn cố định gia cố chân máy."
+    },
+    {
+      "category": "khu-vuc-chung-tien-ich",
+      "title": "Đèn chiếu sáng hồ bơi ngoài trời bị hỏng không sáng",
+      "description": "Cụm đèn LED chống nước gắn thành hồ bơi cư dân và đèn hắt cảnh quan lối đi quanh bể bơi không sáng vào buổi tối từ hai hôm nay, khu vực tối om tiềm ẩn nguy cơ trượt ngã xuống hồ. Đề nghị kỹ thuật kiểm tra biến áp nguồn đèn hồ bơi."
+    },
+    {
+      "category": "khu-vuc-chung-tien-ich",
+      "title": "Mặt sàn khu vui chơi trẻ em bị bong tróc thảm cao su EPDM",
+      "description": "Lớp đệm cao su giảm chấn tại khu vực tiếp đất dưới cầu trượt trẻ em bị bong mép và rách một mảng lớn làm lộ lớp bê tông cứng bên dưới, các bé chạy nhảy dễ vấp ngã. Đề nghị ban quản lý cho dán keo chuyên dụng và dặm vá lại bề mặt."
+    },
+    {
+      "category": "khu-vuc-chung-tien-ich",
+      "title": "Bàn ghế tại phòng sinh hoạt cộng đồng bị gãy lẫy bản lề",
+      "description": "Trong phòng sinh hoạt cộng đồng tầng 2, có 3 chiếc ghế gấp và 1 bàn họp dài bị gãy chốt hãm khung sắt khiến chân bàn bị xiêu vẹo không vững chắc, khó phục vụ cho các buổi họp cư dân sắp tới. Đề nghị kiểm tra sửa chữa hoặc thay mới."
+    },
+    {
+      "category": "khu-vuc-chung-tien-ich",
+      "title": "Máy chạy bộ số 3 trong phòng Gym cư dân báo lỗi động cơ",
+      "description": "Máy chạy bộ điện số 3 tại phòng tập thể thao cư dân sau khi khởi động khoảng 1 phút thì màn hình báo lỗi E02 (lỗi động cơ/băng tải) rồi tự ngắt đột ngột, suýt làm người tập mất đà ngã. Đề nghị ban quản lý liên hệ nhà cung cấp thiết bị bảo dưỡng."
+    },
+    {
+      "category": "an-ninh-kiem-soat",
+      "title": "Camera giám sát góc cuối hành lang tầng bị mất tín hiệu",
+      "description": "Mắt camera quan sát an ninh lắp ở góc cuối hành lang tầng hướng nhìn về cửa thoát hiểm không thấy đèn hồng ngoại sáng ban đêm, màn hình tại phòng trực an ninh nghi ngờ mất hình. Kính đề nghị bộ phận IT an ninh kiểm tra lại jack cắm mạng PoE."
+    },
+    {
+      "category": "an-ninh-kiem-soat",
+      "title": "Cửa từ kiểm soát ra vào sảnh cư dân không quét được thẻ",
+      "description": "Cửa kính kiểm soát thẻ từ lối vào sảnh cư dân từ phía vườn hoa nhận diện thẻ rất chập chờn, nhiều cư dân quẹt thẻ hợp lệ kêu tít tít nhưng khóa nam châm không nhả chốt để đẩy cửa vào. Đề nghị kỹ thuật căn chỉnh lại nguồn khóa điện từ."
+    },
+    {
+      "category": "an-ninh-kiem-soat",
+      "title": "Xuất hiện người lạ đi theo sau cư dân vào thang máy không quẹt thẻ",
+      "description": "Tối qua vào khoảng 21h30, có hai đối tượng lạ mặt phát tờ rơi dịch vụ đã đi bám sát sau lưng cư dân vào cabin thang máy khi cửa mở mà không tự quẹt thẻ phân tầng, sau đó đi vào từng tầng gài tờ rơi vào tay nắm cửa. Đề nghị bảo vệ sảnh thắt chặt giám sát."
+    },
+    {
+      "category": "an-ninh-kiem-soat",
+      "title": "Khóa từ cổng phụ lối đi bộ ra phố bị lỏng chốt nam châm",
+      "description": "Cổng sắt phụ lối đi bộ ra trục đường lớn chốt khóa nam châm điện tử lực hút quá yếu, chỉ cần dùng tay giật mạnh từ phía ngoài là cửa bung ra mà không cần quẹt thẻ bảo mật. Điều này gây rủi ro an ninh cho toàn khu, đề nghị chỉnh lại tăng lực hút khóa."
+    },
+    {
+      "category": "an-ninh-kiem-soat",
+      "title": "Chuông báo động khẩn cấp tại phòng trực an ninh sảnh kêu ngắt quãng",
+      "description": "Bảng cảnh báo an ninh trung tâm tại bàn trực lễ tân sảnh tầng 1 thỉnh thoảng phát chuông cảnh báo lỗi loop ngắt quãng không rõ từ cảm biến vùng nào. Cần chuyên viên an ninh rà soát lại toàn bộ tuyến dây loop báo động."
+    },
+    {
+      "category": "chong-tham-xay-dung",
+      "title": "Vết ố vàng loang lổ trên trần thạch cao nhà vệ sinh",
+      "description": "Phía trên trần thạch cao phòng tắm chính xuất hiện một mảng ố vàng ẩm ướt đường kính khoảng 40cm và bắt đầu có hiện tượng rỉ nước thành giọt nhỏ xuống mặt đèn trần. Nghi ngờ đường ống thoát sàn của căn hộ tầng trên bị rò rỉ khớp nối. Đề nghị kỹ thuật phối hợp kiểm tra."
+    },
+    {
+      "category": "chong-tham-xay-dung",
+      "title": "Nước mưa thấm ngược qua khe cửa sổ nhôm kính làm ngấm sàn gỗ",
+      "description": "Sau đợt mưa lớn kèm gió bạt chiều qua, nước mưa đã len lỏi qua khe ghép silicon giữa khung nhôm cửa sổ và tường bê tông tràn vào bậu cửa sổ, ngấm xuống làm phồng rộp mép sàn gỗ phòng ngủ. Cần kỹ thuật bắn lại keo silicon chống thấm ngoài trời."
+    },
+    {
+      "category": "chong-tham-xay-dung",
+      "title": "Gạch lát nền ban công có hiện tượng phồng rộp và rạn nứt",
+      "description": "Hàng gạch men lát sàn ngoài ban công căn hộ bị đội ngược phồng rộp lên khỏi lớp vữa lót, khi bước chân lên phát ra tiếng kêu lộp cộp rỗng và một viên đã bị nứt đôi góc. Nhờ ban quản lý bố trí thợ nề kiểm tra bóc tách lát lại chống ẩm."
+    },
+    {
+      "category": "chong-tham-xay-dung",
+      "title": "Vết nứt chân chim kéo dài trên vách tường ngoài hành lang chung",
+      "description": "Tại mảng tường hành lang cạnh cửa phòng rác xuất hiện một vết nứt chân chim kéo dài xiên chéo từ trần xuống sát phào chân tường, lớp bả matit bắt đầu bong tróc vảy sơn rơi xuống sàn. Kính đề nghị bộ phận xây dựng kiểm tra độ an toàn kết cấu và trám vá."
+    },
+    {
+      "category": "chong-tham-xay-dung",
+      "title": "Mặt bậc cầu thang bộ thoát hiểm bị mẻ góc trơn trượt",
+      "description": "Mặt bậc số 5 và 6 lối thang bộ từ tầng 4 xuống tầng 3 bị mẻ vỡ một góc lớn lớp đá mài chống trượt, để trơ cạnh sắc nhọn và bề mặt lởm chởm dễ gây hụt chân trượt ngã cho cư dân khi sử dụng cầu thang bộ. Đề nghị bảo dưỡng dặm vá phẳng lại mặt bậc."
+    }
+  ],
+  "feedbacks": [
+    {
+      "title": "Khen ngợi tinh thần làm việc nhiệt tình của đội ngũ kỹ thuật viên tòa nhà",
+      "content": "Tôi xin gửi lời cảm ơn chân thành đến ban quản lý và hai đồng chí kỹ thuật viên trực ca chiều qua. Khi căn hộ của tôi bị sự cố rò rỉ vòi nước, các bạn đã có mặt chỉ sau 15 phút từ lúc tôi tạo phiếu hỗ trợ, thao tác sửa chữa rất nhanh gọn, chuyên nghiệp và dọn dẹp sạch sẽ hiện trường trước khi rời đi. Rất hài lòng với chất lượng phục vụ!"
+    },
+    {
+      "title": "Phản ánh tình trạng thi công sửa chữa gây tiếng ồn lớn vào giờ nghỉ trưa",
+      "content": "Một số căn hộ xung quanh đang cải tạo nội thất thường xuyên khoan đục bê tông vào khung giờ từ 12h00 đến 13h30 trưa, làm ảnh hưởng nghiêm trọng đến giấc ngủ của người già và trẻ nhỏ. Kính đề nghị ban quản lý kiểm tra và nhắc nhở nghiêm ngặt các đơn vị thi công phải tuân thủ đúng khung giờ quy định trong nội quy tòa nhà."
+    },
+    {
+      "title": "Góp ý về việc bổ sung thêm thùng rác phân loại tại khu vực sảnh chung",
+      "content": "Hiện nay tại khu vực sảnh đón khách và lối ra sân chơi nội khu chỉ có một thùng rác duy nhất, rác tái chế và rác hữu cơ đều bỏ chung rất lãng phí. Tôi đề xuất ban quản lý trang bị thêm các cụm thùng rác phân loại (rác tái chế, rác thải sinh hoạt, pin cũ) để nâng cao ý thức bảo vệ môi trường của cộng đồng cư dân."
+    },
+    {
+      "title": "Phản ánh mùi khói thuốc lá nồng nặc tại khu vực hành lang và thang bộ",
+      "content": "Gần đây tôi thường xuyên bắt gặp tàn thuốc lá vứt vương vãi tại chiếu nghỉ cầu thang bộ thoát hiểm và mùi khói thuốc lùa vào hành lang tầng. Khu vực chung cư là không gian công cộng khép kín, việc hút thuốc vừa vi phạm nội quy vừa tiềm ẩn nguy cơ hỏa hoạn rất lớn. Kính mong ban quản lý trích xuất camera nhắc nhở hoặc xử phạt."
+    },
+    {
+      "title": "Đề xuất mở rộng thời gian hoạt động của phòng sinh hoạt cộng đồng",
+      "content": "Phòng sinh hoạt cộng đồng hiện tại đóng cửa lúc 21h00 các ngày trong tuần, trong khi nhiều câu lạc bộ bóng bàn và cờ vua của cư dân sau giờ làm việc chỉ bắt đầu sinh hoạt từ 19h30. Tôi đề xuất ban quản lý cân nhắc kéo dài thời gian mở cửa đến 22h00 vào các ngày thứ Sáu và cuối tuần để cư dân có thêm không gian giao lưu."
+    },
+    {
+      "title": "Góp ý chất lượng âm thanh loa thông báo hành lang quá lớn vào sáng sớm",
+      "content": "Hệ thống phát thanh thông báo bản tin nội bộ vào lúc 7h00 sáng tại hành lang tầng có âm lượng quá lớn, gây giật mình cho các gia đình có con nhỏ đang ngủ. Đề xuất ban quản lý điều chỉnh giảm bớt âm lượng âm ly hoặc dời lịch phát thông báo không khẩn cấp sang sau 8h00 sáng."
+    },
+    {
+      "title": "Khen ngợi công tác trang trí cảnh quan khuôn viên nhân dịp lễ tết",
+      "content": "Cảnh quan tiểu cảnh hoa tươi và đèn lồng trang trí tại sảnh chính cũng như lối đi sân vườn dịp lễ vừa qua rất đẹp và ấm cúng. Cư dân và các cháu nhỏ rất hào hứng chụp ảnh kỷ niệm. Cảm ơn ban quản lý và đội ngũ nhân viên chăm sóc cảnh quan đã nỗ lực tạo nên không gian sống xanh sạch đẹp."
+    },
+    {
+      "title": "Phản ánh tình trạng xe máy đỗ lộn xộn lấn chiếm lối đi bộ dưới tầng hầm",
+      "content": "Khu vực lối thoát hiểm từ hầm gửi xe lên cầu thang bộ thường xuyên bị một số xe máy đỗ chèn ngang lối đi, khiến cư dân đẩy xe nôi em bé hoặc người đi bộ qua lại rất chật vật. Kính nhờ đội ngũ bảo vệ kiểm soát và hướng dẫn cư dân đỗ xe đúng ô vạch quy định."
+    },
+    {
+      "title": "Đề xuất lắp đặt thêm camera quan sát tại khu vực góc khuất bãi đỗ xe",
+      "content": "Tại dãy để xe đạp trẻ em ở góc tường phía đông hầm B2 hiện tại là điểm mù, không có mắt camera an ninh nào chiếu tới. Một số phụ huynh phản ánh xe đạp của các cháu thỉnh thoảng bị trầy xước hoặc xê dịch. Đề xuất ban quản lý khảo sát lắp thêm 1 mắt camera giám sát tại khu vực này."
+    },
+    {
+      "title": "Góp ý về tốc độ xử lý phiếu yêu cầu dịch vụ của ứng dụng quản lý",
+      "content": "Ứng dụng cư dân rất tiện ích, tuy nhiên thời gian phản hồi phiếu tiếp nhận sự cố vào các ngày nghỉ cuối tuần thỉnh thoảng còn chậm. Tôi mong muốn vào ngày nghỉ ban quản lý vẫn duy trì một kênh trực tiếp nhận thông tin để giải quyết các sự cố gấp cho cư dân kịp thời hơn."
+    },
+    {
+      "title": "Phản ánh việc thú cưng không rọ mõm đi lại tự do trong thang máy",
+      "content": "Sáng nay tôi gặp trường hợp cư dân dắt chó cảnh vào cabin thang máy mà không rọ mõm và không có dây xích ngắn, chó nhảy chồm lên người khác gây sợ hãi cho trẻ nhỏ. Đề nghị ban quản lý kiểm tra nội quy nuôi thú cưng trong chung cư và có biện pháp xử lý nghiêm túc."
+    },
+    {
+      "title": "Đề xuất kiểm tra định kỳ chất lượng nước sinh hoạt và công khai kết quả",
+      "content": "Để cư dân an tâm về nguồn nước sử dụng ăn uống hàng ngày, tôi đề nghị ban quản lý định kỳ lấy mẫu nước sinh hoạt gửi viện kiểm nghiệm và dán thông báo kết quả xét nghiệm chỉ số hóa lý lên bảng tin sảnh cũng như gửi thông báo trên ứng dụng tòa nhà."
+    },
+    {
+      "title": "Khen ngợi thái độ nhã nhặn và tận tình của nhân viên lễ tân sảnh chính",
+      "content": "Tôi xin dành lời khen cho các bạn lễ tân ca trực ban ngày. Mỗi khi cư dân đi làm về hay có bưu phẩm gửi hộ, các bạn luôn chào hỏi niềm nở, hỗ trợ giữ đồ đạc chu đáo và giải thích các thủ tục đăng ký tạm trú rất tận tình. Tác phong làm việc rất chuyên nghiệp."
+    },
+    {
+      "title": "Phản ánh tình trạng xả rác bừa bãi tại ghế đá công viên sân thượng",
+      "content": "Khu vực vườn treo sân thượng tầng mái vào buổi tối có nhiều nhóm lên ngắm cảnh ăn uống nhưng sau đó vứt lại vỏ chai nhựa và túi nilon trên ghế đá, không bỏ vào thùng rác. Đề nghị ban quản lý lắp thêm biển nhắc nhở và tăng cường tuần tra nhắc nhở ý thức chung."
+    },
+    {
+      "title": "Đề nghị kiểm tra bảo dưỡng hệ thống điều hòa tại phòng sinh hoạt chung",
+      "content": "Máy điều hòa trong phòng sinh hoạt chung mấy ngày gần đây làm mát rất chậm và tỏa ra mùi ẩm mốc khi mới khởi động. Khả năng màng lọc bụi bị bẩn lâu ngày chưa được giặt rửa. Kính nhờ ban quản lý cho nhân viên kỹ thuật bảo trì điều hòa."
+    },
+    {
+      "title": "Góp ý về biểu phí dịch vụ trông giữ xe ô tô tháng",
+      "content": "Tôi thấy quy trình quản lý bãi xe hiện tại rất minh bạch, tuy nhiên việc thanh toán phí gửi xe theo quý đôi khi bất tiện cho một số hộ gia đình. Đề xuất ban quản lý hỗ trợ thêm hình thức tự động trích nợ qua mã QR động trên ứng dụng theo từng tháng để thuận tiện quản lý dòng tiền."
+    },
+    {
+      "title": "Phản ánh tình trạng nước mưa tạt ướt lối đi có mái che nối giữa hai tòa nhà",
+      "content": "Lối đi bộ nối giữa sảnh tòa A và tòa B dù có mái kính nhưng hai bên hông không có vách chắn gió, khi trời mưa lớn nước mưa tạt ướt sũng mặt sàn lát đá hoa cương rất trơn trượt. Đề xuất ban quản lý lắp thêm dải rèm chắn nước hoặc trải thảm chống trượt khi trời mưa."
+    },
+    {
+      "title": "Đề xuất bổ sung thêm cây xanh và ghế nghỉ tại lối đi dạo nội khu",
+      "content": "Khuôn viên đường dạo bộ quanh hồ cảnh quan hiện nay vào buổi chiều khá nắng do tán cây bóng mát còn nhỏ. Tôi đề xuất ban quản lý trồng thêm một số cây bàng Đài Loan hoặc giàn hoa leo và đặt thêm vài ghế đá nghỉ chân cho người cao tuổi đi bộ tập thể dục."
+    },
+    {
+      "title": "Phản ánh việc giao nhận hàng shipper đỗ xe chắn kín lối vào sảnh đón trả khách",
+      "content": "Vào khung giờ trưa từ 11h30 đến 12h30, rất nhiều xe máy của các tài xế giao hàng ăn uống dừng đỗ chắn ngay trước cửa kính sảnh chính, gây khó khăn cho cư dân đi taxi hoặc người khuyết tật di chuyển. Kính nhờ đội ngũ an ninh kẻ vạch riêng dành riêng cho khu vực giao nhận hàng hóa."
+    },
+    {
+      "title": "Cảm ơn ban quản lý đã tổ chức buổi diễn tập PCCC và thoát nạn rất chu đáo",
+      "content": "Gia đình tôi vừa tham gia buổi diễn tập tập huấn kỹ năng phòng cháy chữa cháy và thoát nạn do ban quản lý phối hợp cùng công an PCCC tổ chức cuối tuần qua. Chương trình rất thiết thực, hướng dẫn chi tiết từ cách dùng bình chữa cháy đến cách thoát khói. Rất cảm ơn ban quản lý vì sự an toàn của cư dân!"
+    }
+  ],
+  "feedbackReplies": [
+    {
+      "title": "Tiếp thu ý kiến về tiếng ồn thi công nội thất",
+      "content": "Ban Quản lý xin chân thành cảm ơn ý kiến đóng góp của Quý cư dân. Chúng tôi đã tiến hành kiểm tra thực tế, lập biên bản nhắc nhở đối với nhà thầu thi công căn hộ liên quan và yêu cầu dừng ngay các hoạt động gây tiếng ồn trong khung giờ nghỉ trưa (12h00 - 13h30). Nếu tình trạng tiếp tục tái diễn, Ban Quản lý sẽ áp dụng biện pháp cắt điện nước thi công theo đúng nội quy tòa nhà."
+    },
+    {
+      "title": "Ghi nhận phản ánh về an ninh và camera giám sát",
+      "content": "Ban Quản lý xin tiếp thu phản ánh của Quý cư dân về góc quan sát camera tại khu vực bãi đỗ xe. Bộ phận an ninh và kỹ thuật đã lên kế hoạch khảo sát thực địa trong tuần này để đề xuất phương án bổ sung mắt camera giám sát khu vực góc khuất, nhằm đảm bảo tối đa an ninh trật tự và an toàn tài sản cho toàn thể cư dân."
+    },
+    {
+      "title": "Phản hồi về thời gian hoạt động của phòng sinh hoạt cộng đồng",
+      "content": "Ban Quản lý đã tiếp nhận đề xuất kéo dài thời gian mở cửa phòng sinh hoạt cộng đồng. Nội dung này sẽ được chúng tôi tổng hợp và đưa vào nội dung xin ý kiến tại cuộc họp định kỳ sắp tới với Ban Quản trị tòa nhà, nhằm cân đối giữa nhu cầu sinh hoạt giao lưu của cư dân và việc đảm bảo an ninh, tránh ảnh hưởng đến các căn hộ lân cận."
+    },
+    {
+      "title": "Cảm ơn thư khen ngợi tinh thần làm việc của nhân viên kỹ thuật",
+      "content": "Ban Quản lý tòa nhà xin chân thành cảm ơn những lời động viên và khen ngợi quý báu từ Quý cư dân. Đây là nguồn khích lệ to lớn đối với đội ngũ cán bộ công nhân viên trực ca kỹ thuật. Chúng tôi sẽ tiếp tục duy trì và nâng cao hơn nữa chất lượng dịch vụ nhằm mang lại sự hài lòng và tiện nghi tốt nhất cho cộng đồng."
+    },
+    {
+      "title": "Tiếp thu phản hồi về chất lượng vệ sinh phòng rác tầng",
+      "content": "Ban Quản lý thành thật xin lỗi Quý cư dân vì trải nghiệm không mong muốn liên quan đến phòng rác tầng. Ngay sau khi tiếp nhận thông tin, đội ngũ vệ sinh đã xử lý thu gom rác tồn đọng, cọ rửa và xịt khử mùi toàn bộ khu vực. Chúng tôi cũng đã yêu cầu đơn vị dịch vụ vệ sinh tăng cường tần suất thu gom vào các khung giờ cao điểm."
+    },
+    {
+      "title": "Phản hồi về việc kiểm soát nuôi thú cưng trong chung cư",
+      "content": "Ban Quản lý ghi nhận phản ánh của Quý cư dân về trường hợp dắt thú cưng không rọ mõm. Bộ phận an ninh đã trích xuất camera để xác định chủ căn hộ liên quan và gửi thư nhắc nhở trực tiếp. Đồng thời, Ban Quản lý sẽ tăng cường phát loa và dán thông báo tại các cabin thang máy để tuyên truyền quy định giữ an toàn khi mang vật nuôi ra khu vực chung."
+    },
+    {
+      "title": "Tiếp thu đề xuất lắp đặt thêm thùng rác phân loại tại nguồn",
+      "content": "Ban Quản lý rất hoan nghênh tinh thần bảo vệ môi trường của Quý cư dân. Đề xuất trang bị các cụm thùng rác phân loại đã được chúng tôi phê duyệt vào kế hoạch mua sắm bổ sung trang thiết bị tiện ích trong tháng tới. Rất mong tiếp tục nhận được sự chung tay ủng hộ của Quý cư dân trong việc xây dựng nếp sống xanh."
+    },
+    {
+      "title": "Phản hồi về việc công khai kết quả xét nghiệm nguồn nước sinh hoạt",
+      "content": "Ban Quản lý xin thông tin tới Quý cư dân: Việc kiểm tra chất lượng nguồn nước sinh hoạt định kỳ 6 tháng một lần theo quy chuẩn của Bộ Y tế luôn được chúng tôi nghiêm túc thực hiện. Kết quả xét nghiệm mới nhất của Viện Sức khỏe Nghề nghiệp & Môi trường đã được niêm yết tại bảng tin sảnh A và đăng tải trên ứng dụng tòa nhà để Quý cư dân tiện theo dõi."
+    },
+    {
+      "title": "Tiếp thu phản ánh về tình trạng đỗ xe lấn chiếm đường dốc hầm",
+      "content": "Ban Quản lý xin ghi nhận phản ánh về tình trạng xe máy đỗ sai vị trí tại tầng hầm. Đội ngũ bảo vệ bãi xe đã được chỉ đạo tăng cường tuần tra, tiến hành khóa bánh và xử lý nghiêm các trường hợp đỗ lấn chiếm làn đường cứu nạn, đồng thời hướng dẫn cư dân di chuyển xe vào đúng các ô vạch quy định."
+    },
+    {
+      "title": "Phản hồi về âm lượng hệ thống loa phát thanh hành lang",
+      "content": "Ban Quản lý xin ghi nhận ý kiến đóng góp của Quý cư dân về âm lượng loa thông báo. Bộ phận kỹ thuật đã tiến hành căn chỉnh lại mức âm lượng tổng giảm 30% đối với hệ thống loa hành lang các tầng căn hộ và điều chỉnh khung giờ phát bản tin định kỳ bắt đầu từ 8h30 sáng để không làm phiền thời gian nghỉ ngơi của cư dân."
+    }
+  ],
+  "announcements": [
+    {
+      "topic": "thang-may",
+      "title": "Thông báo tạm ngừng vận hành thang máy số 2 để bảo trì định kỳ",
+      "content": "Ban Quản lý tòa nhà xin trân trọng thông báo tới toàn thể Quý cư dân về kế hoạch bảo trì, kiểm định an toàn định kỳ hệ thống thang máy tải khách số 2. Thời gian tạm ngừng vận hành từ 08h30 đến 11h30 ngày thứ Năm tới. Trong thời gian này, Quý cư dân vui lòng sử dụng thang máy số 1 và thang hàng số 3 để di chuyển. Rất mong Quý cư dân thông cảm vì sự bất tiện tạm thời này."
+    },
+    {
+      "topic": "dien-nang",
+      "title": "Thông báo kiểm tra định kỳ hệ thống máy phát điện dự phòng tòa nhà",
+      "content": "Thực hiện quy trình bảo dưỡng kỹ thuật định kỳ hàng tháng, Ban Quản lý sẽ tổ chức chạy thử tải hệ thống máy phát điện dự phòng của tòa nhà từ 14h00 đến 15h30 ngày thứ Bảy. Trong khoảng thời gian này, nguồn điện lưới có thể chuyển mạch nhấp nháy nhẹ trong vài giây nhưng không làm mất điện sinh hoạt. Các thiết bị thang máy và chiếu sáng khẩn cấp vẫn vận hành bình thường."
+    },
+    {
+      "topic": "cap-nuoc",
+      "title": "Thông báo kế hoạch súc xả và thau rửa bể chứa nước ngầm sinh hoạt",
+      "content": "Nhằm đảm bảo vệ sinh an toàn nguồn nước sinh hoạt cho cư dân, Ban Quản lý sẽ tiến hành công tác thau rửa, khử trùng bể chứa nước sinh hoạt ngầm và bể mái. Kế hoạch thau rửa được chia làm 2 giai đoạn để duy trì cấp nước luân phiên, tuy nhiên áp lực nước có thể giảm nhẹ từ 22h00 đêm nay đến 05h00 sáng hôm sau. Kính đề nghị Quý cư dân chủ động tích trữ nước sử dụng cho nhu cầu thiết yếu."
+    },
+    {
+      "topic": "pccc",
+      "title": "Thông báo lịch kiểm tra và thử nghiệm hệ thống chuông còi báo cháy",
+      "content": "Ban Quản lý phối hợp cùng đơn vị bảo trì PCCC sẽ tiến hành kiểm tra kỹ thuật hệ thống báo cháy tự động và đo kiểm áp lực đầu phun sprinkler từ 09h00 đến 11h30 sáng thứ Tư. Trong quá trình thử nghiệm, chuông báo cháy, còi hú và đèn chớp tại hành lang các tầng có thể phát tín hiệu ngắt quãng từng đợt ngắn. Đây là hoạt động kiểm tra kỹ thuật định kỳ, kính mong Quý cư dân không hoang mang lo lắng."
+    },
+    {
+      "topic": "ve-sinh",
+      "title": "Thông báo kế hoạch phun thuốc diệt côn trùng và muỗi định kỳ toàn khu",
+      "content": "Để chủ động phòng chống dịch bệnh sốt xuất huyết và bảo đảm vệ sinh môi trường, Ban Quản lý sẽ triển khai phun thuốc diệt muỗi, ruồi và côn trùng tại toàn bộ khu vực công cộng bao gồm tầng hầm, bãi xe, khuôn viên cây xanh, sảnh lễ tân và các hố ga thu gom rác vào 18h00 tối thứ Sáu. Kính đề nghị Quý cư dân đóng kín các cửa sổ hướng ra khuôn viên trong thời gian phun thuốc."
+    },
+    {
+      "topic": "an-ninh",
+      "title": "Thông báo nhắc nhở nâng cao cảnh giác phòng ngừa trộm cắp tài sản",
+      "content": "Nhằm đảm bảo an ninh trật tự chung trong khu đô thị, Ban Quản lý kính đề nghị Quý cư dân luôn chú ý khóa kỹ cửa chính, cửa ra ban công và cửa sổ trước khi ra khỏi nhà hoặc trước khi đi ngủ. Đối với các phương tiện xe máy gửi tại tầng hầm, Quý cư dân vui lòng khóa cổ xe, không để tài sản có giá trị trong cốp xe hoặc trên giỏ xe để phòng ngừa kẻ gian lợi dụng sơ hở."
+    },
+    {
+      "topic": "bai-do-xe",
+      "title": "Thông báo quy định sắp xếp phương tiện và dán thẻ định danh bãi xe",
+      "content": "Nhằm tối ưu hóa diện tích đỗ xe và đảm bảo an toàn lối thoát hiểm tại hầm B1 và B2, Ban Quản lý yêu cầu các chủ phương tiện dừng đỗ xe đúng vị trí ô vạch đã phân chia, không đỗ chắn trước tủ PCCC và lối cửa thang bộ. Các phương tiện chưa hoàn tất thủ tục cấp phát thẻ từ định danh vui lòng liên hệ phòng tiếp dân sảnh tầng 1 trước ngày 25 hàng tháng để được hướng dẫn."
+    },
+    {
+      "topic": "thu-phi",
+      "title": "Thông báo phát hành thông báo phí quản lý và tiền dịch vụ hàng tháng",
+      "content": "Ban Quản lý tòa nhà đã hoàn tất việc tổng hợp chỉ số điện nước và phát hành thông báo cước phí dịch vụ quản lý căn hộ tháng này qua ứng dụng cư dân và hòm thư bưu điện. Kính đề nghị Quý cư dân đối soát và thực hiện thanh toán trước ngày 15 của tháng theo hình thức chuyển khoản ngân hàng hoặc thanh toán trực tiếp qua cổng thanh toán số trên ứng dụng."
+    },
+    {
+      "topic": "cong-dong",
+      "title": "Thông báo tổ chức ngày hội thiếu nhi và vui chơi cộng đồng cuối tuần",
+      "content": "Hòa chung không khí vui tươi nhân dịp Quốc tế Thiếu nhi, Ban Quản lý phối hợp cùng Ban Quản trị tòa nhà tổ chức chương trình Ngày hội Tuổi thơ dành cho toàn thể các cháu thiếu nhi sinh sống tại tòa nhà. Sự kiện diễn ra từ 18h30 đến 21h00 tối Chủ Nhật tại sân chơi nội khu với nhiều tiết mục xiếc, ảo thuật, đố vui nhận quà và liên hoan bánh kẹo. Kính mời Quý phụ huynh đưa các cháu tới tham dự."
+    },
+    {
+      "topic": "noi-quy",
+      "title": "Thông báo nhắc nhở tuân thủ quy định về đăng ký thi công sửa chữa căn hộ",
+      "content": "Ban Quản lý xin thông báo nhắc nhở: Mọi hoạt động cải tạo, sửa chữa hoặc vận chuyển vật liệu xây dựng ra vào căn hộ đều phải được đăng ký trước với Ban Quản lý và nộp hồ sơ biện pháp thi công theo quy định. Thời gian thi công gây ồn chỉ được phép từ 08h00 - 11h30 và 13h30 - 17h00 từ thứ Hai đến thứ Sáu, tuyệt đối cấm thi công vào thứ Bảy, Chủ Nhật và ngày lễ."
+    },
+    {
+      "topic": "ve-sinh",
+      "title": "Thông báo kế hoạch lau kính mặt ngoài khối đế và sảnh thương mại",
+      "content": "Từ ngày thứ Hai đến hết ngày thứ Tư tuần sau, đội ngũ vệ sinh công nghiệp chuyên nghiệp sẽ tiến hành đu dây lau kính mặt dựng bên ngoài tòa nhà khối đế thương mại và sảnh chính. Ban Quản lý kính đề nghị Quý cư dân và các gian hàng thương mại đóng kín rèm cửa sổ và chú ý quan sát khi đi lại dưới các khu vực có giăng dây cảnh báo thi công."
+    },
+    {
+      "topic": "thang-may",
+      "title": "Thông báo quy định sử dụng thang máy chuyên dụng để vận chuyển hàng hóa",
+      "content": "Nhằm bảo vệ nội thất cabin thang máy tải khách và đảm bảo sự tiện nghi cho việc đi lại hàng ngày của cư dân, Ban Quản lý xin nhắc lại quy định: Mọi hoạt động chuyển nhà, vận chuyển hàng hóa cồng kềnh, xe đẩy giao hàng bắt buộc phải sử dụng thang máy tải hàng số 3 và phải đăng ký bảo vệ sảnh để bọc mút đệm bảo vệ vách cabin trước khi vận chuyển."
+    },
+    {
+      "topic": "an-ninh",
+      "title": "Thông báo nâng cấp hệ thống kiểm soát ra vào bằng thẻ từ thông minh",
+      "content": "Ban Quản lý đang tiến hành nâng cấp đồng bộ phần mềm đầu đọc thẻ từ tại các cửa ra vào sảnh cư dân và phân tầng thang máy nhằm tăng cường tính bảo mật. Trong quá trình chuyển đổi dữ liệu, nếu Quý cư dân gặp hiện tượng thẻ từ không nhận tín hiệu, xin vui lòng mang thẻ tới quầy lễ tân để nhân viên kỹ thuật cập nhật lại mã hóa thẻ miễn phí."
+    },
+    {
+      "topic": "pccc",
+      "title": "Thông báo nghiêm cấm để vật dụng và giày dép cản trở hành lang thoát hiểm",
+      "content": "Qua công tác kiểm tra an toàn PCCC thực tế, Ban Quản lý ghi nhận một số căn hộ để tủ giày, chậu cây cảnh và xe đạp lấn chiếm lòng hành lang chung và chặn lối cửa thoát hiểm. Kính đề nghị Quý cư dân chủ động di dời toàn bộ vật dụng cá nhân vào trong căn hộ trước 17h00 ngày mai để trả lại không gian thông thoáng cho lối thoát nạn chung."
+    },
+    {
+      "topic": "cap-nuoc",
+      "title": "Thông báo lịch súc rửa định kỳ hệ thống đường ống nước thải trục đứng",
+      "content": "Đơn vị môi trường đô thị sẽ tiến hành thông tắc, súc rửa áp lực cao hệ thống đường ống thoát nước thải sinh hoạt và hố ga trung tâm từ 23h00 đêm thứ Ba đến 04h00 sáng thứ Tư. Trong khoảng thời gian này, các hộ gia đình ở tầng thấp có thể nghe thấy tiếng ọc khí nhẹ tại phễu thoát sàn. Đề nghị Quý cư dân đậy nắp bồn cầu và lỗ thoát nước sàn trong đêm thi công."
+    },
+    {
+      "topic": "noi-quy",
+      "title": "Thông báo về việc giữ gìn trật tự và không gây ồn ào sau 22h00 đêm",
+      "content": "Để đảm bảo quyền được nghỉ ngơi yên tĩnh của các gia đình cư dân sau một ngày làm việc mệt mỏi, Ban Quản lý kính đề nghị toàn thể Quý cư dân không mở tivi, nghe nhạc âm lượng lớn, không di chuyển bàn ghế gây tiếng động mạnh và hạn chế nói chuyện lớn tiếng ngoài hành lang sau 22h00 đêm. Mọi trường hợp vi phạm tái diễn sẽ được bảo vệ lập biên bản."
+    },
+    {
+      "topic": "cong-dong",
+      "title": "Thông báo tiếp nhận đăng ký tham gia Câu lạc bộ Thể thao và Văn nghệ",
+      "content": "Nhằm đẩy mạnh phong trào rèn luyện sức khỏe và thắt chặt tình đoàn kết trong khu dân cư, Ban Quản trị tòa nhà thành lập các câu lạc bộ Yoga, Bóng bàn, Cầu lông và Dưỡng sinh người cao tuổi. Ban Quản lý trân trọng kính mời Quý cư dân yêu thích thể thao đăng ký tham gia sinh hoạt miễn phí tại quầy lễ tân hoặc đăng ký trực tuyến qua nhóm cộng đồng cư dân."
+    },
+    {
+      "topic": "bai-do-xe",
+      "title": "Thông báo kế hoạch tổng vệ sinh và cọ rửa sàn tầng hầm B1 và B2",
+      "content": "Vào sáng Chủ Nhật tuần này, Ban Quản lý sẽ phối hợp cùng đội vệ sinh môi trường triển khai tổng vệ sinh, quét dọn và xịt rửa toàn bộ mặt sàn epoxy tầng hầm đỗ xe. Để công tác vệ sinh đạt hiệu quả cao nhất, kính đề nghị Quý cư dân di chuyển xe sang các khu vực đỗ tạm theo sự điều phối hướng dẫn của lực lượng bảo vệ trực ca."
+    },
+    {
+      "topic": "ve-sinh",
+      "title": "Thông báo quy định phân loại rác thải cồng kềnh và phế thải xây dựng",
+      "content": "Ban Quản lý xin lưu ý Quý cư dân: Các loại rác cồng kềnh như nệm mút, tủ bàn ghế hỏng, cành cây lớn và phế thải xây dựng không được vứt vào phòng chứa rác của các tầng. Quý cư dân có nhu cầu thanh lý rác cồng kềnh vui lòng liên hệ Ban Quản lý để được hỗ trợ kết nối với đơn vị thu gom xử lý rác chuyên dụng của thành phố."
+    },
+    {
+      "topic": "an-ninh",
+      "title": "Thông báo đăng ký thông tin tạm trú và cấp thẻ cư dân cho khách thuê mới",
+      "content": "Để đảm bảo công tác quản lý cư trú theo đúng quy định của pháp luật và quyền lợi sử dụng tiện ích tòa nhà, các chủ hộ có căn hộ cho thuê vui lòng hướng dẫn khách thuê nộp hồ sơ đăng ký nhân khẩu và làm thủ tục cấp thẻ cư dân tại văn phòng Ban Quản lý trong vòng 03 ngày làm việc kể từ ngày chuyển đến sinh sống."
+    }
+  ]
+}
+

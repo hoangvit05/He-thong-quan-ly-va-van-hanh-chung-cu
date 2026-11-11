@@ -1,0 +1,75 @@
+[
+  {
+    "id": "dien-chieu-sang",
+    "name": "Hệ thống điện & chiếu sáng",
+    "description": "Các sự cố liên quan đến mạng lưới điện sinh hoạt, bóng đèn, ổ cắm, aptomat và chiếu sáng công cộng.",
+    "examples": ["Nhảy aptomat không rõ nguyên nhân", "Đèn chiếu sáng hành lang bị nhấp nháy", "Ổ cắm phòng khách có mùi khét", "Mất điện cục bộ một phần căn hộ"]
+  },
+  {
+    "id": "cap-thoat-nuoc",
+    "name": "Cấp thoát nước & vệ sinh",
+    "description": "Các sự cố về đường ống cấp nước sạch, thoát nước thải, áp lực nước và thiết bị vệ sinh.",
+    "examples": ["Rò rỉ nước dưới gầm chậu rửa bát", "Tắc cống thoát sàn nhà tắm", "Áp lực nước vòi sen quá yếu", "Phao bồn cầu xả liên tục không ngắt"]
+  },
+  {
+    "id": "thang-may",
+    "name": "Hệ thống thang máy",
+    "description": "Các vấn đề vận hành, an toàn, âm thanh bất thường và tín hiệu bảng điều khiển thang máy.",
+    "examples": ["Thang máy dừng lệch sàn", "Bảng nút bấm tầng bị kẹt cứng", "Thang phát tiếng kêu rung lắc khi di chuyển", "Cửa thang đóng mở chập chờn"]
+  },
+  {
+    "id": "pccc-bao-chay",
+    "name": "Phòng cháy chữa cháy & cứu nạn",
+    "description": "Các thiết bị cảnh báo cháy, bình cứu hỏa, họng nước, chuông báo và cửa chống cháy.",
+    "examples": ["Đầu báo khói phát tín hiệu tít liên tục", "Tủ chữa cháy vách tường thiếu lăng vòi", "Cửa chống cháy thoát hiểm bị chèn gạch", "Đèn thoát hiểm exit không sáng"]
+  },
+  {
+    "id": "cua-khoa-nhom-kinh",
+    "name": "Cửa, khóa & nhôm kính",
+    "description": "Sự cố liên quan đến khóa từ, cửa ra vào, cửa sổ, ray trượt nhôm kính và bản lề.",
+    "examples": ["Khóa cửa thông minh không nhận vân tay", "Cửa sổ trượt bị kẹt cứng ray", "Tay nắm cửa chính bị rơ lỏng", "Kính lan can ban công có dấu hiệu rạn nứt"]
+  },
+  {
+    "id": "mang-internet-vien-thong",
+    "name": "Mạng Internet & viễn thông",
+    "description": "Đường dây cáp quang, hộp phân phối tín hiệu mạng, chuông hình intercom và sóng viễn thông.",
+    "examples": ["Màn hình chuông cửa intercom mất hình", "Dây cáp quang ngoài hộp kỹ thuật bị gập gãy", "Tín hiệu mạng khu vực công cộng chập chờn", "Chuông cửa không đổ chuông khi bấm"]
+  },
+  {
+    "id": "ve-sinh-canh-quan",
+    "name": "Vệ sinh & cảnh quan môi trường",
+    "description": "Công tác thu gom rác, mùi hôi, vệ sinh hành lang, khuôn viên cây xanh và kiểm soát côn trùng.",
+    "examples": ["Phòng thu rác tầng bốc mùi hôi nồng", "Nước bẩn đọng tại sàn khu vực sảnh", "Hành lang có rác rơi vãi chưa quét dọn", "Cây xanh khuôn viên có cành gãy sà xuống"]
+  },
+  {
+    "id": "dieu-hoa-thong-gio",
+    "name": "Điều hòa & thông gió",
+    "description": "Hệ thống điều hòa trung tâm/cục bộ, quạt hút thông gió nhà vệ sinh và cấp gió tươi hành lang.",
+    "examples": ["Đường ống thoát nước ngưng điều hòa bị tắc tràn", "Quạt hút mùi nhà vệ sinh kêu rất to", "Cục nóng điều hòa rung lắc mạnh khi chạy", "Hệ thống cấp gió tươi hành lang không hoạt động"]
+  },
+  {
+    "id": "bai-do-xe-giao-thong",
+    "name": "Bãi đỗ xe & giao thông nội bộ",
+    "description": "Barrier tự động, hệ thống quẹt thẻ giữ xe, vị trí đỗ xe máy/ô tô và chiếu sáng hầm xe.",
+    "examples": ["Cổng barrier tự động lối ra không mở", "Đầu đọc thẻ từ nhận diện chậm", "Đèn chiếu sáng khu đỗ xe tầng hầm bị cháy", "Xe lạ đỗ lấn chiếm vị trí đỗ xe cố định"]
+  },
+  {
+    "id": "khu-vuc-chung-tien-ich",
+    "name": "Khu vực chung & tiện ích cư dân",
+    "description": "Khu vui chơi trẻ em, phòng sinh hoạt cộng đồng, sân thể thao, bể bơi và ghế nghỉ công cộng.",
+    "examples": ["Đèn chiếu sáng sân chơi trẻ em bị hỏng", "Thiết bị tập thể dục ngoài trời bị lung lay chân", "Mặt sàn khu vui chơi bị bong tróc", "Bàn ghế phòng sinh hoạt cộng đồng gãy bản lề"]
+  },
+  {
+    "id": "an-ninh-kiem-soat",
+    "name": "An ninh & kiểm soát ra vào",
+    "description": "Hệ thống camera giám sát (CCTV), cổng từ sảnh lễ tân, tuần tra và an ninh trật tự.",
+    "examples": ["Cửa kính tự động sảnh chính kẹt không đóng", "Camera hành lang tầng bị mất góc quan sát", "Cổng từ sảnh cư dân không quét được thẻ", "Phát hiện người không phận sự đi vào tầng cư dân"]
+  },
+  {
+    "id": "chong-tham-xay-dung",
+    "name": "Chống thấm & kết cấu xây dựng",
+    "description": "Hiện tượng thấm dột, nứt tường, bong rộp sơn, hư hỏng gạch lát nền và trần thạch cao.",
+    "examples": ["Vết ố vàng loang lổ trên trần thạch cao phòng tắm", "Nước mưa thấm ngược qua khe cửa sổ vào sàn gỗ", "Gạch lát nền ban công bị phồng rộp", "Chân tường ngoài hành lang bong tróc vôi vữa"]
+  }
+]
+

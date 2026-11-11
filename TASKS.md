@@ -39,12 +39,12 @@ Expected output:
 
 ## MILESTONE 03 — REFERENCE DATA AND VIETNAMESE CONTENT
 
-- [ ] Define ticket categories.
-- [ ] Create realistic Vietnamese incident descriptions.
-- [ ] Create Vietnamese feedback content.
-- [ ] Create Vietnamese building announcement content.
-- [ ] Document any public data references.
-- [ ] Ensure no real resident personal information is used.
+- [x] Define ticket categories.
+- [x] Create realistic Vietnamese incident descriptions.
+- [x] Create Vietnamese feedback content.
+- [x] Create Vietnamese building announcement content.
+- [x] Document any public data references.
+- [x] Ensure no real resident personal information is used.
 
 Expected output:
 - `backend/dataset/reference-data/`
