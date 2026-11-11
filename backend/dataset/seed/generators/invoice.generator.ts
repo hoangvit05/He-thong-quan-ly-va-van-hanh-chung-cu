@@ -195,7 +195,10 @@ export function generateInvoicesAndPayments(
     const monthNum = parseInt(month.slice(5, 7), 10);
 
     const invoiceCreatedAt = new Date(Date.UTC(year, monthNum - 1, 1, 8, 0, 0));
+    invoiceCreatedAt.setUTCFullYear(year);
+
     const invoiceDueDate = new Date(Date.UTC(year, monthNum - 1, 15, 23, 59, 59));
+    invoiceDueDate.setUTCFullYear(year);
 
     for (const room of rooms) {
       if (invoices.length >= targetCount) break;

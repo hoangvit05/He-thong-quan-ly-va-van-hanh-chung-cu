@@ -428,6 +428,25 @@ runTest('6.6 Danh sách months hợp lệ có đủ capacity sinh thành công v
     assert.ok(inv.createdAt instanceof Date && !isNaN(inv.createdAt.getTime()), 'createdAt không hợp lệ');
     assert.ok(inv.dueDate instanceof Date && !isNaN(inv.dueDate.getTime()), 'dueDate không hợp lệ');
     assert.ok(inv.dueDate.getTime() > inv.createdAt.getTime(), 'dueDate phải sau createdAt');
+    assert.strictEqual(inv.createdAt.getUTCFullYear(), 2026, 'Năm của createdAt phải là 2026');
+    assert.strictEqual(inv.dueDate.getUTCFullYear(), 2026, 'Năm của dueDate phải là 2026');
+  }
+});
+
+runTest('6.6.1 (M5.2) Năm UTC nhỏ hơn 100 (0026-10) giữ chính xác năm trong month, createdAt và dueDate', () => {
+  const smallRooms = sampleRooms.slice(0, 5); // 5 phòng
+  const result = generateInvoicesAndPayments(smallRooms, {
+    count: 5,
+    months: ['0026-10'],
+  });
+
+  assert.strictEqual(result.invoices.length, 5);
+  for (const inv of result.invoices) {
+    assert.strictEqual(inv.month, '0026-10');
+    assert.strictEqual(inv.createdAt.getUTCFullYear(), 26, 'Năm createdAt phải chính xác là 26 (không bị cộng 1900 thành 1926)');
+    assert.strictEqual(inv.dueDate?.getUTCFullYear(), 26, 'Năm dueDate phải chính xác là 26 (không bị cộng 1900 thành 1926)');
+    assert.strictEqual(inv.createdAt.getUTCMonth(), 9, 'Tháng createdAt phải là tháng 10 (index 9)');
+    assert.strictEqual(inv.dueDate?.getUTCMonth(), 9, 'Tháng dueDate phải là tháng 10 (index 9)');
   }
 });
 
