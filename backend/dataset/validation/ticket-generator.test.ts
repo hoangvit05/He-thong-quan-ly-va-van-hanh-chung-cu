@@ -729,7 +729,76 @@ runTest('9.1 Toàn bộ dữ liệu vượt qua checkTicketIntegrity của hệ 
   assert.strictEqual(invalidDup, 0, 'Không được có sai lệch cờ duplicate');
 });
 
+// =========================================================================
+// 10. KIỂM THỬ HỒI QUY M6.1: DUPLICATE RATE EDGE CASES
+// =========================================================================
+console.log('--- 10. Kiểm thử Hồi quy M6.1: Duplicate Rate Edge Cases ---');
+
+runTest('10.1 count = 175, duplicateRate = 0: sinh đúng 175 Ticket và 0 duplicate', () => {
+  const result = generateTickets(sampleUsers, sampleRooms, { count: 175, duplicateRate: 0, seed: 20261111 });
+  assert.strictEqual(result.length, 175, 'Phải sinh đúng 175 Ticket');
+  const dups = result.filter((t) => t.isDuplicate);
+  assert.strictEqual(dups.length, 0, 'Tuyệt đối không được có vé duplicate khi duplicateRate = 0');
+});
+
+runTest('10.2 count = 175, duplicateRate = 0.06: sinh đúng 175 Ticket và 11 duplicate (bảo toàn M6)', () => {
+  const result = generateTickets(sampleUsers, sampleRooms, { count: 175, duplicateRate: 0.06, seed: 20261111 });
+  assert.strictEqual(result.length, 175, 'Phải sinh đúng 175 Ticket');
+  const dups = result.filter((t) => t.isDuplicate);
+  assert.strictEqual(dups.length, 11, 'Số lượng duplicate phải là đúng 11 theo baseline M6');
+});
+
+runTest('10.3 count = 175, duplicateRate = 1: sinh đúng 175 Ticket, có Ticket gốc và duplicate hợp lệ', () => {
+  const result = generateTickets(sampleUsers, sampleRooms, { count: 175, duplicateRate: 1, seed: 20261111 });
+  assert.strictEqual(result.length, 175, 'Phải sinh đúng 175 Ticket');
+  const originals = result.filter((t) => !t.isDuplicate);
+  const dups = result.filter((t) => t.isDuplicate);
+  assert.ok(originals.length >= 1, 'Phải có ít nhất 1 Ticket gốc');
+  assert.ok(dups.length > 0, 'Phải có duplicate');
+  assert.strictEqual(originals.length + dups.length, 175);
+
+  // Mọi duplicate đều phải có nguồn hợp lệ theo thuật toán 24h
+  for (let i = 0; i < result.length; i++) {
+    const prior = result.slice(0, i);
+    const expected = evaluateTicketDuplicate(result[i], prior);
+    assert.strictEqual(result[i].isDuplicate, expected, `Sai lệch cờ isDuplicate tại vị trí ${i}`);
+  }
+});
+
+runTest('10.4 count = 50, duplicateRate = 1: sinh đúng 50 Ticket, không thiếu dữ liệu', () => {
+  const result = generateTickets(sampleUsers, sampleRooms, { count: 50, duplicateRate: 1, seed: 20261111 });
+  assert.strictEqual(result.length, 50, 'Phải sinh đúng 50 Ticket không thiếu');
+  const originals = result.filter((t) => !t.isDuplicate);
+  const dups = result.filter((t) => t.isDuplicate);
+  assert.ok(originals.length >= 1, 'Phải có ít nhất 1 Ticket gốc');
+  assert.ok(dups.length > 0, 'Phải có duplicate');
+  assert.strictEqual(originals.length + dups.length, 50);
+
+  for (let i = 0; i < result.length; i++) {
+    const prior = result.slice(0, i);
+    const expected = evaluateTicketDuplicate(result[i], prior);
+    assert.strictEqual(result[i].isDuplicate, expected, `Sai lệch cờ isDuplicate tại vị trí ${i}`);
+  }
+});
+
+runTest('10.5 count = 1, duplicateRate = 1: không tạo duplicate không có nguồn (sinh đúng 1 Ticket gốc)', () => {
+  const result = generateTickets(sampleUsers, sampleRooms, { count: 1, duplicateRate: 1, seed: 20261111 });
+  assert.strictEqual(result.length, 1, 'Phải sinh đúng 1 Ticket');
+  assert.strictEqual(result[0].isDuplicate, false, 'Ticket duy nhất không thể là duplicate do không có nguồn');
+});
+
+runTest('10.6 Cùng seed và input vẫn hoàn toàn deterministic trong mọi edge cases', () => {
+  const r1 = generateTickets(sampleUsers, sampleRooms, { count: 50, duplicateRate: 1, seed: 12345 });
+  const r2 = generateTickets(sampleUsers, sampleRooms, { count: 50, duplicateRate: 1, seed: 12345 });
+  assert.strictEqual(r1.length, r2.length);
+  for (let i = 0; i < r1.length; i++) {
+    assert.strictEqual(r1[i].id, r2[i].id);
+    assert.strictEqual(r1[i].isDuplicate, r2[i].isDuplicate);
+    assert.strictEqual(r1[i].createdAt.getTime(), r2[i].createdAt.getTime());
+  }
+});
+
 console.log('======================================================');
-console.log(`🎉 TOÀN BỘ ${passedTests}/${totalTests} TESTS M6 ĐẠT CHUẨN!`);
+console.log(`🎉 TOÀN BỘ ${passedTests}/${totalTests} TESTS M6/M6.1 ĐẠT CHUẨN!`);
 console.log('======================================================');
 

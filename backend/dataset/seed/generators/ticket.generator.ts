@@ -312,8 +312,16 @@ export function generateTickets(
   // Tập hợp cư dân hợp lệ tạo phiếu
   const validCreators = residentsWithRoom.length > 0 ? residentsWithRoom : residents;
 
-  // Xác định số lượng duplicate scenario (tối thiểu 4 nếu count đủ lớn >= 50)
-  const targetDuplicates = count >= 50 ? Math.max(4, Math.round(count * duplicateRate)) : 0;
+  // Xác định số lượng duplicate scenario:
+  // - duplicateRate = 0: tuyệt đối không sinh duplicate (0)
+  // - duplicateRate > 0: sinh theo tỷ lệ, giữ chính sách tối thiểu 4 vé nếu count >= 50
+  // - Giới hạn tối đa ở count - 1 khi count > 0 để bảo đảm luôn có ít nhất 1 Ticket gốc
+  let targetDuplicates = 0;
+  if (duplicateRate > 0 && count > 1) {
+    const rawDup = Math.round(count * duplicateRate);
+    const desired = count >= 50 ? Math.max(4, rawDup) : rawDup;
+    targetDuplicates = Math.min(count - 1, desired);
+  }
   const targetBaseCount = count - targetDuplicates;
 
   // Neo thời gian tham chiếu: Ngày 25/10/2026 lúc 14:00 UTC (phù hợp với mốc thời gian M4/M5)
@@ -480,6 +488,24 @@ export function generateTickets(
   // -----------------------------------------------------------------------
   // BƯỚC 2: Sinh danh sách vé trùng lặp thực tế (Duplicate Scenarios)
   // -----------------------------------------------------------------------
+  // Bảo đảm luôn có ít nhất một Ticket gốc thuộc trạng thái PENDING, ASSIGNED hoặc IN_PROGRESS nếu cần sinh duplicate
+  if (targetDuplicates > 0 && drafts.length > 0) {
+    const hasEligible = drafts.some(
+      (d) =>
+        d.status === TicketStatus.PENDING ||
+        d.status === TicketStatus.ASSIGNED ||
+        d.status === TicketStatus.IN_PROGRESS
+    );
+    if (!hasEligible) {
+      drafts[0].status = TicketStatus.PENDING;
+      drafts[0].technicianId = null;
+      drafts[0].materials = null;
+      drafts[0].rating = null;
+      drafts[0].ratingComment = null;
+      drafts[0].updatedAt = new Date(drafts[0].createdAt.getTime());
+    }
+  }
+
   // Tìm các vé gốc đủ điều kiện làm nguồn duplicate:
   // - Trạng thái: PENDING, ASSIGNED, IN_PROGRESS
   const eligibleSources = drafts.filter(
@@ -488,6 +514,10 @@ export function generateTickets(
       d.status === TicketStatus.ASSIGNED ||
       d.status === TicketStatus.IN_PROGRESS
   );
+
+  if (targetDuplicates > 0 && eligibleSources.length === 0) {
+    throw new Error('Không thể sinh vé trùng lặp do thiếu Ticket gốc hợp lệ.');
+  }
 
   const roomSources = eligibleSources.filter((d) => d.roomId !== null);
   const commonSources = eligibleSources.filter((d) => d.roomId === null);
@@ -504,7 +534,7 @@ export function generateTickets(
     } else if (eligibleSources.length > 0) {
       source = prng.pickOne(eligibleSources);
     } else {
-      break;
+      throw new Error('Không tìm thấy Ticket gốc hợp lệ để nhân bản duplicate.');
     }
 
     // Mốc thời gian gửi vé trùng: Sau vé gốc từ 1 đến 18 giờ (chắc chắn < 24 giờ)
@@ -571,7 +601,44 @@ export function generateTickets(
     const ticketId = ticketIdCounter++;
 
     // Tiêu đề: Lấy từ template, nếu là phòng cụ thể thì giữ nguyên tiêu đề thực tế từ bộ dữ liệu
-    const title = draft.template.title;
+    let title = draft.template.title;
+
+    // Khi duplicateRate === 0: Chắc chắn không có bất kỳ vé nào bị vô tình trùng lặp
+    if (duplicateRate === 0) {
+      if (
+        evaluateTicketDuplicate(
+          {
+            category: draft.category,
+            roomId: draft.roomId,
+            residentId: draft.creatorId,
+            createdAt: draft.createdAt,
+          },
+          result
+        )
+      ) {
+        // Tìm template/category khác chưa có sự cố trong vòng 24h đối với phòng hoặc cư dân này
+        for (const altTemplate of templates) {
+          const altCatMeta = categoryMap.get(altTemplate.category);
+          const altCatName = altCatMeta ? altCatMeta.name : altTemplate.category;
+          if (
+            !evaluateTicketDuplicate(
+              {
+                category: altCatName,
+                roomId: draft.roomId,
+                residentId: draft.creatorId,
+                createdAt: draft.createdAt,
+              },
+              result
+            )
+          ) {
+            draft.category = altCatName;
+            draft.template = altTemplate;
+            title = altTemplate.title;
+            break;
+          }
+        }
+      }
+    }
 
     // Đánh giá cờ isDuplicate bằng thuật toán chuẩn xác của controller đối chiếu với các vé đã sinh trước đó
     const isDuplicate = evaluateTicketDuplicate(
@@ -602,6 +669,10 @@ export function generateTickets(
       createdAt: draft.createdAt,
       updatedAt: draft.updatedAt,
     });
+  }
+
+  if (result.length !== count) {
+    throw new Error(`Không thể sinh đủ số lượng Ticket yêu cầu (${result.length}/${count}).`);
   }
 
   return result;
