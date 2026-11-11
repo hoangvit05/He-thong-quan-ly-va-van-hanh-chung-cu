@@ -51,16 +51,16 @@ Expected output:
 
 ## MILESTONE 04 — ROOM AND USER GENERATORS
 
-- [ ] Generate approximately 100 rooms.
-- [ ] Include VACANT, OCCUPIED and MAINTENANCE scenarios.
-- [ ] Generate 1 ADMIN.
-- [ ] Generate 2 BQL accounts.
-- [ ] Generate 5 TECHNICIAN accounts.
-- [ ] Generate 100–150 RESIDENT accounts.
-- [ ] Allow multiple residents per room.
-- [ ] Keep staff roomId null.
-- [ ] Hash all passwords with bcryptjs.
-- [ ] Ensure unique usernames and emails.
+- [x] Generate approximately 100 rooms.
+- [x] Include VACANT, OCCUPIED and MAINTENANCE scenarios.
+- [x] Generate 1 ADMIN.
+- [x] Generate 2 BQL accounts.
+- [x] Generate 5 TECHNICIAN accounts.
+- [x] Generate 100–150 RESIDENT accounts.
+- [x] Allow multiple residents per room.
+- [x] Keep staff roomId null.
+- [x] Hash all passwords with bcryptjs.
+- [x] Ensure unique usernames and emails.
 
 Expected output:
 - `backend/dataset/seed/generators/room.generator.ts`
