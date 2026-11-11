@@ -450,6 +450,46 @@ runTest('6.6.1 (M5.2) Năm UTC nhỏ hơn 100 (0026-10) giữ chính xác năm t
   }
 });
 
+runTest('6.6.2 (M5.2.1) Năm UTC nhỏ hơn 100 (0026-10) giữ chính xác năm trong Payment.paidAt (cả PAID và PARTIALLY_PAID)', () => {
+  const result = generateInvoicesAndPayments(sampleRooms.slice(0, 50), {
+    count: 50,
+    months: ['0026-10'],
+    seed: 20261111,
+  });
+
+  assert.ok(result.invoices.length > 0, 'Phải sinh ít nhất 1 invoice');
+  assert.ok(result.payments.length > 0, 'Phải sinh ít nhất 1 payment');
+
+  let hasPaidPayment = false;
+  let hasPartialPayment = false;
+
+  for (const inv of result.invoices) {
+    assert.strictEqual(inv.month, '0026-10');
+    assert.strictEqual(inv.createdAt.getUTCFullYear(), 26, 'Năm createdAt của Invoice phải là 26');
+    assert.strictEqual(inv.dueDate?.getUTCFullYear(), 26, 'Năm dueDate của Invoice phải là 26');
+    assert.strictEqual(inv.createdAt.getUTCMonth(), 9, 'Tháng createdAt của Invoice phải là 10');
+    assert.strictEqual(inv.dueDate?.getUTCMonth(), 9, 'Tháng dueDate của Invoice phải là 10');
+  }
+
+  const invoiceMap = new Map(result.invoices.map((inv) => [inv.id, inv]));
+
+  for (const p of result.payments) {
+    assert.strictEqual(p.paidAt.getUTCFullYear(), 26, 'Năm paidAt của Payment phải chính xác là 26');
+    assert.strictEqual(p.paidAt.getUTCMonth(), 9, 'Tháng paidAt của Payment phải là tháng 10 (index 9)');
+
+    const invoice = invoiceMap.get(p.invoiceId);
+    assert.ok(invoice, `Payment ${p.id} phải trỏ về Invoice hợp lệ`);
+    if (invoice.status === InvoiceStatus.PAID) {
+      hasPaidPayment = true;
+    } else if (invoice.status === InvoiceStatus.PARTIALLY_PAID) {
+      hasPartialPayment = true;
+    }
+  }
+
+  assert.ok(hasPaidPayment, 'Phải có Payment thuộc Invoice PAID để kiểm thử');
+  assert.ok(hasPartialPayment, 'Phải có Payment thuộc Invoice PARTIALLY_PAID để kiểm thử');
+});
+
 runTest('6.7 Tham số count không hợp lệ (NaN, Infinity, số âm, số thực) phải ném lỗi', () => {
   assert.throws(
     () => {

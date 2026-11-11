@@ -27,6 +27,22 @@ export interface PaymentGeneratorOptions {
 }
 
 /**
+ * Tạo đối tượng Date UTC bảo toàn chính xác năm, khắc phục lỗi tự cộng 1900 của Date.UTC với năm 0-99
+ */
+function createUTCDate(
+  year: number,
+  monthIndex: number,
+  day: number,
+  hour = 0,
+  minute = 0,
+  second = 0
+): Date {
+  const date = new Date(Date.UTC(year, monthIndex, day, hour, minute, second));
+  date.setUTCFullYear(year);
+  return date;
+}
+
+/**
  * Sinh danh sách các giao dịch thanh toán cho hóa đơn
  * Đảm bảo:
  * - Không thanh toán vượt quá totalAmount
@@ -97,7 +113,7 @@ export function generatePayments(
             : `FT${invoiceYear.toString().slice(2)}${String(invoiceMonthNum).padStart(2, '0')}${String(pid).padStart(5, '0')}${prng.nextInt(10, 99)}`;
 
         const paidAtDay = prng.nextInt(5, 14);
-        const paidAt = new Date(Date.UTC(invoiceYear, invoiceMonthNum - 1, paidAtDay, prng.nextInt(8, 20), prng.nextInt(0, 59)));
+        const paidAt = createUTCDate(invoiceYear, invoiceMonthNum - 1, paidAtDay, prng.nextInt(8, 20), prng.nextInt(0, 59));
 
         payments.push({
           id: pid,
@@ -125,7 +141,7 @@ export function generatePayments(
           method1 === PaymentMethod.CASH
             ? null
             : `FT${invoiceYear.toString().slice(2)}${String(invoiceMonthNum).padStart(2, '0')}${String(pid1).padStart(5, '0')}${prng.nextInt(10, 99)}`;
-        const paidAt1 = new Date(Date.UTC(invoiceYear, invoiceMonthNum - 1, prng.nextInt(4, 10), prng.nextInt(8, 20), prng.nextInt(0, 59)));
+        const paidAt1 = createUTCDate(invoiceYear, invoiceMonthNum - 1, prng.nextInt(4, 10), prng.nextInt(8, 20), prng.nextInt(0, 59));
 
         payments.push({
           id: pid1,
@@ -144,7 +160,7 @@ export function generatePayments(
           method2 === PaymentMethod.CASH
             ? null
             : `FT${invoiceYear.toString().slice(2)}${String(invoiceMonthNum).padStart(2, '0')}${String(pid2).padStart(5, '0')}${prng.nextInt(10, 99)}`;
-        const paidAt2 = new Date(Date.UTC(invoiceYear, invoiceMonthNum - 1, prng.nextInt(12, 22), prng.nextInt(8, 20), prng.nextInt(0, 59)));
+        const paidAt2 = createUTCDate(invoiceYear, invoiceMonthNum - 1, prng.nextInt(12, 22), prng.nextInt(8, 20), prng.nextInt(0, 59));
 
         payments.push({
           id: pid2,
@@ -182,7 +198,7 @@ export function generatePayments(
           method === PaymentMethod.CASH
             ? null
             : `FT${invoiceYear.toString().slice(2)}${String(invoiceMonthNum).padStart(2, '0')}${String(pid).padStart(5, '0')}${prng.nextInt(10, 99)}`;
-        const paidAt = new Date(Date.UTC(invoiceYear, invoiceMonthNum - 1, prng.nextInt(6, 18), prng.nextInt(8, 20), prng.nextInt(0, 59)));
+        const paidAt = createUTCDate(invoiceYear, invoiceMonthNum - 1, prng.nextInt(6, 18), prng.nextInt(8, 20), prng.nextInt(0, 59));
 
         payments.push({
           id: pid,
@@ -209,7 +225,7 @@ export function generatePayments(
           method1 === PaymentMethod.CASH
             ? null
             : `FT${invoiceYear.toString().slice(2)}${String(invoiceMonthNum).padStart(2, '0')}${String(pid1).padStart(5, '0')}${prng.nextInt(10, 99)}`;
-        const paidAt1 = new Date(Date.UTC(invoiceYear, invoiceMonthNum - 1, prng.nextInt(5, 12), prng.nextInt(8, 20), prng.nextInt(0, 59)));
+        const paidAt1 = createUTCDate(invoiceYear, invoiceMonthNum - 1, prng.nextInt(5, 12), prng.nextInt(8, 20), prng.nextInt(0, 59));
 
         payments.push({
           id: pid1,
@@ -227,7 +243,7 @@ export function generatePayments(
           method2 === PaymentMethod.CASH
             ? null
             : `FT${invoiceYear.toString().slice(2)}${String(invoiceMonthNum).padStart(2, '0')}${String(pid2).padStart(5, '0')}${prng.nextInt(10, 99)}`;
-        const paidAt2 = new Date(Date.UTC(invoiceYear, invoiceMonthNum - 1, prng.nextInt(14, 25), prng.nextInt(8, 20), prng.nextInt(0, 59)));
+        const paidAt2 = createUTCDate(invoiceYear, invoiceMonthNum - 1, prng.nextInt(14, 25), prng.nextInt(8, 20), prng.nextInt(0, 59));
 
         payments.push({
           id: pid2,
