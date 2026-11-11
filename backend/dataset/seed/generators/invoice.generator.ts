@@ -9,7 +9,7 @@ import { DATASET_CONFIG } from '../../config/dataset.config';
 import { PRNG } from '../utils/random';
 import { toDecimal } from '../utils/decimal';
 import { GeneratedRoom } from './room.generator';
-import { generatePayments, GeneratedPayment, PaymentGeneratorOptions } from './payment.generator';
+import { generatePayments, GeneratedPayment } from './payment.generator';
 
 export interface GeneratedInvoice {
   id: number;
@@ -41,19 +41,57 @@ export interface InvoicePaymentResult {
 }
 
 /**
- * Sinh danh sách các tháng định dạng YYYY-MM
+ * Kiểm tra tính hợp lệ và chuẩn hóa danh sách các tháng thu phí
  */
-function getBillingMonths(requiredCount: number, customMonths?: string[]): string[] {
-  if (customMonths && customMonths.length > 0) {
+function validateAndGetBillingMonths(
+  targetCount: number,
+  roomsCount: number,
+  customMonths?: string[]
+): string[] {
+  if (customMonths !== undefined) {
+    if (!Array.isArray(customMonths)) {
+      throw new Error('[InvoiceGenerator] Tham số months phải là một mảng chuỗi định dạng YYYY-MM.');
+    }
+    if (customMonths.length === 0 && targetCount > 0) {
+      throw new Error('[InvoiceGenerator] Danh sách months được cung cấp rỗng, không thể sinh hóa đơn.');
+    }
+
+    const monthRegex = /^\d{4}-(0[1-9]|1[0-2])$/;
+    const seenMonths = new Set<string>();
+
+    for (let i = 0; i < customMonths.length; i++) {
+      const m = customMonths[i];
+      if (typeof m !== 'string' || m.trim() === '') {
+        throw new Error(`[InvoiceGenerator] Phần tử tháng tại vị trí ${i} không hợp lệ hoặc rỗng.`);
+      }
+      if (!monthRegex.test(m)) {
+        throw new Error(
+          `[InvoiceGenerator] Định dạng tháng không hợp lệ: "${m}". Bắt buộc phải là YYYY-MM với MM từ 01 đến 12.`
+        );
+      }
+      if (seenMonths.has(m)) {
+        throw new Error(`[InvoiceGenerator] Phát hiện tháng bị trùng lặp trong danh sách months: "${m}".`);
+      }
+      seenMonths.add(m);
+    }
+
+    const maxCapacity = seenMonths.size * roomsCount;
+    if (maxCapacity < targetCount) {
+      throw new Error(
+        `[InvoiceGenerator] Dung lượng tối đa của ${seenMonths.size} tháng x ${roomsCount} phòng (${maxCapacity}) không đủ để sinh ${targetCount} hóa đơn mà không vi phạm unique [roomId, month].`
+      );
+    }
+
     return customMonths;
   }
 
-  // Danh sách các tháng mặc định gần nhất (2026-06 đến 2026-10 hoặc mở rộng lùi về trước)
+  // Tự động sinh danh sách tháng mặc định lùi dần từ 2026-10
+  const requiredMonthsCount = Math.ceil(targetCount / roomsCount);
   const baseYear = 2026;
-  const baseEndMonth = 10; // Tháng 10/2026
+  const baseEndMonth = 10;
   const months: string[] = [];
 
-  for (let i = requiredCount - 1; i >= 0; i--) {
+  for (let i = requiredMonthsCount - 1; i >= 0; i--) {
     let year = baseYear;
     let m = baseEndMonth - i;
     while (m <= 0) {
@@ -68,7 +106,8 @@ function getBillingMonths(requiredCount: number, customMonths?: string[]): strin
 }
 
 /**
- * Sinh đồng bộ danh sách Hóa đơn và Giao dịch thanh toán liên kết
+ * API chính thức: Sinh đồng bộ danh sách Hóa đơn và Giao dịch thanh toán liên kết
+ * Đảm bảo tính nhất quán tuyệt đối giữa Invoice.paidAmount và Payment.amount
  */
 export function generateInvoicesAndPayments(
   rooms: GeneratedRoom[],
@@ -95,24 +134,38 @@ export function generateInvoicesAndPayments(
     }
   }
 
+  // Kiểm tra options.count
+  if (options.count !== undefined) {
+    if (typeof options.count !== 'number' || !Number.isFinite(options.count) || Number.isNaN(options.count)) {
+      throw new Error(`[InvoiceGenerator] Tham số count phải là số nguyên hữu hạn (nhận: ${options.count}).`);
+    }
+    if (!Number.isInteger(options.count) || options.count < 0) {
+      throw new Error(`[InvoiceGenerator] Tham số count phải là số nguyên không âm (nhận: ${options.count}).`);
+    }
+  }
+
+  // Kiểm tra options.multiPaymentRate
+  if (options.multiPaymentRate !== undefined) {
+    if (
+      typeof options.multiPaymentRate !== 'number' ||
+      !Number.isFinite(options.multiPaymentRate) ||
+      Number.isNaN(options.multiPaymentRate) ||
+      options.multiPaymentRate < 0 ||
+      options.multiPaymentRate > 1
+    ) {
+      throw new Error(
+        `[InvoiceGenerator] Tham số multiPaymentRate phải là số thực trong đoạn [0, 1] (nhận: ${options.multiPaymentRate}).`
+      );
+    }
+  }
+
   const targetCount = options.count ?? 500;
-  if (targetCount <= 0) {
+  if (targetCount === 0) {
     return { invoices: [], payments: [] };
   }
 
   const prng = options.prng ?? new PRNG(options.seed ?? DATASET_CONFIG.RANDOM_SEED);
-
-  // Tính số tháng cần thiết để sinh đủ số lượng invoice duy nhất
-  const requiredMonthsCount = Math.ceil(targetCount / rooms.length);
-
-  // Edge Case 3: Caller cung cấp danh sách months cố định nhưng không đủ để sinh target count
-  if (options.months && options.months.length * rooms.length < targetCount) {
-    throw new Error(
-      `[InvoiceGenerator] Không thể sinh ${targetCount} hóa đơn duy nhất với ${rooms.length} phòng và ${options.months.length} tháng mà không vi phạm ràng buộc [roomId, month].`
-    );
-  }
-
-  const billingMonths = getBillingMonths(requiredMonthsCount, options.months);
+  const billingMonths = validateAndGetBillingMonths(targetCount, rooms.length, options.months);
 
   // Tạo phân bổ trạng thái theo tỷ lệ tham khảo (PAID ~65%, PARTIALLY_PAID ~15%, UNPAID ~20%)
   const statuses: InvoiceStatus[] = [];
@@ -183,7 +236,7 @@ export function generateInvoicesAndPayments(
       // 5. Tổng tiền = 4 khoản phí
       const totalAmount = managementFee.plus(parkingFee).plus(waterFee).plus(otherFee).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
 
-      // Edge Case 4: Kiểm tra giới hạn Decimal(12,2)
+      // Edge Case: Kiểm tra giới hạn Decimal(12,2)
       if (totalAmount.greaterThan('999999999.99')) {
         throw new Error(`[InvoiceGenerator] totalAmount ${totalAmount.toString()} vượt quá giới hạn Decimal(12,2).`);
       }
@@ -208,6 +261,13 @@ export function generateInvoicesAndPayments(
     }
   }
 
+  // Kiểm tra không được âm thầm sinh thiếu số lượng
+  if (invoices.length < targetCount) {
+    throw new Error(
+      `[InvoiceGenerator] Không thể sinh đủ ${targetCount} hóa đơn (chỉ sinh được ${invoices.length}).`
+    );
+  }
+
   // Phối hợp sinh Payments và tự động tổng hợp chính xác paidAmount vào từng Invoice
   const payments = generatePayments(invoices, {
     prng,
@@ -216,15 +276,3 @@ export function generateInvoicesAndPayments(
 
   return { invoices, payments };
 }
-
-/**
- * Sinh danh sách Hóa đơn độc lập (đã tự động phối hợp và tổng hợp paidAmount từ payments)
- */
-export function generateInvoices(
-  rooms: GeneratedRoom[],
-  options: InvoiceGeneratorOptions = {}
-): GeneratedInvoice[] {
-  const result = generateInvoicesAndPayments(rooms, options);
-  return result.invoices;
-}
-

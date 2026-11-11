@@ -43,6 +43,21 @@ export function generatePayments(
     return [];
   }
 
+  // Kiểm tra options.multiPaymentRate
+  if (options.multiPaymentRate !== undefined) {
+    if (
+      typeof options.multiPaymentRate !== 'number' ||
+      !Number.isFinite(options.multiPaymentRate) ||
+      Number.isNaN(options.multiPaymentRate) ||
+      options.multiPaymentRate < 0 ||
+      options.multiPaymentRate > 1
+    ) {
+      throw new Error(
+        `[PaymentGenerator] Tham số multiPaymentRate phải là số thực trong đoạn [0, 1] (nhận: ${options.multiPaymentRate}).`
+      );
+    }
+  }
+
   const prng = options.prng ?? new PRNG(options.seed ?? DATASET_CONFIG.RANDOM_SEED);
   const multiPaymentRate = options.multiPaymentRate ?? 0.1;
 

@@ -1,11 +1,11 @@
 // =========================================================================
-// KIỂM THỬ XÁC MINH INVOICE & PAYMENT GENERATORS (MILESTONE 5 TESTS)
+// KIỂM THỬ XÁC MINH INVOICE & PAYMENT GENERATORS (MILESTONE 5 & M5.1 TESTS)
 // =========================================================================
 
 import assert from 'assert';
 import { InvoiceStatus, PaymentMethod, Prisma } from '@prisma/client';
 import { generateRooms, GeneratedRoom } from '../seed/generators/room.generator';
-import { generateInvoices, generateInvoicesAndPayments, GeneratedInvoice } from '../seed/generators/invoice.generator';
+import { generateInvoicesAndPayments, GeneratedInvoice } from '../seed/generators/invoice.generator';
 import { generatePayments, GeneratedPayment } from '../seed/generators/payment.generator';
 import { sumDecimals } from '../seed/utils/decimal';
 
@@ -25,7 +25,7 @@ function runTest(name: string, fn: () => void) {
 }
 
 console.log('======================================================');
-console.log('🧪 BẮT ĐẦU KIỂM ĐỊNH INVOICE & PAYMENT GENERATORS (M5)');
+console.log('🧪 BẮT ĐẦU KIỂM ĐỊNH INVOICE & PAYMENT GENERATORS (M5/M5.1)');
 console.log('======================================================');
 
 const sampleRooms: GeneratedRoom[] = generateRooms({ seed: 20261111 });
@@ -49,6 +49,7 @@ runTest('1.2 Số lượng Payment nằm trong khoảng [300, 500]', () => {
     payments.length >= 300 && payments.length <= 500,
     `Số lượng Payment (${payments.length}) phải nằm trong [300, 500]`
   );
+  assert.strictEqual(payments.length, 472, `Với seed hiện tại phải sinh đúng 472 Payment (nhận ${payments.length})`);
 });
 
 runTest('1.3 ID của Invoice và Payment hợp lệ, không bị trùng lặp', () => {
@@ -265,9 +266,9 @@ runTest('4.2 Khác seed tạo ra kết quả dữ liệu khác nhau', () => {
 });
 
 // =========================================================================
-// 5. KIỂM THỬ CÁC TRƯỜNG HỢP BIÊN & NGOẠI LỆ (EDGE CASES)
+// 5. KIỂM THỬ CÁC TRƯỜNG HỢP BIÊN & NGOẠI LỆ (EDGE CASES & HARDENING)
 // =========================================================================
-console.log('--- 5. Kiểm thử Edge Cases & Ngoại lệ ---');
+console.log('--- 5. Kiểm thử Edge Cases & Ngoại lệ (M5.1 Hardening) ---');
 
 runTest('5.1 Danh sách Room rỗng phải ném lỗi rõ ràng', () => {
   assert.throws(
@@ -313,18 +314,7 @@ runTest('5.3 Dữ liệu đầu vào có diện tích Room không hợp lệ (<=
   );
 });
 
-runTest('5.4 Không thể sinh đủ target mà không vi phạm unique [roomId, month] phải ném lỗi', () => {
-  const singleRoom: GeneratedRoom[] = [sampleRooms[0]];
-  assert.throws(
-    () => {
-      // 1 phòng với 1 tháng cố định nhưng yêu cầu sinh 100 hóa đơn
-      generateInvoicesAndPayments(singleRoom, { count: 100, months: ['2026-10'] });
-    },
-    /Không thể sinh 100 hóa đơn duy nhất với 1 phòng/
-  );
-});
-
-runTest('5.5 Hóa đơn có totalAmount <= 0 khi sinh Payment phải ném lỗi', () => {
+runTest('5.4 Hóa đơn có totalAmount <= 0 khi sinh Payment phải ném lỗi', () => {
   const invalidInvoice: GeneratedInvoice = {
     id: 999,
     roomId: 1,
@@ -349,7 +339,166 @@ runTest('5.5 Hóa đơn có totalAmount <= 0 khi sinh Payment phải ném lỗi'
   );
 });
 
-console.log('======================================================');
-console.log(`🎉 TOÀN BỘ ${passedTests}/${totalTests} TESTS M5 ĐẠT CHUẨN!`);
-console.log('======================================================');
+// =========================================================================
+// 6. KIỂM THỬ KIỂM TOÁN ĐẦU VÀO M5.1 (INPUT VALIDATION & CAPACITY HARDENING)
+// =========================================================================
+console.log('--- 6. Kiểm thử M5.1: Custom Months & Options Hardening ---');
 
+runTest('6.1 Tháng sai định dạng (không phải YYYY-MM) phải ném lỗi', () => {
+  assert.throws(
+    () => {
+      generateInvoicesAndPayments(sampleRooms, { count: 10, months: ['2026/10'] });
+    },
+    /Định dạng tháng không hợp lệ/
+  );
+  assert.throws(
+    () => {
+      generateInvoicesAndPayments(sampleRooms, { count: 10, months: ['abc-xyz'] });
+    },
+    /Định dạng tháng không hợp lệ/
+  );
+});
+
+runTest('6.2 Tháng ngoài miền 01-12 (2026-00, 2026-13) phải ném lỗi', () => {
+  assert.throws(
+    () => {
+      generateInvoicesAndPayments(sampleRooms, { count: 10, months: ['2026-00'] });
+    },
+    /Định dạng tháng không hợp lệ/
+  );
+  assert.throws(
+    () => {
+      generateInvoicesAndPayments(sampleRooms, { count: 10, months: ['2026-13'] });
+    },
+    /Định dạng tháng không hợp lệ/
+  );
+});
+
+runTest('6.3 Danh sách months có tháng bị trùng lặp phải ném lỗi', () => {
+  assert.throws(
+    () => {
+      generateInvoicesAndPayments(sampleRooms, { count: 10, months: ['2026-08', '2026-09', '2026-08'] });
+    },
+    /Phát hiện tháng bị trùng lặp/
+  );
+});
+
+runTest('6.4 Danh sách months chứa phần tử rỗng hoặc sai kiểu phải ném lỗi', () => {
+  assert.throws(
+    () => {
+      generateInvoicesAndPayments(sampleRooms, { count: 10, months: ['2026-08', '   '] });
+    },
+    /không hợp lệ hoặc rỗng/
+  );
+  assert.throws(
+    () => {
+      generateInvoicesAndPayments(sampleRooms, { count: 10, months: ['2026-08', null as any] });
+    },
+    /không hợp lệ hoặc rỗng/
+  );
+  assert.throws(
+    () => {
+      generateInvoicesAndPayments(sampleRooms, { count: 10, months: [] });
+    },
+    /Danh sách months được cung cấp rỗng/
+  );
+});
+
+runTest('6.5 Danh sách months hợp lệ nhưng không đủ capacity phải ném lỗi rõ ràng', () => {
+  const smallRooms = sampleRooms.slice(0, 10); // 10 phòng
+  // 2 tháng x 10 phòng = max 20 capacity, nhưng yêu cầu sinh 50
+  assert.throws(
+    () => {
+      generateInvoicesAndPayments(smallRooms, { count: 50, months: ['2026-09', '2026-10'] });
+    },
+    /Dung lượng tối đa của 2 tháng x 10 phòng \(20\) không đủ để sinh 50 hóa đơn/
+  );
+});
+
+runTest('6.6 Danh sách months hợp lệ có đủ capacity sinh thành công và ngày tháng hợp lệ', () => {
+  const smallRooms = sampleRooms.slice(0, 10); // 10 phòng
+  // 5 tháng x 10 phòng = max 50 capacity, yêu cầu sinh 30
+  const result = generateInvoicesAndPayments(smallRooms, {
+    count: 30,
+    months: ['2026-06', '2026-07', '2026-08', '2026-09', '2026-10'],
+  });
+
+  assert.strictEqual(result.invoices.length, 30);
+  for (const inv of result.invoices) {
+    assert.ok(inv.createdAt instanceof Date && !isNaN(inv.createdAt.getTime()), 'createdAt không hợp lệ');
+    assert.ok(inv.dueDate instanceof Date && !isNaN(inv.dueDate.getTime()), 'dueDate không hợp lệ');
+    assert.ok(inv.dueDate.getTime() > inv.createdAt.getTime(), 'dueDate phải sau createdAt');
+  }
+});
+
+runTest('6.7 Tham số count không hợp lệ (NaN, Infinity, số âm, số thực) phải ném lỗi', () => {
+  assert.throws(
+    () => {
+      generateInvoicesAndPayments(sampleRooms, { count: NaN });
+    },
+    /count phải là số nguyên hữu hạn/
+  );
+  assert.throws(
+    () => {
+      generateInvoicesAndPayments(sampleRooms, { count: Infinity });
+    },
+    /count phải là số nguyên hữu hạn/
+  );
+  assert.throws(
+    () => {
+      generateInvoicesAndPayments(sampleRooms, { count: -5 });
+    },
+    /count phải là số nguyên không âm/
+  );
+  assert.throws(
+    () => {
+      generateInvoicesAndPayments(sampleRooms, { count: 12.5 });
+    },
+    /count phải là số nguyên không âm/
+  );
+});
+
+runTest('6.8 Tham số multiPaymentRate không hợp lệ (NaN, Infinity, <0, >1) phải ném lỗi', () => {
+  assert.throws(
+    () => {
+      generateInvoicesAndPayments(sampleRooms, { count: 10, multiPaymentRate: NaN });
+    },
+    /multiPaymentRate phải là số thực trong đoạn \[0, 1\]/
+  );
+  assert.throws(
+    () => {
+      generateInvoicesAndPayments(sampleRooms, { count: 10, multiPaymentRate: -0.1 });
+    },
+    /multiPaymentRate phải là số thực trong đoạn \[0, 1\]/
+  );
+  assert.throws(
+    () => {
+      generateInvoicesAndPayments(sampleRooms, { count: 10, multiPaymentRate: 1.5 });
+    },
+    /multiPaymentRate phải là số thực trong đoạn \[0, 1\]/
+  );
+
+  // Kiểm tra tương tự trên generatePayments trực tiếp
+  assert.throws(
+    () => {
+      generatePayments(invoices, { multiPaymentRate: -0.5 });
+    },
+    /multiPaymentRate phải là số thực trong đoạn \[0, 1\]/
+  );
+  assert.throws(
+    () => {
+      generatePayments(invoices, { multiPaymentRate: 2.0 });
+    },
+    /multiPaymentRate phải là số thực trong đoạn \[0, 1\]/
+  );
+});
+
+runTest('6.9 Khi count = 0 trả về kết quả rỗng hợp lệ', () => {
+  const result = generateInvoicesAndPayments(sampleRooms, { count: 0 });
+  assert.strictEqual(result.invoices.length, 0);
+  assert.strictEqual(result.payments.length, 0);
+});
+
+console.log('======================================================');
+console.log(`🎉 TOÀN BỘ ${passedTests}/${totalTests} TESTS M5/M5.1 ĐẠT CHUẨN!`);
+console.log('======================================================');
