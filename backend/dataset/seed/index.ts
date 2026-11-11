@@ -11,14 +11,14 @@ import { DATASET_CONFIG } from '../config/dataset.config';
  */
 export function assertSafeDatabaseEnvironment(): void {
   const nodeEnv = process.env.NODE_ENV;
-  if (DATASET_CONFIG.SAFETY.REJECT_PRODUCTION && nodeEnv === 'production') {
+  if (nodeEnv === 'production') {
     throw new Error('[FATAL DATABASE SAFETY ERROR] Tuyệt đối từ chối chạy seed dữ liệu trên môi trường PRODUCTION!');
   }
 
   const optIn = process.env[DATASET_CONFIG.SAFETY.REQUIRED_OPT_IN_ENV];
-  if (!optIn || optIn !== 'true') {
-    console.warn(
-      `[Safety Notice] Biến môi trường ${DATASET_CONFIG.SAFETY.REQUIRED_OPT_IN_ENV} chưa được bật (=true).`
+  if (optIn !== 'true') {
+    throw new Error(
+      `[FATAL DATABASE SAFETY ERROR] Thao tác bị từ chối: Biến môi trường ${DATASET_CONFIG.SAFETY.REQUIRED_OPT_IN_ENV} phải có giá trị 'true' để xác nhận thực thi seed.`
     );
   }
 }

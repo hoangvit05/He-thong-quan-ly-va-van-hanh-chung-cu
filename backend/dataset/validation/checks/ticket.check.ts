@@ -17,6 +17,10 @@ export interface TicketValidationInput {
 export function checkTicketIntegrity(input: TicketValidationInput): CheckResult {
   const errors: string[] = [];
 
+  if (input.invalidTransitions > 0) {
+    errors.push(`Phát hiện ${input.invalidTransitions} ticket có chuyển đổi trạng thái không hợp lệ.`);
+  }
+
   if (input.invalidTechnicianAssignments > 0) {
     errors.push(
       `Phát hiện ${input.invalidTechnicianAssignments} ticket ở trạng thái ASSIGNED/IN_PROGRESS/COMPLETED nhưng thiếu technicianId hoặc gán sai vai trò.`
