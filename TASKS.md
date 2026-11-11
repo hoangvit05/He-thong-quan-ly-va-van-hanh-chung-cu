@@ -9,15 +9,15 @@ Only work on dataset-related files and the minimum dataset-specific execution co
 
 ## MILESTONE 01 — REPOSITORY AND SCHEMA AUDIT
 
-- [ ] Read `backend/src/database/schema.prisma`.
-- [ ] Confirm all 8 models and 5 enums.
-- [ ] Inspect ticket lifecycle and duplicate detection.
-- [ ] Inspect invoice and payment calculation logic.
-- [ ] Inspect media verification workflow.
-- [ ] Inspect existing backend dependencies and TypeScript configuration.
-- [ ] Identify existing seed scripts, if any.
-- [ ] Record exact fields, relations and constraints.
-- [ ] Report discrepancies between old documentation and actual schema.
+- [x] Read `backend/src/database/schema.prisma`.
+- [x] Confirm all 8 models and 5 enums.
+- [x] Inspect ticket lifecycle and duplicate detection.
+- [x] Inspect invoice and payment calculation logic.
+- [x] Inspect media verification workflow.
+- [x] Inspect existing backend dependencies and TypeScript configuration.
+- [x] Identify existing seed scripts, if any.
+- [x] Record exact fields, relations and constraints.
+- [x] Report discrepancies between old documentation and actual schema.
 
 Expected output:
 - `backend/dataset/SPEC.md`
@@ -25,13 +25,13 @@ Expected output:
 
 ## MILESTONE 02 — DATASET FOLDER FOUNDATION
 
-- [ ] Create the dataset folder structure.
-- [ ] Create dataset configuration.
-- [ ] Define fixed random seed.
-- [ ] Define target record counts.
-- [ ] Define safe database environment checks.
-- [ ] Define dataset namespace and deterministic identifiers.
-- [ ] Document setup and execution instructions.
+- [x] Create the dataset folder structure.
+- [x] Create dataset configuration.
+- [x] Define fixed random seed.
+- [x] Define target record counts.
+- [x] Define safe database environment checks.
+- [x] Define dataset namespace and deterministic identifiers.
+- [x] Document setup and execution instructions.
 
 Expected output:
 - `backend/dataset/README.md`
