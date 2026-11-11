@@ -143,6 +143,26 @@ runTest('User Test 6: Toàn bộ email là duy nhất', () => {
   assert.strictEqual(uniqueEmails.size, emails.length, 'Phát hiện email bị trùng lặp');
 });
 
+// Privacy Hardening Tests
+runTest('User Test 6.1 (Privacy): Toàn bộ phone của synthetic users đều là null', () => {
+  for (const u of defaultUsers) {
+    assert.strictEqual(u.phone, null, `User ${u.username} phải có phone = null nhưng nhận: ${u.phone}`);
+  }
+});
+
+runTest('User Test 6.2 (Privacy): Không email nào sử dụng @chungcu.vn và cư dân dùng @example.invalid', () => {
+  for (const u of defaultUsers) {
+    assert.ok(u.email !== null, `User ${u.username} thiếu email`);
+    assert.ok(!u.email.endsWith('@chungcu.vn'), `Email của ${u.username} không được dùng @chungcu.vn: ${u.email}`);
+    if (u.role === Role.RESIDENT) {
+      assert.ok(
+        u.email.endsWith('@example.invalid'),
+        `Cư dân ${u.username} phải dùng domain @example.invalid: ${u.email}`
+      );
+    }
+  }
+});
+
 // 7. Staff luôn có roomId null
 runTest('User Test 7: Nhân sự tòa nhà (ADMIN, BQL, TECHNICIAN) bắt buộc có roomId = null', () => {
   const staff = defaultUsers.filter((u) => u.role !== Role.RESIDENT);

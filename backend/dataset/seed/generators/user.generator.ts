@@ -83,7 +83,7 @@ export function generateUsers(
     username: 'admin',
     password: passwordHash,
     fullName: 'Quản Trị Viên Hệ Thống',
-    phone: '0901000001',
+    phone: null,
     email: 'admin@chungcu.internal',
     role: Role.ADMIN,
     roomId: null,
@@ -102,7 +102,7 @@ export function generateUsers(
       username: `bql_${padIdx}`,
       password: passwordHash,
       fullName: bqlNames[i] ?? `Cán Bộ BQL ${padIdx}`,
-      phone: `090100000${idx + 1}`,
+      phone: null,
       email: `bql_${padIdx}@chungcu.internal`,
       role: Role.BQL,
       roomId: null,
@@ -128,7 +128,7 @@ export function generateUsers(
       username: `technician_${padIdx}`,
       password: passwordHash,
       fullName: techNames[i] ?? `Kỹ Thuật Viên ${padIdx}`,
-      phone: `090100000${idx + 3}`,
+      phone: null,
       email: `tech_${padIdx}@chungcu.internal`,
       role: Role.TECHNICIAN,
       roomId: null,
@@ -170,8 +170,7 @@ export function generateUsers(
     const fullName = `${surname} ${middleName} ${givenName}`;
 
     const username = `cudan_${room.roomNumber}_${unitIndex}`;
-    const email = `cudan_${room.roomNumber}_${unitIndex}@chungcu.vn`;
-    const phone = `098${String(1000000 + i).padStart(7, '0')}`;
+    const email = `cudan_${room.roomNumber}_${unitIndex}@example.invalid`;
 
     // Cư dân hầu hết đã duyệt (~95%), một số ít mới tạo chờ duyệt (~5%)
     const isApproved = prng.next() < 0.95;
@@ -186,7 +185,7 @@ export function generateUsers(
       username,
       password: passwordHash,
       fullName,
-      phone,
+      phone: null,
       email,
       role: Role.RESIDENT,
       roomId: room.id,
