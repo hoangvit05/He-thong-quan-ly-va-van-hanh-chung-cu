@@ -190,3 +190,22 @@ Completion requires:
 **Do not claim completion without actual verification.**
 
 **Stay within dataset scope at all times.**
+
+## Git Safety & Branch Protection
+
+1. **TUYỆT ĐỐI KHÔNG PUSH LÊN `main`.**
+2. Không được thực hiện bất kỳ lệnh nào có khả năng đẩy thay đổi lên remote, bao gồm:
+   - `git push`
+   - `git push origin main`
+   - `git push --force`
+   - `git push --all`
+3. Không tự ý merge branch vào `main`.
+4. Không tự ý commit nếu chưa được người dùng cho phép.
+5. Chỉ được đọc trạng thái Git và kiểm tra diff bằng các lệnh an toàn như:
+   - `git status`
+   - `git diff`
+   - `git log`
+   - `git branch`
+6. Nếu cần tạo branch, commit hoặc đồng bộ remote, phải dừng lại và xin phép người dùng trước.
+7. Mọi thay đổi phải được giữ trong workspace local để người dùng kiểm tra.
+8. Quy tắc này có mức ưu tiên cao nhất trong các tác vụ Git, không được tự ý bỏ qua vì bất kỳ lý do nào.
