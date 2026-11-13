@@ -105,13 +105,13 @@ Expected output:
 
 ## MILESTONE 07 — FEEDBACK AND NOTIFICATION GENERATORS
 
-- [ ] Generate 30–50 feedback records.
-- [ ] Generate resolved and unresolved scenarios.
-- [ ] Generate replies and repliedAt consistently.
-- [ ] Generate 20–30 building notifications.
-- [ ] Use valid ADMIN/BQL authors.
-- [ ] Use valid targetRoom values or null.
-- [ ] Generate realistic Vietnamese content.
+- [x] Generate 30–50 feedback records.
+- [x] Generate resolved and unresolved scenarios.
+- [x] Generate replies and repliedAt consistently.
+- [x] Generate 20–30 building notifications.
+- [x] Use valid ADMIN/BQL authors.
+- [x] Use valid targetRoom values or null.
+- [x] Generate realistic Vietnamese content.
 
 Expected output:
 - `backend/dataset/seed/generators/feedback.generator.ts`
