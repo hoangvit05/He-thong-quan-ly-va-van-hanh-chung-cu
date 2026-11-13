@@ -102,21 +102,85 @@ runTest('2.1 Người tạo Feedback (residentId) 100% bắt buộc là RESIDENT
   }
 });
 
-runTest('2.2 roomId của Feedback là nullable hoặc tham chiếu tới Room hợp lệ', () => {
-  let hasNullRoom = false;
-  let hasValidRoom = false;
-
+runTest('2.2 Ràng buộc phòng của Feedback: Feedback luôn kế thừa đúng roomId của Resident', () => {
   for (const f of feedbacks) {
-    if (f.roomId === null) {
-      hasNullRoom = true;
-    } else {
-      hasValidRoom = true;
+    const resident = userMap.get(f.residentId);
+    assert.ok(resident, `Resident ${f.residentId} phải tồn tại`);
+    assert.strictEqual(
+      f.roomId,
+      resident.roomId,
+      `Feedback ${f.id} có roomId (${f.roomId}) không khớp với resident.roomId (${resident.roomId})`
+    );
+    if (f.roomId !== null) {
       assert.ok(roomMap.has(f.roomId), `Feedback ${f.id} tham chiếu roomId ${f.roomId} không tồn tại`);
     }
   }
 
-  assert.ok(hasNullRoom, 'Phải có phản ánh chung khu vực tòa nhà (roomId = null)');
-  assert.ok(hasValidRoom, 'Phải có phản ánh gắn với căn hộ cụ thể (roomId !== null)');
+  // Nếu toàn bộ resident đầu vào đều có phòng (như dataset M4 hiện tại), số Feedback chung phải bằng 0
+  const allResidentsHaveRoom = sampleUsers
+    .filter((u) => u.role === Role.RESIDENT)
+    .every((u) => u.roomId !== null);
+
+  if (allResidentsHaveRoom) {
+    const commonAreaFeedbacks = feedbacks.filter((f) => f.roomId === null);
+    assert.strictEqual(
+      commonAreaFeedbacks.length,
+      0,
+      `Khi 100% Resident có phòng, số Feedback khu vực chung (roomId = null) phải là 0, nhận được: ${commonAreaFeedbacks.length}`
+    );
+  }
+});
+
+runTest('2.2.1 Hỗ trợ Feedback khu vực chung khi có Resident không thuộc căn hộ nào (roomId = null)', () => {
+  const customUsers: GeneratedUser[] = [
+    {
+      id: 991,
+      username: 'noroom_a',
+      role: Role.RESIDENT,
+      fullName: 'Cư dân Chưa Gán Phòng A',
+      email: 'no.room.a@example.invalid',
+      phone: null,
+      password: 'hash',
+      roomId: null,
+      isApproved: true,
+      createdAt: new Date('2026-09-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-09-01T00:00:00.000Z'),
+    },
+    {
+      id: 992,
+      username: 'hasroom_b',
+      role: Role.RESIDENT,
+      fullName: 'Cư dân Đã Có Phòng B',
+      email: 'has.room.b@example.invalid',
+      phone: null,
+      password: 'hash',
+      roomId: sampleRooms[0].id,
+      isApproved: true,
+      createdAt: new Date('2026-09-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-09-01T00:00:00.000Z'),
+    },
+  ];
+
+  const mixedFeedbacks = generateFeedbacks(customUsers, sampleRooms, {
+    count: 20,
+    seed: 42,
+    commonAreaRate: 0.5,
+  });
+
+  let nullCount = 0;
+  let roomCount = 0;
+  for (const f of mixedFeedbacks) {
+    if (f.residentId === 991) {
+      assert.strictEqual(f.roomId, null, 'Resident không phòng chỉ có thể tạo feedback roomId = null');
+      nullCount++;
+    } else if (f.residentId === 992) {
+      assert.strictEqual(f.roomId, sampleRooms[0].id, 'Resident có phòng luôn sinh feedback đúng roomId');
+      roomCount++;
+    }
+  }
+
+  assert.ok(nullCount > 0, 'Phải có feedback khu vực chung từ resident roomId = null');
+  assert.ok(roomCount > 0, 'Phải có feedback phòng từ resident có roomId');
 });
 
 runTest('2.3 Tính đồng bộ thời gian phản hồi: khi có reply thì repliedAt hợp lệ (>= createdAt)', () => {

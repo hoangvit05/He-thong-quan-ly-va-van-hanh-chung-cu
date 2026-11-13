@@ -140,7 +140,7 @@ export function generateFeedbacks(
   // Tạo ánh xạ room lookup nhanh
   const roomMap = new Map<number, GeneratedRoom>(rooms.map((r) => [r.id, r]));
   const residentsWithRoom = residents.filter((r) => r.roomId !== null && roomMap.has(r.roomId));
-  const validResidents = residentsWithRoom.length > 0 ? residentsWithRoom : residents;
+  const residentsWithoutRoom = residents.filter((r) => r.roomId === null);
 
   // Neo thời gian tham chiếu: Tháng 10 năm 2026
   const BASE_YEAR = 2026;
@@ -152,15 +152,21 @@ export function generateFeedbacks(
     const feedbackId = i + 1;
 
     // 1. Chọn người tạo: Bắt buộc là RESIDENT
-    const isCommonArea = prng.next() < commonAreaRate;
+    // Theo feedback.controller.ts:
+    // - Nếu resident có roomId, effectiveRoomId LUÔN LUÔN là resident.roomId.
+    // - Chỉ resident có roomId = null mới có thể tạo Feedback khu vực chung (roomId = null).
     let chosenResident: GeneratedUser;
     let chosenRoomId: number | null = null;
 
-    if (isCommonArea) {
-      chosenResident = prng.pickOne(residents);
+    const wantCommonArea = prng.next() < commonAreaRate;
+    if (wantCommonArea && residentsWithoutRoom.length > 0) {
+      chosenResident = prng.pickOne(residentsWithoutRoom);
       chosenRoomId = null;
+    } else if (residentsWithRoom.length > 0) {
+      chosenResident = prng.pickOne(residentsWithRoom);
+      chosenRoomId = chosenResident.roomId;
     } else {
-      chosenResident = prng.pickOne(validResidents);
+      chosenResident = prng.pickOne(residents);
       chosenRoomId = chosenResident.roomId;
     }
 
