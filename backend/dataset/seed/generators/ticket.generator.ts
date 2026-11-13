@@ -37,6 +37,7 @@ export interface TicketGeneratorOptions {
   prng?: PRNG;
   duplicateRate?: number;
   commonAreaRate?: number;
+  templates?: ReferenceTicketTemplate[];
 }
 
 export interface ReferenceTicketTemplate {
@@ -303,7 +304,10 @@ export function generateTickets(
   const seed = options.seed ?? DATASET_CONFIG.RANDOM_SEED;
   const prng = options.prng ?? new PRNG(seed);
 
-  const { templates, categoryMap } = loadReferenceData();
+  const refData = loadReferenceData();
+  const templates =
+    options.templates && options.templates.length > 0 ? options.templates : refData.templates;
+  const categoryMap = refData.categoryMap;
 
   // Tạo ánh xạ room lookup nhanh
   const roomMap = new Map<number, GeneratedRoom>(rooms.map((r) => [r.id, r]));
@@ -616,6 +620,7 @@ export function generateTickets(
           result
         )
       ) {
+        let resolved = false;
         // Tìm template/category khác chưa có sự cố trong vòng 24h đối với phòng hoặc cư dân này
         for (const altTemplate of templates) {
           const altCatMeta = categoryMap.get(altTemplate.category);
@@ -634,8 +639,20 @@ export function generateTickets(
             draft.category = altCatName;
             draft.template = altTemplate;
             title = altTemplate.title;
+            // Đồng bộ vật tư nếu vé đã kê khai vật tư kỹ thuật để nội dung khớp chặt chẽ với danh mục mới
+            if (draft.materials !== null) {
+              const altMaterials = MATERIALS_BY_CATEGORY[altCatName] || DEFAULT_MATERIALS;
+              draft.materials = prng.pickOne(altMaterials);
+            }
+            resolved = true;
             break;
           }
+        }
+
+        if (!resolved) {
+          throw new Error(
+            `Không thể tìm thấy danh mục thay thế hợp lệ để tránh trùng lặp khi duplicateRate = 0 (phòng: ${draft.roomId ?? 'khu vực chung'}, thời điểm: ${draft.createdAt.toISOString()}).`
+          );
         }
       }
     }
@@ -650,6 +667,12 @@ export function generateTickets(
       },
       result
     );
+
+    if (duplicateRate === 0 && isDuplicate) {
+      throw new Error(
+        `Phát hiện vi phạm duplicateRate = 0: Ticket ${ticketId} bị đánh dấu isDuplicate = true.`
+      );
+    }
 
     result.push({
       id: ticketId,

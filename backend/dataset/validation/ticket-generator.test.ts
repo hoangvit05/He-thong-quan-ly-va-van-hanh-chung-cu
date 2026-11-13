@@ -798,7 +798,88 @@ runTest('10.6 Cùng seed và input vẫn hoàn toàn deterministic trong mọi e
   }
 });
 
+// =========================================================================
+// 11. KIỂM THỬ GIA CỐ M6.2: HARDEN ZERO DUPLICATE RATE
+// =========================================================================
+console.log('--- 11. Kiểm thử Gia cố M6.2: Harden Zero Duplicate Rate ---');
+
+runTest('11.1 duplicateRate = 0 sinh đúng 175 Ticket và 0 duplicate qua nhiều seed khác nhau', () => {
+  const testSeeds = [1, 42, 99999, 20261111, 7777777];
+  for (const testSeed of testSeeds) {
+    const result = generateTickets(sampleUsers, sampleRooms, {
+      count: 175,
+      duplicateRate: 0,
+      seed: testSeed,
+    });
+    assert.strictEqual(result.length, 175, `Seed ${testSeed} không sinh đủ 175 Ticket`);
+    const dups = result.filter((t) => t.isDuplicate);
+    assert.strictEqual(dups.length, 0, `Seed ${testSeed} sinh ra ${dups.length} vé duplicate dù duplicateRate = 0`);
+
+    // Kiểm tra từng vé theo thuật toán evaluateTicketDuplicate
+    for (let i = 0; i < result.length; i++) {
+      const prior = result.slice(0, i);
+      const isDup = evaluateTicketDuplicate(result[i], prior);
+      assert.strictEqual(isDup, false, `Seed ${testSeed}: Ticket id ${result[i].id} bị đánh giá là trùng`);
+      assert.strictEqual(result[i].isDuplicate, false);
+    }
+  }
+});
+
+runTest('11.2 Không tìm được category/template thay thế để tránh trùng lặp phải throw lỗi rõ ràng', () => {
+  // Chỉ cung cấp 1 category duy nhất cho 1 phòng duy nhất
+  const singleCategoryTemplate = [
+    {
+      category: 'dien-chieu-sang',
+      title: 'Aptomat bị nhảy',
+      description: 'Mô tả chi tiết sự cố aptomat bị nhảy liên tục',
+    },
+  ];
+
+  // 1 phòng duy nhất, sinh 30 vé với duplicateRate = 0
+  const oneRoom = sampleRooms.slice(0, 1);
+  const oneRoomUsers = sampleUsers.filter((u) => u.roomId === oneRoom[0].id || u.role !== Role.RESIDENT);
+
+  assert.throws(
+    () => {
+      generateTickets(oneRoomUsers, oneRoom, {
+        count: 30,
+        duplicateRate: 0,
+        commonAreaRate: 0, // 100% thuộc 1 phòng này
+        templates: singleCategoryTemplate,
+        seed: 20261111,
+      });
+    },
+    /Không thể tìm thấy danh mục thay thế hợp lệ để tránh trùng lặp khi duplicateRate = 0/
+  );
+});
+
+runTest('11.3 duplicateRate = 0 bảo toàn tính đơn định (Deterministic) với cùng seed', () => {
+  const r1 = generateTickets(sampleUsers, sampleRooms, { count: 175, duplicateRate: 0, seed: 88888 });
+  const r2 = generateTickets(sampleUsers, sampleRooms, { count: 175, duplicateRate: 0, seed: 88888 });
+  assert.strictEqual(r1.length, r2.length);
+  for (let i = 0; i < r1.length; i++) {
+    assert.strictEqual(r1[i].id, r2[i].id);
+    assert.strictEqual(r1[i].category, r2[i].category);
+    assert.strictEqual(r1[i].title, r2[i].title);
+    assert.strictEqual(r1[i].description, r2[i].description);
+    assert.strictEqual(r1[i].materials, r2[i].materials);
+    assert.strictEqual(r1[i].isDuplicate, false);
+    assert.strictEqual(r2[i].isDuplicate, false);
+    assert.strictEqual(r1[i].createdAt.getTime(), r2[i].createdAt.getTime());
+  }
+});
+
+runTest('11.4 Tái xác nhận baseline M6 (rate = 0.06 sinh 11 duplicate) và rate = 1 (174 duplicate)', () => {
+  const r006 = generateTickets(sampleUsers, sampleRooms, { count: 175, duplicateRate: 0.06, seed: 20261111 });
+  assert.strictEqual(r006.length, 175);
+  assert.strictEqual(r006.filter((t) => t.isDuplicate).length, 11);
+
+  const r1 = generateTickets(sampleUsers, sampleRooms, { count: 175, duplicateRate: 1, seed: 20261111 });
+  assert.strictEqual(r1.length, 175);
+  assert.strictEqual(r1.filter((t) => t.isDuplicate).length, 174);
+});
+
 console.log('======================================================');
-console.log(`🎉 TOÀN BỘ ${passedTests}/${totalTests} TESTS M6/M6.1 ĐẠT CHUẨN!`);
+console.log(`🎉 TOÀN BỘ ${passedTests}/${totalTests} TESTS M6/M6.1/M6.2 ĐẠT CHUẨN!`);
 console.log('======================================================');
 
