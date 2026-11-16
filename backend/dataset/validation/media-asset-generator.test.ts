@@ -15,6 +15,12 @@ import {
   MEDIA_DELIVERY_TYPE_BY_PURPOSE,
   GeneratedMediaAsset,
 } from '../seed/generators/media-asset.generator';
+import {
+  WHITELISTED_PURPOSES as BACKEND_WHITELISTED_PURPOSES,
+  PURPOSE_ROLE_PERMISSIONS as BACKEND_PURPOSE_ROLE_PERMISSIONS,
+  DELIVERY_TYPE_BY_PURPOSE as BACKEND_DELIVERY_TYPE_BY_PURPOSE,
+  MEDIA_LIMITS as BACKEND_MEDIA_LIMITS,
+} from '../../src/modules/media/media.config';
 import { generateRooms } from '../seed/generators/room.generator';
 import { generateUsers } from '../seed/generators/user.generator';
 import { generateTickets } from '../seed/generators/ticket.generator';
@@ -130,58 +136,78 @@ runTest('1.7 checkCounts PASS với mediaAssets = 0', () => {
 });
 
 // =========================================================================
-// 2. KIỂM THỬ CHÍNH SÁCH MEDIA ĐỐI CHIẾU BACKEND (BACKEND ALIGNMENT)
+// 2. KIỂM THỬ CHÍNH SÁCH MEDIA ĐỐI CHIẾU TRỰC TIẾP VỚI BACKEND
 // =========================================================================
-console.log('--- 2. Kiểm thử Chính sách Media đối chiếu Backend ---');
+console.log('--- 2. Kiểm thử Chính sách Media đối chiếu trực tiếp Backend ---');
 
-runTest('2.1 Giới hạn dung lượng và định dạng ảnh khớp chính xác backend/src/modules/media/media.config.ts', () => {
-  assert.strictEqual(MEDIA_POLICY_LIMITS.IMAGE.MAX_BYTES, 5 * 1024 * 1024, 'Ảnh tối đa 5MB');
+runTest('2.1 Giới hạn dung lượng và định dạng ảnh khớp trực tiếp BACKEND_MEDIA_LIMITS.IMAGE', () => {
+  assert.strictEqual(
+    MEDIA_POLICY_LIMITS.IMAGE.MAX_BYTES,
+    BACKEND_MEDIA_LIMITS.IMAGE.MAX_BYTES,
+    'Giới hạn dung lượng ảnh (MAX_BYTES) phải khớp trực tiếp backend (5MB)'
+  );
   assert.deepStrictEqual(
     Array.from(MEDIA_POLICY_LIMITS.IMAGE.ALLOWED_FORMATS),
-    ['jpg', 'jpeg', 'png', 'webp'],
-    'Định dạng ảnh hợp lệ: jpg, jpeg, png, webp'
+    BACKEND_MEDIA_LIMITS.IMAGE.ALLOWED_FORMATS,
+    'Định dạng ảnh hợp lệ (ALLOWED_FORMATS) phải khớp trực tiếp backend [jpg, jpeg, png, webp]'
   );
 });
 
-runTest('2.2 Giới hạn dung lượng và định dạng video khớp chính xác backend/src/modules/media/media.config.ts', () => {
-  assert.strictEqual(MEDIA_POLICY_LIMITS.VIDEO.MAX_BYTES, 20 * 1024 * 1024, 'Video tối đa 20MB');
+runTest('2.2 Giới hạn dung lượng và định dạng video khớp trực tiếp BACKEND_MEDIA_LIMITS.VIDEO', () => {
+  assert.strictEqual(
+    MEDIA_POLICY_LIMITS.VIDEO.MAX_BYTES,
+    BACKEND_MEDIA_LIMITS.VIDEO.MAX_BYTES,
+    'Giới hạn dung lượng video (MAX_BYTES) phải khớp trực tiếp backend (20MB)'
+  );
   assert.deepStrictEqual(
     Array.from(MEDIA_POLICY_LIMITS.VIDEO.ALLOWED_FORMATS),
-    ['mp4', 'mov'],
-    'Định dạng video hợp lệ: mp4, mov'
+    BACKEND_MEDIA_LIMITS.VIDEO.ALLOWED_FORMATS,
+    'Định dạng video hợp lệ (ALLOWED_FORMATS) phải khớp trực tiếp backend [mp4, mov]'
   );
 });
 
-runTest('2.3 Danh sách mục đích Whitelist khớp chính xác backend/src/modules/media/media.config.ts', () => {
+runTest('2.3 Danh sách mục đích Whitelist khớp trực tiếp BACKEND_WHITELISTED_PURPOSES', () => {
   assert.deepStrictEqual(
     Array.from(WHITELISTED_MEDIA_PURPOSES),
-    ['tickets', 'materials', 'announcements'],
-    'Chỉ cho phép: tickets, materials, announcements'
+    Array.from(BACKEND_WHITELISTED_PURPOSES),
+    'Danh sách mục đích phải khớp trực tiếp [tickets, materials, announcements] của backend'
   );
 });
 
-runTest('2.4 Phân quyền vai trò (RBAC) khớp chính xác backend/src/modules/media/media.config.ts', () => {
+runTest('2.4 Phân quyền vai trò (RBAC) khớp trực tiếp BACKEND_PURPOSE_ROLE_PERMISSIONS', () => {
   assert.deepStrictEqual(
     MEDIA_PURPOSE_ROLE_PERMISSIONS.tickets,
-    [Role.RESIDENT, Role.BQL, Role.ADMIN],
-    'tickets: RESIDENT, BQL, ADMIN'
+    BACKEND_PURPOSE_ROLE_PERMISSIONS.tickets,
+    'Quyền tickets khớp trực tiếp backend: RESIDENT, BQL, ADMIN'
   );
   assert.deepStrictEqual(
     MEDIA_PURPOSE_ROLE_PERMISSIONS.materials,
-    [Role.TECHNICIAN, Role.BQL, Role.ADMIN],
-    'materials: TECHNICIAN, BQL, ADMIN'
+    BACKEND_PURPOSE_ROLE_PERMISSIONS.materials,
+    'Quyền materials khớp trực tiếp backend: TECHNICIAN, BQL, ADMIN'
   );
   assert.deepStrictEqual(
     MEDIA_PURPOSE_ROLE_PERMISSIONS.announcements,
-    [Role.BQL, Role.ADMIN],
-    'announcements: BQL, ADMIN'
+    BACKEND_PURPOSE_ROLE_PERMISSIONS.announcements,
+    'Quyền announcements khớp trực tiếp backend: BQL, ADMIN'
   );
 });
 
-runTest('2.5 Chính sách phân phối CDN (Delivery Type) khớp chính xác backend/src/modules/media/media.config.ts', () => {
-  assert.strictEqual(MEDIA_DELIVERY_TYPE_BY_PURPOSE.announcements, 'upload', 'announcements là upload công khai');
-  assert.strictEqual(MEDIA_DELIVERY_TYPE_BY_PURPOSE.tickets, 'authenticated', 'tickets là authenticated riêng tư');
-  assert.strictEqual(MEDIA_DELIVERY_TYPE_BY_PURPOSE.materials, 'authenticated', 'materials là authenticated riêng tư');
+runTest('2.5 Chính sách phân phối CDN (Delivery Type) khớp trực tiếp BACKEND_DELIVERY_TYPE_BY_PURPOSE', () => {
+  assert.strictEqual(
+    MEDIA_DELIVERY_TYPE_BY_PURPOSE.announcements,
+    BACKEND_DELIVERY_TYPE_BY_PURPOSE.announcements,
+    'announcements khớp trực tiếp backend: upload'
+  );
+  assert.strictEqual(
+    MEDIA_DELIVERY_TYPE_BY_PURPOSE.tickets,
+    BACKEND_DELIVERY_TYPE_BY_PURPOSE.tickets,
+    'tickets khớp trực tiếp backend: authenticated'
+  );
+  assert.strictEqual(
+    MEDIA_DELIVERY_TYPE_BY_PURPOSE.materials,
+    BACKEND_DELIVERY_TYPE_BY_PURPOSE.materials,
+    'materials khớp trực tiếp backend: authenticated'
+  );
 });
 
 runTest('2.6 Thời hạn Intent Token khớp chính xác backend/src/modules/media/media.service.ts (15 phút)', () => {

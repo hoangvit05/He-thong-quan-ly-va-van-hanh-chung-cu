@@ -34,7 +34,8 @@ backend/dataset/
 │   │   ├── invoice.generator.ts
 │   │   ├── payment.generator.ts
 │   │   ├── feedback.generator.ts
-│   │   └── notification.generator.ts
+│   │   ├── notification.generator.ts
+│   │   └── media-asset.generator.ts
 │   └── utils/                     # Tiện ích bổ trợ (PRNG, Decimal, Password)
 │       ├── random.ts
 │       ├── password.ts
@@ -46,6 +47,7 @@ backend/dataset/
 │   └── README.md
 ├── validation/                    # Bộ kiểm tra tính toàn vẹn dataset
 │   ├── validate.ts                # Runner chạy toàn bộ kiểm tra
+│   ├── media-asset-generator.test.ts # Kiểm thử chính sách Zero-Asset & RBAC đối chiếu
 │   └── checks/                    # Các check logic chuyên biệt
 │       ├── counts.check.ts
 │       ├── relational.check.ts
@@ -85,7 +87,7 @@ backend/dataset/
         - **Phân quyền vai trò (RBAC)**:
           - `tickets`: `RESIDENT`, `BQL`, `ADMIN`. Nếu có `ticketId`: Cư dân chỉ được tải ảnh cho phiếu của chính mình hoặc cùng căn hộ; thợ kỹ thuật bị cấm (`FORBIDDEN_TECH_PURPOSE`).
           - `materials`: `TECHNICIAN`, `BQL`, `ADMIN`. Bắt buộc phải có `ticketId` (`MISSING_TICKET_ID`); cư dân bị cấm (`FORBIDDEN_RESIDENT_MATERIALS`).
-          - `announcements`: `BQL`, `ADMIN` (thông báo tòa nhà, không gắn `ticketId`).
+          - `announcements`: `BQL`, `ADMIN` (thông báo tòa nhà).
         - **Ràng buộc phân công thợ & trạng thái Ticket đối với `materials`**:
           - Thợ kỹ thuật bắt buộc phải là người được chỉ định phụ trách phiếu sự cố đó (`ticket.technicianId === currentUser.id`).
           - Phiếu sự cố bắt buộc phải đang ở trạng thái `IN_PROGRESS` hoặc `COMPLETED`.
