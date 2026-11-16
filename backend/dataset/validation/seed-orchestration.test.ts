@@ -1,7 +1,7 @@
 // =========================================================================
-// KIỂM THỬ ĐIỀU PHỐI SEED VÀ AN TOÀN DATABASE (M9.1.1 TESTS)
+// KIỂM THỬ ĐIỀU PHỐI SEED VÀ AN TOÀN DATABASE (M9.1.2 TESTS)
 // Phân hệ: backend/dataset/validation/seed-orchestration.test.ts
-// Đặc tả: Milestone 9.1.1 – Atomic Database Empty Check & Production Guard
+// Đặc tả: Milestone 9.1.2 – Final Documentation & Serialization Rollback Test Fix
 // =========================================================================
 
 import * as assert from 'assert';
@@ -41,6 +41,17 @@ interface MockRecord {
   [key: string]: any;
 }
 
+function assertAllModelsEmpty(client: MockPrismaClient, msgPrefix: string) {
+  assert.strictEqual(client.rooms.length, 0, `${msgPrefix}: Model Room phải bằng 0 sau rollback`);
+  assert.strictEqual(client.users.length, 0, `${msgPrefix}: Model User phải bằng 0 sau rollback`);
+  assert.strictEqual(client.invoices.length, 0, `${msgPrefix}: Model Invoice phải bằng 0 sau rollback`);
+  assert.strictEqual(client.payments.length, 0, `${msgPrefix}: Model Payment phải bằng 0 sau rollback`);
+  assert.strictEqual(client.tickets.length, 0, `${msgPrefix}: Model Ticket phải bằng 0 sau rollback`);
+  assert.strictEqual(client.feedbacks.length, 0, `${msgPrefix}: Model Feedback phải bằng 0 sau rollback`);
+  assert.strictEqual(client.notifications.length, 0, `${msgPrefix}: Model Notification phải bằng 0 sau rollback`);
+  assert.strictEqual(client.mediaAssets.length, 0, `${msgPrefix}: Model MediaAsset phải bằng 0 sau rollback`);
+}
+
 /**
  * Mock Prisma Client có trạng thái (Stateful Mock) cho Milestone 9.1.1:
  * - Lưu trữ dữ liệu in-memory mô phỏng database thực tế.
@@ -67,6 +78,8 @@ class MockPrismaClient {
   public disconnectCalled = false;
   public failAtStage?: string;
   public failWithSerializationConflict = false;
+  public transactionCallbackExecuted = false;
+  public workingStateCreatedCountBeforeRollback = 0;
   public transactionOptions: any = null;
   public countsCalledInsideTx: string[] = [];
 
@@ -146,15 +159,7 @@ class MockPrismaClient {
   public $transaction = async (fn: (tx: any) => Promise<any>, options?: any) => {
     this.transactionOptions = options;
 
-    if (this.failWithSerializationConflict) {
-      const conflictErr: any = new Error(
-        'Transaction failed due to a write conflict or a deadlock. Please retry your transaction'
-      );
-      conflictErr.code = 'P2034';
-      throw conflictErr;
-    }
-
-    // Snapshot trước giao dịch
+    // Snapshot trước giao dịch trên toàn bộ 8 models
     const snapshot = {
       rooms: [...this.rooms],
       users: [...this.users],
@@ -236,7 +241,28 @@ class MockPrismaClient {
     };
 
     try {
+      this.transactionCallbackExecuted = true;
       const result = await fn(txClient);
+
+      // Mô phỏng xung đột tuần tự (P2034) tại giai đoạn commit, sau khi callback đã thực hiện các lệnh create trên working state
+      if (this.failWithSerializationConflict) {
+        this.workingStateCreatedCountBeforeRollback =
+          txRooms.length +
+          txUsers.length +
+          txInvoices.length +
+          txPayments.length +
+          txTickets.length +
+          txFeedbacks.length +
+          txNotifications.length +
+          txMediaAssets.length;
+
+        const conflictErr: any = new Error(
+          'could not serialize access due to concurrent update (P2034)'
+        );
+        conflictErr.code = 'P2034';
+        throw conflictErr;
+      }
+
       // Giao dịch thành công -> Commit
       this.rooms = txRooms;
       this.users = txUsers;
@@ -248,7 +274,7 @@ class MockPrismaClient {
       this.mediaAssets = txMediaAssets;
       return result;
     } catch (err) {
-      // Giao dịch thất bại -> Rollback về snapshot ban đầu
+      // Giao dịch thất bại -> Rollback về snapshot ban đầu trên toàn bộ 8 models
       this.rooms = snapshot.rooms;
       this.users = snapshot.users;
       this.invoices = snapshot.invoices;
@@ -264,7 +290,7 @@ class MockPrismaClient {
 
 async function runAllTests() {
   console.log('======================================================');
-  console.log('🧪 BẮT ĐẦU KIỂM ĐỊNH SEED ORCHESTRATION & SAFETY (M9.1.1)');
+  console.log('🧪 BẮT ĐẦU KIỂM ĐỊNH SEED ORCHESTRATION & SAFETY (M9.1.2)');
   console.log('======================================================');
 
   const originalEnv = { ...process.env };
@@ -551,7 +577,7 @@ async function runAllTests() {
     assert.strictEqual(mockClient.rooms.length, 0);
   });
 
-  await runTest('2.5 Mô phỏng serialization conflict (P2034): rollback toàn bộ, không retry thiếu kiểm soát', async () => {
+  await runTest('2.5 Mô phỏng serialization conflict (P2034) sau khi ghi: rollback toàn bộ 8 models, không retry', async () => {
     restoreEnv();
     process.env.NODE_ENV = 'development';
     process.env.ALLOW_DATASET_SEED = 'true';
@@ -569,12 +595,45 @@ async function runAllTests() {
         });
       },
       (err: any) => {
-        assert.strictEqual(err.code, 'P2034');
+        assert.strictEqual(err.code, 'P2034', 'Mã lỗi P2034 phải được truyền nguyên vẹn ra ngoài');
         return true;
       }
     );
 
-    assert.strictEqual(mockClient.rooms.length, 0, 'Toàn bộ dữ liệu phải rollback sạch sẽ sau xung đột');
+    // 1. Chứng minh transaction callback đã thực sự được thực thi
+    assert.strictEqual(
+      mockClient.transactionCallbackExecuted,
+      true,
+      'Transaction callback phải được thực thi'
+    );
+
+    // 2. Chứng minh đã có các thao tác create hoàn tất trên transaction working state trước khi lỗi phát sinh
+    assert.ok(
+      mockClient.workingStateCreatedCountBeforeRollback > 0,
+      `Phải có ít nhất một thao tác create trong transaction working state trước P2034 (thực tế: ${mockClient.workingStateCreatedCountBeforeRollback} bản ghi)`
+    );
+
+    // 3. Chứng minh toàn bộ 8 models đều được rollback về snapshot ban đầu (không sót bản ghi nào)
+    assertAllModelsEmpty(mockClient, 'Sau khi rollback P2034');
+
+    // 4. Chứng minh không còn bất kỳ bản ghi dataset nào sót lại sau rollback
+    const totalRemaining =
+      mockClient.rooms.length +
+      mockClient.users.length +
+      mockClient.invoices.length +
+      mockClient.payments.length +
+      mockClient.tickets.length +
+      mockClient.feedbacks.length +
+      mockClient.notifications.length +
+      mockClient.mediaAssets.length;
+    assert.strictEqual(totalRemaining, 0, 'Không còn bất kỳ bản ghi dataset nào sót lại sau rollback');
+
+    // 5. Chứng minh $disconnect vẫn được gọi trong trường hợp thất bại do P2034
+    assert.strictEqual(
+      mockClient.disconnectCalled,
+      true,
+      '$disconnect bắt buộc phải được gọi khi thất bại do P2034'
+    );
   });
 
   await runTest('2.6 Tuyệt đối không sử dụng upsert, update, findFirst trong quá trình seed', async () => {
@@ -642,7 +701,7 @@ async function runAllTests() {
     assert.ok(mockClient.transactionOptions.maxWait >= 5000, 'maxWait phải tối thiểu 5000ms');
   });
 
-  await runTest('3.2 Rollback khi lỗi tại Stage USER: Không để lại bản ghi Room nào', async () => {
+  await runTest('3.2 Rollback khi lỗi tại Stage USER: Toàn bộ 8 models đều rỗng', async () => {
     restoreEnv();
     process.env.NODE_ENV = 'development';
     process.env.ALLOW_DATASET_SEED = 'true';
@@ -659,11 +718,10 @@ async function runAllTests() {
       });
     });
 
-    assert.strictEqual(mockClient.rooms.length, 0, 'Bảng Room phải được rollback về 0 bản ghi');
-    assert.strictEqual(mockClient.users.length, 0);
+    assertAllModelsEmpty(mockClient, 'Rollback Stage USER');
   });
 
-  await runTest('3.3 Rollback khi lỗi tại Stage INVOICE: Không để lại bản ghi Room hay User nào', async () => {
+  await runTest('3.3 Rollback khi lỗi tại Stage INVOICE: Toàn bộ 8 models đều rỗng', async () => {
     restoreEnv();
     process.env.NODE_ENV = 'development';
     process.env.ALLOW_DATASET_SEED = 'true';
@@ -680,12 +738,10 @@ async function runAllTests() {
       });
     });
 
-    assert.strictEqual(mockClient.rooms.length, 0);
-    assert.strictEqual(mockClient.users.length, 0);
-    assert.strictEqual(mockClient.invoices.length, 0);
+    assertAllModelsEmpty(mockClient, 'Rollback Stage INVOICE');
   });
 
-  await runTest('3.4 Rollback khi lỗi tại Stage TICKET: Không để lại bản ghi rác nào', async () => {
+  await runTest('3.4 Rollback khi lỗi tại Stage TICKET: Toàn bộ 8 models đều rỗng', async () => {
     restoreEnv();
     process.env.NODE_ENV = 'development';
     process.env.ALLOW_DATASET_SEED = 'true';
@@ -702,11 +758,7 @@ async function runAllTests() {
       });
     });
 
-    assert.strictEqual(mockClient.rooms.length, 0);
-    assert.strictEqual(mockClient.users.length, 0);
-    assert.strictEqual(mockClient.invoices.length, 0);
-    assert.strictEqual(mockClient.payments.length, 0);
-    assert.strictEqual(mockClient.tickets.length, 0);
+    assertAllModelsEmpty(mockClient, 'Rollback Stage TICKET');
   });
 
   await runTest('3.5 Disconnect được gọi trong cả hai trường hợp thành công và thất bại', async () => {
@@ -954,7 +1006,7 @@ async function runAllTests() {
   restoreEnv();
 
   console.log('======================================================');
-  console.log(`🎉 TOÀN BỘ ${passedTests}/${totalTests} TESTS M9.1.1 ĐẠT CHUẨN!`);
+  console.log(`🎉 TOÀN BỘ ${passedTests}/${totalTests} TESTS M9.1.2 ĐẠT CHUẨN!`);
   console.log('======================================================');
 }
 
