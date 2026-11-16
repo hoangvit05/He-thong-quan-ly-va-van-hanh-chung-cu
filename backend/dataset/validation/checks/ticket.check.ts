@@ -164,49 +164,8 @@ export function validateTicketIntegrity(snapshot: DatasetSnapshot): CheckResult 
   }
 
   // 2. THUẬT TOÁN LỌC PHIẾU TRÙNG LẶP 24 GIỜ (BLOCKER A FIX - KHỚP 100% BACKEND)
-  // Quy tắc chuẩn từ backend/src/modules/tickets/tickets.controller.ts (lines 408-428):
-  // - Category.trim() khớp chính xác
-  // - Thời gian trong vòng 24 giờ trước thời điểm tạo candidate (candidateTime - 24h <= priorTime <= candidateTime)
-  // - Phiếu trước có trạng thái thuộc: PENDING, ASSIGNED, IN_PROGRESS
-  // - Backend TUYỆT ĐỐI KHÔNG loại trừ phiếu trước có isDuplicate = true
-  // - Cùng roomId (nếu là phòng) hoặc cùng residentId & roomId = null (khu vực chung)
-  // - Kiểm tra hai chiều:
-  //   * Có phiếu trước hợp lệ mà isDuplicate = false -> VIOLATION!
-  //   * Không có phiếu trước hợp lệ mà isDuplicate = true -> VIOLATION!
   for (const t of snapshot.tickets) {
-    const tTime = new Date(t.createdAt).getTime();
-    const oneDayAgo = tTime - 24 * 60 * 60 * 1000;
-    const tCategory = t.category.trim();
-
-    // Tìm xem có ít nhất một phiếu tương tự hợp lệ trước đó trong vòng 24 giờ hay không
-    const matchingPrior = snapshot.tickets.find((prev) => {
-      if (prev.id === t.id) return false;
-
-      const prevTime = new Date(prev.createdAt).getTime();
-      // Phiếu trước phải xảy ra trước (hoặc cùng mốc thời gian nhưng ID nhỏ hơn) và trong vòng 24 giờ
-      if (prevTime > tTime || prevTime < oneDayAgo) return false;
-      if (prevTime === tTime && prev.id >= t.id) return false;
-
-      // Chỉ xét trạng thái PENDING, ASSIGNED, IN_PROGRESS
-      if (
-        prev.status !== TicketStatus.PENDING &&
-        prev.status !== TicketStatus.ASSIGNED &&
-        prev.status !== TicketStatus.IN_PROGRESS
-      ) {
-        return false;
-      }
-
-      // So sánh category sau khi trim
-      if (prev.category.trim() !== tCategory) return false;
-
-      // Đối chiếu theo phạm vi Căn hộ hoặc Khu vực chung
-      if (t.roomId !== null) {
-        return prev.roomId === t.roomId;
-      } else {
-        return prev.roomId === null && prev.residentId === t.residentId;
-      }
-    });
-
+    const matchingPrior = snapshot.tickets.find((prev) => isMatchingPriorTicket(t, prev));
     const shouldBeDuplicate = !!matchingPrior;
 
     // KIỂM TRA HAI CHIỀU (Bi-directional Validation):
@@ -241,4 +200,66 @@ export function validateTicketIntegrity(snapshot: DatasetSnapshot): CheckResult 
       totalErrors: errors.length,
     },
   };
+}
+
+/**
+ * Kiểm tra xem một ticket trước đó (`prior`) có thỏa mãn các điều kiện trùng lặp
+ * theo đúng logic backend (`POST /api/tickets` tại tickets.controller.ts:408-428) hay không:
+ * 1. category.trim() khớp chính xác (so sánh chuỗi sau khi trim).
+ * 2. status của prior thuộc tập hợp [PENDING, ASSIGNED, IN_PROGRESS].
+ * 3. Scope:
+ *    - Nếu candidate có roomId !== null: prior.roomId === candidate.roomId.
+ *    - Nếu candidate có roomId === null: prior.roomId === null && prior.residentId === candidate.residentId.
+ * 4. Thời gian: candidate.createdAt - 24h <= prior.createdAt <= candidate.createdAt (cửa sổ 24 giờ).
+ *    Tại mốc biên đúng 24h (prior.createdAt === candidate.createdAt - 24h), backend dùng `gte` nên vẫn tính là trong cửa sổ.
+ * 5. Backend TUYỆT ĐỐI KHÔNG so sánh `title` (khác title nhưng trùng category & scope vẫn là duplicate).
+ * 6. Backend TUYỆT ĐỐI KHÔNG lọc `isDuplicate` (phiếu trước mang `isDuplicate = true` vẫn là ứng viên hợp lệ).
+ *
+ * Lưu ý phân định kiến trúc:
+ * - Query backend: Được thực thi trong runtime tại thời điểm request đến, Prisma truy vấn DB với
+ *   `createdAt: { gte: oneDayAgo }` so với `now = Date.now()`.
+ * - Dataset validator: Kiểm tra tính toàn vẹn của dataset lịch sử tĩnh đã nạp. Validator sử dụng
+ *   quy ước thứ tự thời gian (chronological ordering) dựa trên `createdAt` (và `id` làm tie-breaker
+ *   khi cùng timestamp) để xác định vé nào được sinh trước vé nào.
+ *   Đây là quy ước kiểm định dữ liệu lịch sử tĩnh nhằm xác minh tính nhất quán logic nghiệp vụ,
+ *   không phải là câu query runtime thời gian thực của backend controller.
+ */
+export function isMatchingPriorTicket(
+  candidate: SnapshotTicket,
+  prior: SnapshotTicket
+): boolean {
+  if (prior.id === candidate.id) return false;
+
+  const candidateTime = new Date(candidate.createdAt).getTime();
+  const priorTime = new Date(prior.createdAt).getTime();
+  const oneDayAgo = candidateTime - 24 * 60 * 60 * 1000;
+
+  // Phiếu trước phải xảy ra trước (hoặc cùng timestamp nhưng ID nhỏ hơn theo quy ước thứ tự lịch sử)
+  if (priorTime > candidateTime) return false;
+  if (priorTime === candidateTime && prior.id >= candidate.id) return false;
+
+  // Cửa sổ 24 giờ: backend dùng gte oneDayAgo nên priorTime >= oneDayAgo là hợp lệ.
+  // Nếu priorTime < oneDayAgo (vượt quá 24 giờ trước đó), không tính trùng lặp.
+  if (priorTime < oneDayAgo) return false;
+
+  // Chỉ xét trạng thái PENDING, ASSIGNED, IN_PROGRESS
+  if (
+    prior.status !== TicketStatus.PENDING &&
+    prior.status !== TicketStatus.ASSIGNED &&
+    prior.status !== TicketStatus.IN_PROGRESS
+  ) {
+    return false;
+  }
+
+  // So sánh category sau khi trim (khớp chính xác theo controller line 411)
+  if (prior.category.trim() !== candidate.category.trim()) {
+    return false;
+  }
+
+  // Đối chiếu theo phạm vi Căn hộ hoặc Khu vực chung
+  if (candidate.roomId !== null) {
+    return prior.roomId === candidate.roomId;
+  } else {
+    return prior.roomId === null && prior.residentId === candidate.residentId;
+  }
 }

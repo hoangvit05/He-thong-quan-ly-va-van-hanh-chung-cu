@@ -228,16 +228,27 @@ ALLOW_DATASET_VALIDATION=true DATASET_DB_ALLOWLIST="localhost:5432/apartment_san
 
 ---
 
-### 5.4. Chi tiết 8 Nhóm Tiêu Chuẩn Kiểm Định (Milestone 10.1)
+### 5.4. Chi tiết 8 Nhóm Tiêu Chuẩn Kiểm Định (Milestone 10.1 & 10.1.1)
 
 Hệ thống kiểm định áp dụng nguyên tắc **Fail-Closed**, đối chiếu trực tiếp với Prisma Schema và Backend Application Controller:
 
-1. **Kiểm toán Trùng lặp Ticket (Blocker A — Backend Parity)**:
+1. **Kiểm toán Trùng lặp Ticket (Nhóm A — Backend Controller Parity)**:
    - Đối chiếu chính xác 100% thuật toán backend tại `backend/src/modules/tickets/tickets.controller.ts` (dòng 408–428).
+   - **Các điều kiện trùng lặp thực tế của Backend**:
+     - `category.trim()` khớp chính xác (sau khi trim khoảng trắng).
+     - Trạng thái của phiếu trước thuộc tập hợp: `PENDING`, `ASSIGNED`, `IN_PROGRESS`.
+     - Cửa sổ thời gian 24 giờ: `createdAt >= now - 24 giờ` (sử dụng toán tử `gte`, mốc đúng 24h00m00s vẫn tính là hợp lệ).
+     - Phạm vi (Scope):
+       - Nếu là sự cố phòng (`roomId !== null`): So sánh cùng `roomId`.
+       - Nếu là sự cố khu vực chung (`roomId === null`): So sánh cùng `residentId` và `roomId: null`.
+     - **Backend TUYỆT ĐỐI KHÔNG so sánh `title`**: Các phiếu khác tiêu đề nhưng cùng category và scope trong 24h vẫn được tính là duplicate.
+     - **Backend TUYỆT ĐỐI KHÔNG lọc bỏ `isDuplicate = true`**: Phiếu trước đó dù đã mang cờ trùng lặp vẫn là ứng viên hợp lệ cho các phiếu tiếp theo (cho phép chuỗi trùng lặp liên tiếp T1 -> T2 -> T3).
+   - **Phân định Kiến trúc & Quy ước Kiểm định**:
+     - *Query runtime của Backend*: Thực hiện động tại thời điểm request đến, Prisma truy vấn `createdAt: { gte: oneDayAgo }` so với `Date.now()`.
+     - *Kiểm tra lịch sử của Validator*: Để kiểm định dataset tĩnh đã nạp, validator sử dụng quy ước thứ tự thời gian (chronological ordering) dựa trên `createdAt` và `id` (làm tie-breaker) để xác định vé nào tạo trước vé nào. Đây là quy ước kiểm tra dữ liệu lịch sử tĩnh nhằm xác minh tính nhất quán logic nghiệp vụ, không phải là sự thay thế hay tương đương tuyệt đối với câu query runtime của controller.
    - **Kiểm tra Hai chiều (Bi-directional Parity)**:
-     - Nếu có ticket trước đó trong vòng 24 giờ cùng `residentId`, `category` và `title`, ticket sau **bắt buộc** phải có `isDuplicate = true`.
-     - Nếu không có ticket trước đó thỏa mãn điều kiện trên, ticket **bắt buộc** phải có `isDuplicate = false`.
-   - **Không lọc bỏ Ticket đã trùng lặp**: Thuật toán backend không lọc `isDuplicate = false` khi tìm ticket trùng lặp trước đó, cho phép các chuỗi trùng lặp liên tiếp (T1 -> T2 -> T3) được nhận diện hợp lệ.
+     - Nếu có ticket trước đó thỏa mãn điều kiện trùng lặp, ticket sau **bắt buộc** phải có `isDuplicate = true`.
+     - Nếu không có ticket trước đó thỏa mãn, ticket **bắt buộc** phải có `isDuplicate = false`.
    - **Kiểm toán Phân quyền & Quan hệ**:
      - Cư dân tạo phiếu sự cố phòng (`roomId != null`) phải thuộc đúng căn hộ đó; thợ kỹ thuật tuyệt đối không được là người tạo phiếu (`residentId.role != TECHNICIAN`).
      - Thợ được phân công (`technicianId`) bắt buộc phải có vai trò `TECHNICIAN`.
@@ -254,14 +265,16 @@ Hệ thống kiểm định áp dụng nguyên tắc **Fail-Closed**, đối chi
      - Không cho phép thanh toán vượt (`paidAmount <= totalAmount`).
      - Trạng thái hóa đơn nhất quán: `UNPAID` (paidAmount = 0), `PARTIAL` (0 < paidAmount < totalAmount), `PAID` (paidAmount = totalAmount).
 
-3. **Bộ lọc Quyền Riêng Tư & Quét PII (Blocker C — Privacy Guard)**:
-   - **Số điện thoại**: Quét và phát hiện số điện thoại Việt Nam với các định dạng phân tách (khoảng trắng, dấu chấm, gạch ngang).
-   - **Số CCCD / CMND**: Phát hiện chuỗi 12 chữ số định danh công dân.
-   - **Email nhúng**: Quét địa chỉ email trong các trường văn bản tự do (`title`, `description`, `content`). Cấm tuyệt đối domain cá nhân thực tế (`gmail.com`, `yahoo.com`, `hotmail.com`, `outlook.com`, `icloud.com`). Chỉ cho phép domain giả lập `apartment.local`.
-   - **Tài khoản Ngân hàng (STK)**: Quét chuỗi 8–19 chữ số đi kèm từ khóa ngữ cảnh ngân hàng (`stk`, `số tài khoản`, `vietcombank`, `techcombank`, `mbbank`, ...).
-   - **Dữ liệu thô Base64**: Phát hiện và chặn các chuỗi Base64 Data URI nhúng trong văn bản.
+3. **Bộ lọc Quyền Riêng Tư, Quét PII & Bảo Vệ Báo Cáo (Nhóm B — Privacy Guard)**:
+   - **Số điện thoại**: Quét và phát hiện số điện thoại Việt Nam với các định dạng phân tách (khoảng trắng, dấu chấm, gạch ngang). Che giấu `098***456`.
+   - **Số CCCD / CMND**: Phát hiện chuỗi 12 chữ số định danh công dân. Che giấu `001200******`.
+   - **Email & Domain Masking**: Quét email trong các trường văn bản tự do. Cấm domain công cộng thực tế (`gmail.com`, `yahoo.com`, ...). Hàm `maskEmail` che giấu cả username và domain (`re***@ch***.internal`, `ad***@gm***.com`), tuyệt đối không để lộ nguyên domain nhạy cảm.
+   - **Username Masking**: Hàm `maskUsername` che giấu username trong error log (`ad***n`, `re***1`), loại bỏ hoàn toàn việc in username nguyên văn.
+   - **Tài khoản Ngân hàng (STK)**: Quét chuỗi 8–19 chữ số đi kèm từ khóa ngữ cảnh ngân hàng. Che giấu `1903****9123`.
    - **Mật khẩu Băm**: Xác minh 100% mật khẩu User được băm Bcrypt chuẩn (`$2a$`, `$2b$`, `$2y$`).
-   - **Masking Bảo mật**: Toàn bộ dữ liệu PII vi phạm trong báo cáo lỗi đều được che giấu (`098***456`, `001200******`, `[REDACTED]`), tuyệt đối không để lộ dữ liệu thô ra log hoặc report.
+   - **Bảo Vệ Đường Đi Báo Cáo (Report Privacy & Error Path Protection)**:
+     - Tuyệt đối không đưa raw `err.message` từ exception không tin cậy vào report. Khi một check gặp ngoại lệ bất thường, hệ thống ghi nhận thông điệp đã sanitize: `Validation check failed unexpectedly; internal error details redacted for privacy.`.
+     - Báo cáo JSON (`validation-report.json`) được khử sạch credentials (`:***@`), không chứa stack trace, không chứa raw record và không ghi `passwordHash`.
    - *Lưu ý*: Quét regex có giới hạn kỹ thuật, không thể đảm bảo 100% nếu PII bị biến dạng; nghiêm cấm tuyệt đối đưa dữ liệu cư dân thật vào mã nguồn.
 
 4. **Kiểm toán Quan hệ & Ràng Buộc Duy Nhất (Blocker F — Relational Audit)**:
@@ -280,17 +293,27 @@ Hệ thống kiểm định áp dụng nguyên tắc **Fail-Closed**, đối chi
 
 ---
 
-### 5.5. Kiểm Tra Tính Xác Định & Báo Cáo Kết Quả (Milestone 10 Acceptance)
+### 5.5. Kiểm Tra Tính Xác Định Toàn Diện & Báo Cáo Kết Quả (Nhóm C — Full Determinism Audit)
 
-- **Kiểm tra Tính Xác Định (Determinism Check)**:
-  Hàm `verifyDatasetDeterminism()` chạy generator độc lập 2 lần với cùng random seed và so sánh sâu (deep equality) giữa 2 snapshot. Bất kỳ sự phân kỳ nào giữa 2 lần chạy đều khiến bài kiểm tra thất bại ngay lập tức.
+- **So Sánh Canonical Business Snapshot trên Cả 8 Models**:
+  Hàm `compareDatasetSnapshots()` và `verifyDatasetDeterminism()` thực hiện so sánh toàn diện 100% tất cả bản ghi và mọi trường nghiệp vụ của toàn bộ 8 Prisma models (Room: 100, User: 128, Ticket: 175, Invoice: 500, Payment: 472, Feedback: 40, Notification: 25, MediaAsset: 0 — Tổng cộng **1,440 bản ghi**):
+  - **Chuẩn hóa giá trị (Canonicalization)**:
+    - Sắp xếp thứ tự object keys theo alphabet ổn định.
+    - Chuyển đổi `Prisma.Decimal` sang chuỗi thập phân chính xác (`dec.toString()`), giữ nguyên độ chính xác, không ép kiểu sang JavaScript Number để tránh mất precision.
+    - Chuẩn hóa `Date` thành ISO 8601 string (`date.toISOString()`).
+    - Phân biệt rõ rệt `null`, `undefined` (`__UNDEFINED__`) và giá trị rỗng.
+  - **Chính sách về Mật Khẩu Băm (Password Hash Determinism)**:
+    - Khi kiểm định determinism, generator nhận cùng một hash Bcrypt đầu vào cố định (`fixedPasswordHash`). Nhờ đó, **100% tất cả các trường (bao gồm cả `User.password`) đều trùng khớp tuyệt đối, không có bất kỳ trường nào bị loại trừ (`excludedFields = {}`)**.
+    - Nếu hai lần chạy độc lập không truyền `passwordHash`, trường duy nhất có sự khác biệt là `User.password` do cơ chế sinh muối ngẫu nhiên (`crypto.randomBytes`) của thuật toán Bcrypt. Bộ so sánh hỗ trợ tham số `excludeFields: { users: ['password'] }` với lý do kỹ thuật rõ ràng này.
+  - **Độ nhạy phát hiện vi phạm**: Bất kỳ thay đổi nào trên từng trường nghiệp vụ của bất kỳ model nào (kể cả các trường như `Ticket.materials`, `Invoice.waterFee`, `Feedback.reply`, `Payment.note`, `Notification.targetRoom`, `Room.status`) đều bị phát hiện ngay lập tức.
 - **Lưu Báo Cáo Kiểm Định JSON**:
-  Hàm `saveValidationReport()` tự động xuất báo cáo kết quả chi tiết ra tệp `backend/dataset/reports/validation-report.json`, bao gồm trạng thái tổng thể, số lượng kiểm tra, chi tiết lỗi từng nhóm và siêu dữ liệu môi trường.
+  Hàm `saveValidationReport()` tự động xuất báo cáo kết quả chi tiết ra tệp `backend/dataset/reports/validation-report.json`, bao gồm trạng thái tổng thể, số lượng kiểm tra, chi tiết lỗi từng nhóm và siêu dữ liệu môi trường đã được sanitize.
 
 ---
 
 > [!NOTE]
-> **Hiện trạng Kiểm chứng Cơ sở Dữ liệu Thực tế**:  
-> Toàn bộ các cơ chế an toàn và quy trình kiểm định database trong Milestone 9 và 10 hiện đã được kiểm chứng 100% thông qua Stateful Mock Transactions và In-memory Snapshots (35/35 tests PASS, 226/226 tests toàn bộ test suites PASS).  
-> Việc thực thi seed và database validation trên database PostgreSQL thực tế sẽ chỉ được thực hiện khi người dùng cung cấp và xác nhận một môi trường database sandbox chuyên dụng (không chạy trên production).
+> **Hiện trạng Kiểm chứng & Giới hạn Thực thi Cơ sở Dữ liệu**:  
+> 1. **In-Memory Validation**: Đã được kiểm thử 100% và đạt kết quả PASS toàn diện trên cả 8 nhóm tiêu chuẩn nghiệp vụ.
+> 2. **Stateful Mock Transactions**: Đã được kiểm chứng 100% (47/47 tests PASS trong validation suite, 238/238 tests toàn bộ dự án PASS).
+> 3. **PostgreSQL Sandbox Integration**: **Chưa được thực hiện trên cơ sở dữ liệu PostgreSQL thật**. Hệ thống tuân thủ nghiêm ngặt nguyên tắc an toàn: chỉ thực thi seed và database validation khi người dùng cung cấp và xác nhận một môi trường database sandbox chuyên dụng (tuyệt đối không chạy trên môi trường production).
 

@@ -57,9 +57,20 @@ const FORBIDDEN_EMAIL_DOMAINS = [
 ];
 
 /**
+ * Che giấu username để bảo vệ định danh trong error logs
+ * Ví dụ: admin -> ad***n, resident01 -> re***1, nguyen -> ng***n, a -> a*, ab -> a*
+ */
+export function maskUsername(val: string | null | undefined): string {
+  if (!val || typeof val !== 'string') return '***';
+  const clean = val.trim();
+  if (clean.length <= 2) return `${clean[0]}*`;
+  return `${clean.substring(0, 2)}***${clean.substring(clean.length - 1)}`;
+}
+
+/**
  * Che giấu số điện thoại để tránh rò rỉ vào error log
  */
-function maskPhone(val: string): string {
+export function maskPhone(val: string): string {
   const clean = val.replace(/[\s.-]/g, '');
   if (clean.length < 6) return '***';
   return `${clean.substring(0, 3)}***${clean.substring(clean.length - 3)}`;
@@ -68,27 +79,43 @@ function maskPhone(val: string): string {
 /**
  * Che giấu CCCD
  */
-function maskCCCD(val: string): string {
+export function maskCCCD(val: string): string {
   if (val.length < 6) return '******';
   return `${val.substring(0, 6)}******`;
 }
 
 /**
- * Che giấu email
+ * Che giấu email, bao gồm cả username và domain để tránh lộ định danh / tổ chức nhạy cảm
+ * Ví dụ: resident@chungcu.internal -> re***@ch***.internal
+ *        admin@gmail.com -> ad***@gm***.com
+ *        user@example.invalid -> us***@ex***.invalid
  */
-function maskEmail(email: string): string {
+export function maskEmail(email: string | null | undefined): string {
+  if (!email || typeof email !== 'string') return '***@***';
   const parts = email.split('@');
   if (parts.length !== 2) return '***@***';
   const name = parts[0];
   const domain = parts[1];
   const maskedName = name.length <= 2 ? `${name[0]}*` : `${name.substring(0, 2)}***`;
-  return `${maskedName}@${domain}`;
+
+  // Che giấu domain để không để lộ nguyên văn domain nhạy cảm
+  const domainParts = domain.split('.');
+  let maskedDomain = '***';
+  if (domainParts.length >= 2) {
+    const tld = domainParts[domainParts.length - 1];
+    const sld = domainParts.slice(0, domainParts.length - 1).join('.');
+    const maskedSld = sld.length <= 2 ? `${sld[0]}*` : `${sld.substring(0, 2)}***`;
+    maskedDomain = `${maskedSld}.${tld}`;
+  } else if (domain.length > 2) {
+    maskedDomain = `${domain.substring(0, 2)}***`;
+  }
+  return `${maskedName}@${maskedDomain}`;
 }
 
 /**
  * Che giấu số tài khoản ngân hàng
  */
-function maskBankAccount(acc: string): string {
+export function maskBankAccount(acc: string): string {
   if (acc.length < 6) return '****';
   return `${acc.substring(0, 4)}****${acc.substring(acc.length - 4)}`;
 }
@@ -177,7 +204,7 @@ export function validatePrivacyIntegrity(snapshot: DatasetSnapshot): CheckResult
     if (u.phone !== null && u.phone !== undefined) {
       piiViolations++;
       errors.push(
-        `User #${u.id} (${u.username}) có trường phone không null (tiêu chuẩn dataset M4 yêu cầu phone = null).`
+        `User #${u.id} (${maskUsername(u.username)}) có trường phone không null (tiêu chuẩn dataset M4 yêu cầu phone = null).`
       );
     }
 
@@ -194,7 +221,7 @@ export function validatePrivacyIntegrity(snapshot: DatasetSnapshot): CheckResult
       if (!isAllowedDomain) {
         invalidEmails++;
         errors.push(
-          `User #${u.id} (${u.username}) có email '${maskEmail(u.email)}' không thuộc domain synthetic được phép (@chungcu.internal hoặc @example.invalid).`
+          `User #${u.id} (${maskUsername(u.username)}) có email '${maskEmail(u.email)}' không thuộc domain synthetic được phép (@chungcu.internal hoặc @example.invalid).`
         );
       }
 
@@ -202,7 +229,7 @@ export function validatePrivacyIntegrity(snapshot: DatasetSnapshot): CheckResult
         if (emailLower.includes(forbidden)) {
           invalidEmails++;
           errors.push(
-            `User #${u.id} (${u.username}) sử dụng email có domain công cộng bị cấm: '${forbidden}'.`
+            `User #${u.id} (${maskUsername(u.username)}) sử dụng email có domain công cộng bị cấm ('${maskEmail(u.email)}').`
           );
         }
       }
@@ -213,7 +240,7 @@ export function validatePrivacyIntegrity(snapshot: DatasetSnapshot): CheckResult
     if (!u.password || typeof u.password !== 'string' || !BCRYPT_HASH_REGEX.test(u.password)) {
       invalidPasswords++;
       errors.push(
-        `User #${u.id} (${u.username}) có mật khẩu không phải định dạng chuỗi băm Bcrypt hợp lệ (giá trị: [REDACTED]).`
+        `User #${u.id} (${maskUsername(u.username)}) có mật khẩu không phải định dạng chuỗi băm Bcrypt hợp lệ (giá trị: [REDACTED]).`
       );
     }
   }

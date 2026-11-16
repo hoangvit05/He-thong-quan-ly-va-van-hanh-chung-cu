@@ -9,6 +9,7 @@ import * as path from 'path';
 import { PrismaClient, Prisma, Role } from '@prisma/client';
 import { DATASET_CONFIG } from '../config/dataset.config';
 import { generateEntireDataset, sanitizeDatabaseUrl } from '../seed/index';
+import { DEFAULT_DEMO_PASSWORD, hashPasswordSync } from '../seed/utils/password';
 import { checkCounts, validateCounts } from './checks/counts.check';
 import { checkRelationalIntegrity, validateRelationalIntegrity } from './checks/relational.check';
 import { checkFinancialIntegrity, validateFinancialIntegrity } from './checks/financial.check';
@@ -255,28 +256,43 @@ export function validateDataset(
   targetDatabase?: string
 ): DatasetValidationReport {
   // 1. Thu thập số lượng thực tế an toàn (defensive)
-  const usersList = Array.isArray(snapshot?.users) ? snapshot.users : [];
-  const adminCount = usersList.filter((u) => u?.role === Role.ADMIN).length;
-  const bqlCount = usersList.filter((u) => u?.role === Role.BQL).length;
-  const techCount = usersList.filter((u) => u?.role === Role.TECHNICIAN).length;
-  const residentCount = usersList.filter((u) => u?.role === Role.RESIDENT).length;
-
-  const modelCounts: ModelCounts = {
-    rooms: Array.isArray(snapshot?.rooms) ? snapshot.rooms.length : 0,
-    users: {
-      total: usersList.length,
-      admin: adminCount,
-      bql: bqlCount,
-      technician: techCount,
-      resident: residentCount,
-    },
-    tickets: Array.isArray(snapshot?.tickets) ? snapshot.tickets.length : 0,
-    invoices: Array.isArray(snapshot?.invoices) ? snapshot.invoices.length : 0,
-    payments: Array.isArray(snapshot?.payments) ? snapshot.payments.length : 0,
-    feedbacks: Array.isArray(snapshot?.feedbacks) ? snapshot.feedbacks.length : 0,
-    notifications: Array.isArray(snapshot?.notifications) ? snapshot.notifications.length : 0,
-    mediaAssets: Array.isArray(snapshot?.mediaAssets) ? snapshot.mediaAssets.length : 0,
+  let modelCounts: ModelCounts = {
+    rooms: 0,
+    users: { total: 0, admin: 0, bql: 0, technician: 0, resident: 0 },
+    tickets: 0,
+    invoices: 0,
+    payments: 0,
+    feedbacks: 0,
+    notifications: 0,
+    mediaAssets: 0,
   };
+
+  try {
+    const usersList = Array.isArray(snapshot?.users) ? snapshot.users : [];
+    const adminCount = usersList.filter((u) => u?.role === Role.ADMIN).length;
+    const bqlCount = usersList.filter((u) => u?.role === Role.BQL).length;
+    const techCount = usersList.filter((u) => u?.role === Role.TECHNICIAN).length;
+    const residentCount = usersList.filter((u) => u?.role === Role.RESIDENT).length;
+
+    modelCounts = {
+      rooms: Array.isArray(snapshot?.rooms) ? snapshot.rooms.length : 0,
+      users: {
+        total: usersList.length,
+        admin: adminCount,
+        bql: bqlCount,
+        technician: techCount,
+        resident: residentCount,
+      },
+      tickets: Array.isArray(snapshot?.tickets) ? snapshot.tickets.length : 0,
+      invoices: Array.isArray(snapshot?.invoices) ? snapshot.invoices.length : 0,
+      payments: Array.isArray(snapshot?.payments) ? snapshot.payments.length : 0,
+      feedbacks: Array.isArray(snapshot?.feedbacks) ? snapshot.feedbacks.length : 0,
+      notifications: Array.isArray(snapshot?.notifications) ? snapshot.notifications.length : 0,
+      mediaAssets: Array.isArray(snapshot?.mediaAssets) ? snapshot.mediaAssets.length : 0,
+    };
+  } catch {
+    // Nếu snapshot bị lỗi cấu trúc getter/property, modelCounts giữ mặc định 0 an toàn
+  }
 
   // 2. Chạy 8 nhóm kiểm định tính toàn vẹn
   // Mỗi check được bọc try-catch riêng để một ngoại lệ bất thường không làm mất kết quả các check khác (Blocker E)
@@ -296,12 +312,16 @@ export function validateDataset(
     try {
       results.push(runner.run());
     } catch (err: any) {
+      // Bảo vệ quyền riêng tư (Milestone 10.1.1): Tuyệt đối KHÔNG đưa raw err.message hoặc raw object
+      // từ exception không tin cậy vào report. Chỉ ghi thông báo tổng quát đã sanitize.
       results.push({
         name: runner.name,
         passed: false,
-        message: `Lỗi ngoại lệ khi thực thi kiểm tra: ${err.message}`,
+        message: 'Validation check failed unexpectedly; internal error details redacted for privacy.',
         violationsCount: 1,
-        errors: [`Lỗi ngoại lệ: ${err.message}`],
+        errors: [
+          `Kiểm tra '${runner.name}' gặp ngoại lệ bất thường và đã bị gián đoạn an toàn. Chi tiết nhạy cảm đã được loại bỏ.`,
+        ],
       });
     }
   }
@@ -448,8 +468,8 @@ export function validateDatabase(
 }
 
 /**
- * Lưu báo cáo kiểm định thành tệp JSON phục vụ nghiệm thu (Section 9)
- * Che giấu thông tin nhạy cảm và credentials
+ * Lưu báo cáo kiểm định thành tệp JSON phục vụ nghiệm thu (Section 9 & Milestone 10.1.1)
+ * Che giấu thông tin nhạy cảm, credentials, mật khẩu băm và dữ liệu PII
  */
 export function saveValidationReport(
   report: DatasetValidationReport,
@@ -459,12 +479,25 @@ export function saveValidationReport(
     fs.mkdirSync(outputDir, { recursive: true });
   }
 
-  // Sanitized report không chứa credentials
-  const sanitizedReport = {
+  // Sanitized report không chứa credentials, passwords, raw stacks, hay tokens
+  const sanitizedResults = (report.results || []).map((r) => {
+    const cleanErrors = (r.errors || []).map((errStr) => {
+      if (typeof errStr !== 'string') return 'Invalid error entry';
+      // Khử chuỗi Bcrypt hash nếu vô tình lọt vào errors
+      return errStr.replace(/\$2[abxy]\$\d{2}\$[./A-Za-z0-9]{53}/g, '[REDACTED_BCRYPT_HASH]');
+    });
+    return {
+      ...r,
+      errors: cleanErrors,
+    };
+  });
+
+  const sanitizedReport: DatasetValidationReport = {
     ...report,
     targetDatabase: report.targetDatabase
       ? report.targetDatabase.replace(/:[^:@]+@/, ':***@')
       : undefined,
+    results: sanitizedResults,
   };
 
   const reportFilePath = path.join(outputDir, 'validation-report.json');
@@ -473,62 +506,199 @@ export function saveValidationReport(
 }
 
 /**
- * Xác minh tính đơn định (Determinism) giữa hai lượt sinh dữ liệu (Section 9)
+ * Danh sách 8 models chuẩn cần kiểm định tính đơn định (Canonical Models)
  */
-export function verifyDatasetDeterminism(seed = DATASET_CONFIG.RANDOM_SEED): {
+export const CANONICAL_SNAPSHOT_MODELS = [
+  'rooms',
+  'users',
+  'tickets',
+  'invoices',
+  'payments',
+  'feedbacks',
+  'notifications',
+  'mediaAssets',
+] as const;
+
+export type CanonicalModelName = (typeof CANONICAL_SNAPSHOT_MODELS)[number];
+
+export interface SnapshotComparisonOptions {
+  excludeFields?: Partial<Record<CanonicalModelName, string[]>>;
+}
+
+export interface DeterminismComparisonResult {
   isDeterministic: boolean;
   differences: string[];
-} {
-  const ds1 = generateEntireDataset({ seed });
-  const ds2 = generateEntireDataset({ seed });
+  comparedModels: string[];
+  totalRecordsCompared: number;
+  excludedFields: Partial<Record<CanonicalModelName, string[]>>;
+}
 
+/**
+ * Chuẩn hóa giá trị nghiệp vụ để so sánh đơn định (Milestone 10.1.1):
+ * - Prisma Decimal: chuyển thành chuỗi thập phân chính xác (dec.toString()), giữ nguyên precision, không qua Number.
+ * - Date: chuyển thành ISO string (date.toISOString()).
+ * - null: giữ nguyên null.
+ * - undefined: chuyển thành ký hiệu '__UNDEFINED__' để phân biệt rõ với null.
+ * - Object: sắp xếp keys theo thứ tự alphabet ổn định, đệ quy chuẩn hóa các giá trị.
+ * - Array: đệ quy chuẩn hóa từng phần tử.
+ */
+export function canonicalizeValue(val: any): any {
+  if (val === null) return null;
+  if (val === undefined) return '__UNDEFINED__';
+
+  // Prisma Decimal
+  if (
+    val instanceof Prisma.Decimal ||
+    (typeof val === 'object' && typeof val.toFixed === 'function' && typeof val.isDecimal === 'function')
+  ) {
+    return val.toString();
+  }
+
+  // Date
+  if (val instanceof Date) {
+    return val.toISOString();
+  }
+
+  // Primitive
+  if (typeof val === 'number' || typeof val === 'string' || typeof val === 'boolean') {
+    return val;
+  }
+
+  // Array
+  if (Array.isArray(val)) {
+    return val.map((item) => canonicalizeValue(item));
+  }
+
+  // Object (stable key order)
+  if (typeof val === 'object') {
+    const sortedKeys = Object.keys(val).sort();
+    const result: Record<string, any> = {};
+    for (const key of sortedKeys) {
+      result[key] = canonicalizeValue(val[key]);
+    }
+    return result;
+  }
+
+  return String(val);
+}
+
+/**
+ * So sánh toàn diện hai Dataset Snapshot trên toàn bộ 8 models và tất cả các trường nghiệp vụ (Milestone 10.1.1):
+ * - Room (id, roomNumber, floor, area, status, createdAt, updatedAt)
+ * - User (id, username, password, fullName, phone, email, role, roomId, isApproved, createdAt, updatedAt)
+ * - Ticket (id, title, category, description, status, isDuplicate, rating, ratingComment, materials, mediaUrl, residentId, technicianId, roomId, createdAt, updatedAt)
+ * - Invoice (id, roomId, month, managementFee, parkingFee, waterFee, otherFee, totalAmount, paidAmount, status, dueDate, createdAt, updatedAt)
+ * - Payment (id, invoiceId, amount, method, status, transactionCode, note, paidAt, createdAt, updatedAt)
+ * - Feedback (id, title, content, reply, isResolved, residentId, roomId, createdAt, updatedAt)
+ * - Notification (id, title, content, authorId, targetRoom, createdAt, updatedAt)
+ * - MediaAsset (Zero-Asset policy)
+ */
+export function compareDatasetSnapshots(
+  ds1: DatasetSnapshot,
+  ds2: DatasetSnapshot,
+  options: SnapshotComparisonOptions = {}
+): DeterminismComparisonResult {
   const diffs: string[] = [];
+  const excludeFields = options.excludeFields || {};
+  let totalRecordsCompared = 0;
 
-  if (ds1.rooms.length !== ds2.rooms.length) diffs.push('Số lượng Room không khớp');
-  if (ds1.users.length !== ds2.users.length) diffs.push('Số lượng User không khớp');
-  if (ds1.tickets.length !== ds2.tickets.length) diffs.push('Số lượng Ticket không khớp');
-  if (ds1.invoices.length !== ds2.invoices.length) diffs.push('Số lượng Invoice không khớp');
-  if (ds1.payments.length !== ds2.payments.length) diffs.push('Số lượng Payment không khớp');
-  if (ds1.feedbacks.length !== ds2.feedbacks.length) diffs.push('Số lượng Feedback không khớp');
-  if (ds1.notifications.length !== ds2.notifications.length) diffs.push('Số lượng Notification không khớp');
+  for (const model of CANONICAL_SNAPSHOT_MODELS) {
+    const list1 = (ds1[model] as any[]) || [];
+    const list2 = (ds2[model] as any[]) || [];
 
-  // Kiểm tra chi tiết từng bản ghi nghiệp vụ
-  for (let i = 0; i < ds1.rooms.length; i++) {
-    if (ds1.rooms[i].roomNumber !== ds2.rooms[i].roomNumber || ds1.rooms[i].area !== ds2.rooms[i].area) {
-      diffs.push(`Room[${i}] sai lệch thuộc tính nghiệp vụ`);
-      break;
+    if (list1.length !== list2.length) {
+      diffs.push(`Model '${model}' số lượng bản ghi không khớp: ds1=${list1.length}, ds2=${list2.length}`);
+      continue;
     }
-  }
 
-  for (let i = 0; i < ds1.users.length; i++) {
-    if (ds1.users[i].username !== ds2.users[i].username || ds1.users[i].role !== ds2.users[i].role) {
-      diffs.push(`User[${i}] sai lệch username/role`);
-      break;
-    }
-  }
+    totalRecordsCompared += list1.length;
 
-  for (let i = 0; i < ds1.tickets.length; i++) {
-    if (
-      ds1.tickets[i].category !== ds2.tickets[i].category ||
-      ds1.tickets[i].isDuplicate !== ds2.tickets[i].isDuplicate ||
-      ds1.tickets[i].status !== ds2.tickets[i].status
-    ) {
-      diffs.push(`Ticket[${i}] sai lệch nghiệp vụ sự cố`);
-      break;
-    }
-  }
+    // Sắp xếp ổn định theo ID để so sánh record-by-record
+    const sorted1 = [...list1].sort((a, b) => (a.id ?? 0) - (b.id ?? 0));
+    const sorted2 = [...list2].sort((a, b) => (a.id ?? 0) - (b.id ?? 0));
+    const excludedForModel = new Set(excludeFields[model] || []);
 
-  for (let i = 0; i < ds1.invoices.length; i++) {
-    if (!ds1.invoices[i].totalAmount.equals(ds2.invoices[i].totalAmount)) {
-      diffs.push(`Invoice[${i}] totalAmount sai lệch`);
-      break;
+    for (let i = 0; i < sorted1.length; i++) {
+      const r1 = sorted1[i];
+      const r2 = sorted2[i];
+      const recordId = r1?.id ?? i;
+
+      // Lấy tập hợp tất cả các keys của cả 2 records
+      const allKeys = Array.from(new Set([...Object.keys(r1 || {}), ...Object.keys(r2 || {})])).sort();
+
+      for (const key of allKeys) {
+        if (excludedForModel.has(key)) {
+          continue; // Bỏ qua trường được liệt kê trong danh sách loại trừ có lý do kỹ thuật
+        }
+
+        const v1 = r1?.[key];
+        const v2 = r2?.[key];
+
+        // So sánh trực tiếp Decimal nếu cả 2 là Decimal
+        if (v1 instanceof Prisma.Decimal && v2 instanceof Prisma.Decimal) {
+          if (!v1.equals(v2)) {
+            diffs.push(
+              `Model '${model}' [id=${recordId}] field '${key}' Decimal mismatch: '${v1.toString()}' !== '${v2.toString()}'`
+            );
+          }
+          continue;
+        }
+
+        // So sánh Date bằng getTime()
+        if (v1 instanceof Date && v2 instanceof Date) {
+          if (v1.getTime() !== v2.getTime()) {
+            diffs.push(
+              `Model '${model}' [id=${recordId}] field '${key}' Date mismatch: '${v1.toISOString()}' !== '${v2.toISOString()}'`
+            );
+          }
+          continue;
+        }
+
+        // Chuẩn hóa canonicalize cho các kiểu dữ liệu khác
+        const c1 = canonicalizeValue(v1);
+        const c2 = canonicalizeValue(v2);
+
+        const s1 = JSON.stringify(c1);
+        const s2 = JSON.stringify(c2);
+
+        if (s1 !== s2) {
+          diffs.push(
+            `Model '${model}' [id=${recordId}] field '${key}' mismatch: ${s1} !== ${s2}`
+          );
+        }
+      }
     }
   }
 
   return {
     isDeterministic: diffs.length === 0,
     differences: diffs,
+    comparedModels: [...CANONICAL_SNAPSHOT_MODELS],
+    totalRecordsCompared,
+    excludedFields: excludeFields,
   };
+}
+
+/**
+ * Xác minh tính đơn định (Determinism) giữa hai lượt sinh dữ liệu (Section 9 & Milestone 10.1.1)
+ * Sử dụng fixed password hash để so sánh đầy đủ 100% tất cả các trường của cả 8 models mà KHÔNG loại trừ trường nào.
+ */
+export function verifyDatasetDeterminism(options?: number | {
+  seed?: number;
+  fixedPasswordHash?: string;
+  excludeFields?: Partial<Record<CanonicalModelName, string[]>>;
+}): DeterminismComparisonResult {
+  const seed = typeof options === 'number' ? options : (options?.seed ?? DATASET_CONFIG.RANDOM_SEED);
+  const fixedHash =
+    typeof options === 'object' && options?.fixedPasswordHash
+      ? options.fixedPasswordHash
+      : hashPasswordSync(DEFAULT_DEMO_PASSWORD);
+  const excludeFields = typeof options === 'object' ? options?.excludeFields : undefined;
+
+  const ds1 = generateEntireDataset({ seed, passwordHash: fixedHash });
+  const ds2 = generateEntireDataset({ seed, passwordHash: fixedHash });
+
+  return compareDatasetSnapshots(ds1, ds2, { excludeFields });
 }
 
 /**

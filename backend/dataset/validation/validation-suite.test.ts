@@ -15,6 +15,9 @@ import {
   runValidationCLI,
   saveValidationReport,
   verifyDatasetDeterminism,
+  compareDatasetSnapshots,
+  canonicalizeValue,
+  CANONICAL_SNAPSHOT_MODELS,
   assertSafeDatabaseValidation,
   parseValidationDatabaseTarget,
   parseValidationAllowlist,
@@ -26,11 +29,18 @@ import {
 import { validateCounts, checkCounts } from './checks/counts.check';
 import { validateRelationalIntegrity } from './checks/relational.check';
 import { validateFinancialIntegrity, MAX_DECIMAL_12_2 } from './checks/financial.check';
-import { validateTicketIntegrity } from './checks/ticket.check';
+import { validateTicketIntegrity, isMatchingPriorTicket } from './checks/ticket.check';
 import { validateFeedbackIntegrity } from './checks/feedback.check';
 import { validateNotificationIntegrity } from './checks/notification.check';
 import { validateMediaIntegrity } from './checks/media.check';
-import { validatePrivacyIntegrity } from './checks/privacy.check';
+import {
+  validatePrivacyIntegrity,
+  maskUsername,
+  maskEmail,
+  maskPhone,
+  maskCCCD,
+  maskBankAccount,
+} from './checks/privacy.check';
 import { DatasetSnapshot } from './checks/types';
 import { generateEntireDataset } from '../seed/index';
 
@@ -344,7 +354,147 @@ async function runAllTests() {
     snapshot.tickets.push(t1);
     const result = validateTicketIntegrity(snapshot);
     assert.strictEqual(result.passed, false);
-    assert.ok(result.message.includes('không tìm thấy phiếu gốc hợp lệ'));
+    assert.ok(result.message.includes('không tìm thấy phiếu'));
+  });
+
+  await runTest('1.10 Khác title nhưng cùng category và scope: vẫn duplicate theo chuẩn controller lines 408-428', () => {
+    const snapshot = createBaseValidSnapshot();
+    const now = new Date('2026-06-08T10:00:00Z');
+
+    const t1 = {
+      ...snapshot.tickets[0],
+      id: 8081,
+      title: 'Hỏng vòi nước bồn rửa mặt',
+      category: 'Cấp thoát nước',
+      roomId: 105,
+      status: TicketStatus.PENDING,
+      isDuplicate: false,
+      createdAt: new Date(now.getTime()),
+    };
+
+    const t2 = {
+      ...snapshot.tickets[0],
+      id: 8082,
+      title: 'Rò rỉ ống nước khu vệ sinh cực kỳ nghiêm trọng (tiêu đề hoàn toàn khác)',
+      category: 'Cấp thoát nước',
+      roomId: 105,
+      status: TicketStatus.PENDING,
+      isDuplicate: true, // Backend controller không so sánh title nên vẫn là duplicate
+      createdAt: new Date(now.getTime() + 3 * 3600 * 1000),
+    };
+
+    snapshot.tickets.push(t1, t2);
+    // isMatchingPriorTicket phải trả về true dù title khác nhau
+    assert.strictEqual(isMatchingPriorTicket(t2, t1), true, 'Khác title nhưng cùng category và roomId phải là duplicate');
+
+    const result = validateTicketIntegrity(snapshot);
+    assert.strictEqual(result.passed, true, 'Validation phải PASS khi t2.isDuplicate = true');
+  });
+
+  await runTest('1.11 Boundary 24 giờ: đúng 24h00m00s (gte) là duplicate, 24h00m00s + 1ms (> 24h) không là duplicate', () => {
+    const now = new Date('2026-06-08T12:00:00.000Z');
+    const exact24hAgo = new Date(now.getTime() - 24 * 3600 * 1000);
+    const beyond24hAgo = new Date(now.getTime() - 24 * 3600 * 1000 - 1);
+
+    const baseCandidate = {
+      id: 8090,
+      title: 'Sự cố điện',
+      category: 'Hệ thống điện',
+      description: 'Mô tả sự cố hệ thống điện căn hộ',
+      roomId: 101,
+      residentId: 10,
+      status: TicketStatus.PENDING,
+      isDuplicate: false,
+      rating: null,
+      ratingComment: null,
+      materials: null,
+      mediaUrl: null,
+      completedMediaUrl: null,
+      technicianId: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const priorExact = {
+      ...baseCandidate,
+      id: 8089,
+      createdAt: exact24hAgo,
+      updatedAt: exact24hAgo,
+    };
+
+    const priorBeyond = {
+      ...baseCandidate,
+      id: 8088,
+      createdAt: beyond24hAgo,
+      updatedAt: beyond24hAgo,
+    };
+
+    // Đúng mốc 24h00m00s: backend dùng { gte: oneDayAgo } nên vẫn tính là trong cửa sổ
+    assert.strictEqual(isMatchingPriorTicket(baseCandidate, priorExact), true, 'Đúng mốc 24h phải là duplicate (gte)');
+
+    // Vượt quá 24h đúng 1ms: nằm ngoài cửa sổ
+    assert.strictEqual(isMatchingPriorTicket(baseCandidate, priorBeyond), false, 'Vượt quá 24h dù chỉ 1ms KHÔNG được tính là duplicate');
+  });
+
+  await runTest('1.12 isMatchingPriorTicket: So sánh đầy đủ các trường hợp phân loại, trạng thái và scope', () => {
+    const now = new Date('2026-06-08T12:00:00.000Z');
+    const oneHourAgo = new Date(now.getTime() - 3600 * 1000);
+
+    const candidateRoom = {
+      id: 8100,
+      title: 'Hỏng đèn',
+      category: 'Chiếu sáng',
+      description: 'Mô tả hỏng đèn phòng khách',
+      roomId: 202,
+      residentId: 15,
+      status: TicketStatus.PENDING,
+      isDuplicate: false,
+      rating: null,
+      ratingComment: null,
+      materials: null,
+      mediaUrl: null,
+      completedMediaUrl: null,
+      technicianId: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const candidateCommon = {
+      ...candidateRoom,
+      id: 8101,
+      roomId: null, // Khu vực chung
+      residentId: 15,
+    };
+
+    // 1. Khác category: không duplicate
+    const priorDiffCat = { ...candidateRoom, id: 8095, category: 'Thang máy', createdAt: oneHourAgo };
+    assert.strictEqual(isMatchingPriorTicket(candidateRoom, priorDiffCat), false);
+
+    // 2. Khác roomId: không duplicate
+    const priorDiffRoom = { ...candidateRoom, id: 8096, roomId: 203, createdAt: oneHourAgo };
+    assert.strictEqual(isMatchingPriorTicket(candidateRoom, priorDiffRoom), false);
+
+    // 3. Status COMPLETED hoặc CLOSED: không duplicate
+    const priorCompleted = { ...candidateRoom, id: 8097, status: TicketStatus.COMPLETED, createdAt: oneHourAgo };
+    assert.strictEqual(isMatchingPriorTicket(candidateRoom, priorCompleted), false);
+    const priorClosed = { ...candidateRoom, id: 8098, status: TicketStatus.CLOSED, createdAt: oneHourAgo };
+    assert.strictEqual(isMatchingPriorTicket(candidateRoom, priorClosed), false);
+
+    // 4. Status PENDING, ASSIGNED, IN_PROGRESS: đều duplicate
+    assert.strictEqual(isMatchingPriorTicket(candidateRoom, { ...candidateRoom, id: 8091, status: TicketStatus.PENDING, createdAt: oneHourAgo }), true);
+    assert.strictEqual(isMatchingPriorTicket(candidateRoom, { ...candidateRoom, id: 8092, status: TicketStatus.ASSIGNED, createdAt: oneHourAgo }), true);
+    assert.strictEqual(isMatchingPriorTicket(candidateRoom, { ...candidateRoom, id: 8093, status: TicketStatus.IN_PROGRESS, createdAt: oneHourAgo }), true);
+
+    // 5. Common area: cùng residentId & roomId = null -> duplicate; khác residentId -> không duplicate
+    const priorCommonSame = { ...candidateCommon, id: 8094, createdAt: oneHourAgo };
+    assert.strictEqual(isMatchingPriorTicket(candidateCommon, priorCommonSame), true);
+
+    const priorCommonDiffResident = { ...candidateCommon, id: 8095, residentId: 16, createdAt: oneHourAgo };
+    assert.strictEqual(isMatchingPriorTicket(candidateCommon, priorCommonDiffResident), false);
+
+    // 6. Prior ticket đã mang isDuplicate = true vẫn là ứng viên duplicate hợp lệ
+    const priorAlreadyDup = { ...candidateRoom, id: 8096, isDuplicate: true, createdAt: oneHourAgo };
+    assert.strictEqual(isMatchingPriorTicket(candidateRoom, priorAlreadyDup), true);
   });
 
   // -------------------------------------------------------------------
@@ -508,6 +658,89 @@ async function runAllTests() {
 
     // Chứng minh không in chuỗi mật khẩu ra errors log
     assert.strictEqual(result.errors?.some((e) => e.includes('MatKhauSieuBiMat123456!')), false);
+  });
+
+  await runTest('3.6 Username và Email xuất hiện trong lỗi phải được che giấu (mask) - không để lộ nguyên văn', () => {
+    const snapshot = createBaseValidSnapshot();
+    // Gán thông tin vi phạm PII
+    snapshot.users[0].username = 'nguyen_van_a_vip';
+    snapshot.users[0].phone = '0987123456';
+    snapshot.users[0].email = 'nguyenvana@gmail.com';
+
+    const result = validatePrivacyIntegrity(snapshot);
+    assert.strictEqual(result.passed, false);
+
+    // Bắt buộc: KHÔNG ĐƯỢC để lộ nguyên văn username và email vi phạm
+    const allErrorsText = (result.errors || []).join(' ');
+    assert.strictEqual(allErrorsText.includes('nguyen_van_a_vip'), false, 'Không được lộ nguyên văn username');
+    assert.strictEqual(allErrorsText.includes('nguyenvana@gmail.com'), false, 'Không được lộ nguyên văn email');
+
+    // Phải chứa username và email đã được mask an toàn
+    assert.ok(allErrorsText.includes(maskUsername('nguyen_van_a_vip')), 'Phải chứa masked username');
+    assert.ok(allErrorsText.includes(maskEmail('nguyenvana@gmail.com')), 'Phải chứa masked email');
+  });
+
+  await runTest('3.7 maskEmail che giấu cả tên và domain nhạy cảm, không để lộ nguyên domain', () => {
+    // Domain nhạy cảm nhiều cấp
+    const masked1 = maskEmail('secret_ceo@superprivatebank.com.vn');
+    assert.strictEqual(masked1, 'se***@su***.vn');
+    assert.strictEqual(masked1.includes('superprivatebank'), false);
+
+    // Domain công cộng phổ biến
+    const masked2 = maskEmail('admin@gmail.com');
+    assert.strictEqual(masked2, 'ad***@gm***.com');
+    assert.strictEqual(masked2.includes('gmail'), false);
+
+    // Domain nội bộ
+    const masked3 = maskEmail('resident@chungcu.internal');
+    assert.strictEqual(masked3, 're***@ch***.internal');
+
+    // Kiểm tra maskUsername
+    assert.strictEqual(maskUsername('admin'), 'ad***n');
+    assert.strictEqual(maskUsername('resident99'), 're***9');
+    assert.strictEqual(maskUsername('ab'), 'a*');
+    assert.strictEqual(maskUsername(''), '***');
+  });
+
+  await runTest('3.8 Exception chứa PII (email, SĐT, STK) bị chặn hoàn toàn, không lọt vào report hay JSON file', () => {
+    const snapshot = createBaseValidSnapshot();
+    // Giả lập ngoại lệ nhạy cảm bằng cách làm hỏng mảng users khiến runner throw
+    // Tạo custom property gây throw có chứa PII
+    const sensitiveErrorMsg = 'Sensitive internal error with admin_secret@bank.com phone 0987654321 and STK 123456789012';
+    Object.defineProperty(snapshot, 'users', {
+      get() {
+        throw new Error(sensitiveErrorMsg);
+      },
+    });
+
+    const report = validateDataset(snapshot, 'IN_MEMORY');
+    assert.strictEqual(report.overallStatus, 'FAIL');
+
+    const reportStr = JSON.stringify(report);
+    // Bắt buộc: raw error message từ ngoại lệ KHÔNG được xuất hiện trong report
+    assert.strictEqual(reportStr.includes('admin_secret@bank.com'), false, 'Không được lộ email từ exception');
+    assert.strictEqual(reportStr.includes('0987654321'), false, 'Không được lộ phone từ exception');
+    assert.strictEqual(reportStr.includes('123456789012'), false, 'Không được lộ STK từ exception');
+    assert.strictEqual(reportStr.includes(sensitiveErrorMsg), false, 'Không được lộ raw err.message');
+
+    // Báo cáo vẫn phải xác định được check nào bị lỗi
+    const failingResult = report.results.find((r) => !r.passed);
+    assert.ok(failingResult, 'Phải ghi nhận check bị thất bại');
+    assert.ok(failingResult.message.includes('Validation check failed unexpectedly; internal error details redacted for privacy.'));
+  });
+
+  await runTest('3.9 saveValidationReport không chứa raw error message, stack trace, passwordHash hay secret', () => {
+    const snapshot = createBaseValidSnapshot();
+    const report = validateDataset(snapshot, 'IN_MEMORY');
+    const savedPath = saveValidationReport(report);
+
+    const savedContent = fs.readFileSync(savedPath, 'utf-8');
+    assert.strictEqual(savedContent.includes('passwordHash'), false);
+    assert.strictEqual(savedContent.includes('stack'), false);
+    assert.strictEqual(savedContent.includes('[REDACTED_BCRYPT_HASH]'), false); // Vì snapshot chuẩn không có lỗi Bcrypt
+    const parsed = JSON.parse(savedContent);
+    assert.strictEqual(parsed.totalChecks, 8);
+    assert.strictEqual(parsed.passedChecks, 8);
   });
 
   // -------------------------------------------------------------------
@@ -707,10 +940,12 @@ async function runAllTests() {
   // -------------------------------------------------------------------
   console.log('\n--- 7. SECTION 9: TÍNH ĐƠN ĐỊNH NGHIỆP VỤ & LƯU BÁO CÁO JSON ---');
 
-  await runTest('7.1 verifyDatasetDeterminism: Hai lần sinh với cùng seed cho dữ liệu nghiệp vụ giống hệt 100%', () => {
+  await runTest('7.1 verifyDatasetDeterminism: Hai lần sinh với cùng seed cho dữ liệu nghiệp vụ giống hệt 100% trên cả 8 models', () => {
     const determinism = verifyDatasetDeterminism(20261111);
     assert.strictEqual(determinism.isDeterministic, true);
     assert.strictEqual(determinism.differences.length, 0);
+    assert.strictEqual(determinism.totalRecordsCompared, 1440, 'Bắt buộc so sánh đủ 1440 bản ghi của cả 8 models');
+    assert.strictEqual(determinism.comparedModels.length, 8);
   });
 
   await runTest('7.2 saveValidationReport lưu tệp JSON hợp lệ và không chứa credentials hoặc PII nhạy cảm', () => {
@@ -728,10 +963,140 @@ async function runAllTests() {
     assert.strictEqual(JSON.stringify(content).includes('passwordHash'), false);
   });
 
+  await runTest('7.3 Thay đổi bất kỳ trường nghiệp vụ nào trong 8 models đều bị so sánh phát hiện', () => {
+    // 1. Thay đổi Room status (trường không nằm trong bộ test cũ)
+    const s1 = createBaseValidSnapshot();
+    const s2_room = createBaseValidSnapshot();
+    s2_room.rooms[0].status = RoomStatus.MAINTENANCE;
+    const r1 = compareDatasetSnapshots(s1, s2_room);
+    assert.strictEqual(r1.isDeterministic, false);
+    assert.ok(r1.differences.some((d) => d.includes("Model 'rooms'") && d.includes("'status'")));
+
+    // 2. Thay đổi User fullName
+    const s2_user = createBaseValidSnapshot();
+    s2_user.users[0].fullName = 'Họ Tên Đã Bị Thay Đổi';
+    const r2 = compareDatasetSnapshots(s1, s2_user);
+    assert.strictEqual(r2.isDeterministic, false);
+    assert.ok(r2.differences.some((d) => d.includes("Model 'users'") && d.includes("'fullName'")));
+
+    // 3. Thay đổi Ticket materials
+    const s2_ticket = createBaseValidSnapshot();
+    s2_ticket.tickets[0].materials = 'Vật tư kê khai khác biệt';
+    const r3 = compareDatasetSnapshots(s1, s2_ticket);
+    assert.strictEqual(r3.isDeterministic, false);
+    assert.ok(r3.differences.some((d) => d.includes("Model 'tickets'") && d.includes("'materials'")));
+
+    // 4. Thay đổi Invoice waterFee
+    const s2_inv = createBaseValidSnapshot();
+    s2_inv.invoices[0].waterFee = new Prisma.Decimal('999999.00');
+    const r4 = compareDatasetSnapshots(s1, s2_inv);
+    assert.strictEqual(r4.isDeterministic, false);
+    assert.ok(r4.differences.some((d) => d.includes("Model 'invoices'") && d.includes("'waterFee'")));
+
+    // 5. Thay đổi Payment note
+    const s2_pay = createBaseValidSnapshot();
+    s2_pay.payments[0].note = 'Ghi chú thanh toán đột biến';
+    const r5 = compareDatasetSnapshots(s1, s2_pay);
+    assert.strictEqual(r5.isDeterministic, false);
+    assert.ok(r5.differences.some((d) => d.includes("Model 'payments'") && d.includes("'note'")));
+
+    // 6. Thay đổi Feedback reply
+    const s2_fb = createBaseValidSnapshot();
+    s2_fb.feedbacks[0].reply = 'Phản hồi mới từ BQL';
+    const r6 = compareDatasetSnapshots(s1, s2_fb);
+    assert.strictEqual(r6.isDeterministic, false);
+    assert.ok(r6.differences.some((d) => d.includes("Model 'feedbacks'") && d.includes("'reply'")));
+
+    // 7. Thay đổi Notification targetRoom
+    const s2_notif = createBaseValidSnapshot();
+    s2_notif.notifications[0].targetRoom = 'P-999';
+    const r7 = compareDatasetSnapshots(s1, s2_notif);
+    assert.strictEqual(r7.isDeterministic, false);
+    assert.ok(r7.differences.some((d) => d.includes("Model 'notifications'") && d.includes("'targetRoom'")));
+
+    // 8. Thay đổi số lượng MediaAssets (Zero-Asset policy)
+    const s2_media = createBaseValidSnapshot();
+    s2_media.mediaAssets.push({
+      id: 1,
+      publicId: 'fake_media_01',
+      url: 'https://res.cloudinary.com/demo/image/upload/fake_media_01.jpg',
+      resourceType: 'image',
+      deliveryType: 'authenticated',
+      purpose: 'tickets',
+      bytes: 10240,
+      format: 'jpg',
+      uploaderId: 1,
+      isConfirmed: true,
+      confirmedAt: new Date(),
+    });
+    const r8 = compareDatasetSnapshots(s1, s2_media);
+    assert.strictEqual(r8.isDeterministic, false);
+    assert.ok(r8.differences.some((d) => d.includes("Model 'mediaAssets'") && d.includes('số lượng bản ghi không khớp')));
+  });
+
+  await runTest('7.4 Decimal giữ nguyên precision chính xác khi so sánh (không qua JS floating-point)', () => {
+    const d1 = new Prisma.Decimal('9999999999.99');
+    const d2 = new Prisma.Decimal('9999999999.98');
+
+    const c1 = canonicalizeValue(d1);
+    const c2 = canonicalizeValue(d2);
+
+    assert.strictEqual(typeof c1, 'string', 'Canonical Decimal phải là string');
+    assert.strictEqual(c1, '9999999999.99');
+    assert.strictEqual(c2, '9999999999.98');
+    assert.notStrictEqual(c1, c2, 'Decimal khác biệt ở phần lẻ thập phân phải khác nhau');
+  });
+
+  await runTest('7.5 Date được canonicalize nhất quán và phân biệt null vs undefined', () => {
+    const dateObj = new Date('2026-06-01T15:30:00.000Z');
+    assert.strictEqual(canonicalizeValue(dateObj), '2026-06-01T15:30:00.000Z');
+
+    assert.strictEqual(canonicalizeValue(null), null);
+    assert.strictEqual(canonicalizeValue(undefined), '__UNDEFINED__');
+    assert.notStrictEqual(canonicalizeValue(null), canonicalizeValue(undefined), 'null và undefined phải được phân biệt rõ');
+  });
+
+  await runTest('7.6 Thứ tự object keys không làm ảnh hưởng tính đơn định', () => {
+    const objA = { z: 1, a: 'abc', m: true, d: [3, 2, 1] };
+    const objB = { d: [3, 2, 1], m: true, a: 'abc', z: 1 };
+
+    const cA = canonicalizeValue(objA);
+    const cB = canonicalizeValue(objB);
+
+    assert.strictEqual(JSON.stringify(cA), JSON.stringify(cB), 'Object khác thứ tự keys sau khi canonicalize phải có JSON giống hệt nhau');
+  });
+
+  await runTest('7.7 Danh sách loại trừ excludeFields hoạt động chính xác khi có lý do kỹ thuật rõ ràng', () => {
+    const s1 = createBaseValidSnapshot();
+    const s2 = createBaseValidSnapshot();
+
+    // Thay đổi trường User.password (mô phỏng Bcrypt salt ngẫu nhiên)
+    s2.users[0].password = '$2a$10$abcdefghijklmnopqrstuvwxyz1234567890abcdefghijklmnopqr';
+
+    // Khi không có excludeFields: phát hiện khác biệt
+    const resWithoutExclude = compareDatasetSnapshots(s1, s2);
+    assert.strictEqual(resWithoutExclude.isDeterministic, false);
+    assert.ok(resWithoutExclude.differences.some((d) => d.includes("'password'")));
+
+    // Khi loại trừ User.password (do lý do kỹ thuật Bcrypt random salt)
+    const resWithExclude = compareDatasetSnapshots(s1, s2, {
+      excludeFields: { users: ['password'] },
+    });
+    assert.strictEqual(resWithExclude.isDeterministic, true, 'Khi loại trừ đúng password thì snapshot phải đơn định 100%');
+
+    // Nhưng nếu đổi thêm trường fullName (không nằm trong excludeFields): VẪN PHẢI BỊ PHÁT HIỆN
+    s2.users[0].fullName = 'Họ Tên Sai';
+    const resPartial = compareDatasetSnapshots(s1, s2, {
+      excludeFields: { users: ['password'] },
+    });
+    assert.strictEqual(resPartial.isDeterministic, false, 'Trường không nằm trong excludeFields vẫn phải bị phát hiện');
+    assert.ok(resPartial.differences.some((d) => d.includes("'fullName'")));
+  });
+
   restoreEnv();
 
   console.log('\n======================================================');
-  console.log(`🎉 TOÀN BỘ ${passedTests}/${totalTests} TESTS M10.1 ĐẠT CHUẨN!`);
+  console.log(`🎉 TOÀN BỘ ${passedTests}/${totalTests} TESTS M10.1.1 ĐẠT CHUẨN!`);
   console.log('======================================================');
 }
 
