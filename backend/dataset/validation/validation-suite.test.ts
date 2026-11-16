@@ -17,6 +17,10 @@ import {
   verifyDatasetDeterminism,
   compareDatasetSnapshots,
   canonicalizeValue,
+  areCanonicalValuesEqual,
+  PRISMA_SCHEMA_EXPECTED_FIELDS,
+  sanitizeTextForReport,
+  sanitizeValueForReport,
   CANONICAL_SNAPSHOT_MODELS,
   assertSafeDatabaseValidation,
   parseValidationDatabaseTarget,
@@ -1093,10 +1097,322 @@ async function runAllTests() {
     assert.ok(resPartial.differences.some((d) => d.includes("'fullName'")));
   });
 
+  // -------------------------------------------------------------------
+  // NHÓM 8: MILESTONE 10.1.2 — HARDENED REPORT SANITIZATION & PRISMA SCHEMA DETERMINISM
+  // -------------------------------------------------------------------
+  console.log('\n--- 8. MILESTONE 10.1.2: BẢO VỆ BÁO CÁO JSON & PRISMA SCHEMA DETERMINISM ---');
+
+  await runTest('8.1 saveValidationReport: Allowlist serializer loại bỏ hoàn toàn các trường lạ ngoài allowlist (details/metadata/stack/secrets)', () => {
+    const tmpDir = path.resolve(__dirname, '../reports/test-m1012-allowlist');
+    if (fs.existsSync(tmpDir)) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+
+    const snapshot = createBaseValidSnapshot();
+    const report = validateDataset(snapshot, 'IN_MEMORY');
+
+    // Giả lập đưa thêm các trường lạ, sensitive details, stack, secrets vào report
+    (report as any).untrustedField = 'leak_data_123';
+    (report as any).rawStack = 'Error: at C:\\secret\\file.ts:12:3';
+    (report as any).secretApiKey = 'sk_live_abcdef1234567890';
+    (report as any).databasePassword = 'super_secret_db_pass';
+
+    if (report.results && report.results.length > 0) {
+      (report.results[0] as any).rawException = new Error('Database connection exploded');
+      (report.results[0] as any).untrustedMetadata = { api_key: 'sk_live_999', token: 'jwt.token.here' };
+    }
+
+    const savedPath = saveValidationReport(report, tmpDir);
+    assert.ok(fs.existsSync(savedPath), 'Tệp báo cáo phải được tạo thành công');
+
+    const fileContent = fs.readFileSync(savedPath, 'utf-8');
+    const parsed = JSON.parse(fileContent);
+
+    // Bắt buộc: Các trường lạ không được có mặt trong JSON đã lưu
+    assert.strictEqual(parsed.untrustedField, undefined, 'untrustedField không được tồn tại');
+    assert.strictEqual(parsed.rawStack, undefined, 'rawStack không được tồn tại');
+    assert.strictEqual(parsed.secretApiKey, undefined, 'secretApiKey không được tồn tại');
+    assert.strictEqual(parsed.databasePassword, undefined, 'databasePassword không được tồn tại');
+    assert.strictEqual(parsed.results[0].rawException, undefined, 'rawException không được tồn tại');
+    assert.strictEqual(parsed.results[0].untrustedMetadata, undefined, 'untrustedMetadata không được tồn tại');
+
+    // Bắt buộc: Các trường allowlist chuẩn vẫn đầy đủ và chính xác
+    assert.strictEqual(parsed.mode, 'IN_MEMORY');
+    assert.strictEqual(parsed.totalChecks, 8);
+    assert.strictEqual(parsed.passedChecks, 8);
+    assert.strictEqual(parsed.failedChecks, 0);
+    assert.strictEqual(parsed.overallStatus, 'PASS');
+    assert.strictEqual(parsed.modelCounts.rooms, 100);
+    assert.strictEqual(parsed.modelCounts.users.total, 128);
+
+    // Dọn dẹp thư mục test
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  await runTest('8.2 saveValidationReport: Khử sạch PII (Email, SĐT VN, STK, Username, Bcrypt hash, Secret, Stack trace) trong message và errors', () => {
+    const tmpDir = path.resolve(__dirname, '../reports/test-m1012-pii');
+    if (fs.existsSync(tmpDir)) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+
+    const fakeReport: DatasetValidationReport = {
+      timestamp: new Date().toISOString(),
+      mode: 'IN_MEMORY',
+      targetDatabase: 'postgres://admin_user:SuperPassword123@db.internal:5432/apartment_test',
+      totalChecks: 1,
+      passedChecks: 0,
+      failedChecks: 1,
+      overallStatus: 'FAIL',
+      modelCounts: {
+        rooms: 1,
+        users: { total: 1, admin: 1, bql: 0, technician: 0, resident: 0 },
+        tickets: 0,
+        invoices: 0,
+        payments: 0,
+        feedbacks: 0,
+        notifications: 0,
+        mediaAssets: 0,
+      },
+      results: [
+        {
+          name: 'Security Test Check',
+          passed: false,
+          message:
+            'Lỗi xác thực email leak_admin@corp.internal và SĐT 0987.654.321, STK 19034567891234, username: secret_boss_99, Bcrypt: $2a$10$abcdefghijklmnopqrstuvwxyz1234567890abcdefghijklmnopqr, secret: password=MyPlainPassword123, stack: at C:\\repo\\validate.ts:100:10',
+          violationsCount: 2,
+          errors: [
+            'Chi tiết vi phạm: user nguyenvana@gmail.com với phone +84 987 123 456 và bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+            'Đường dẫn tệp nội bộ: at C:\\backend\\src\\database\\secret.ts:45:10',
+          ],
+        },
+      ],
+    };
+
+    const savedPath = saveValidationReport(fakeReport, tmpDir);
+    const fileContent = fs.readFileSync(savedPath, 'utf-8');
+
+    // Bắt buộc: KHÔNG ĐƯỢC chứa các chuỗi PII / secret gốc
+    assert.strictEqual(fileContent.includes('SuperPassword123'), false, 'Database password bị lộ');
+    assert.strictEqual(fileContent.includes('leak_admin@corp.internal'), false, 'Email bị lộ');
+    assert.strictEqual(fileContent.includes('0987.654.321'), false, 'Số điện thoại bị lộ');
+    assert.strictEqual(fileContent.includes('19034567891234'), false, 'Số tài khoản STK bị lộ');
+    assert.strictEqual(fileContent.includes('secret_boss_99'), false, 'Username bị lộ');
+    assert.strictEqual(
+      fileContent.includes('$2a$10$abcdefghijklmnopqrstuvwxyz1234567890abcdefghijklmnopqr'),
+      false,
+      'Bcrypt hash bị lộ'
+    );
+    assert.strictEqual(fileContent.includes('MyPlainPassword123'), false, 'Plaintext password bị lộ');
+    assert.strictEqual(fileContent.includes('nguyenvana@gmail.com'), false, 'Email gmail bị lộ');
+    assert.strictEqual(fileContent.includes('+84 987 123 456'), false, 'Phone +84 bị lộ');
+    assert.strictEqual(fileContent.includes('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9'), false, 'Bearer token bị lộ');
+    assert.strictEqual(fileContent.includes('at C:\\repo\\validate.ts'), false, 'Stack trace bị lộ');
+
+    // Bắt buộc: Chứa các chuỗi masked / redacted thay thế an toàn
+    assert.ok(fileContent.includes('[REDACTED_BCRYPT_HASH]'), 'Phải có [REDACTED_BCRYPT_HASH]');
+    assert.ok(fileContent.includes('[REDACTED_SECRET]'), 'Phải có [REDACTED_SECRET]');
+    assert.ok(fileContent.includes('[REDACTED_TOKEN]'), 'Phải có [REDACTED_TOKEN]');
+    assert.ok(fileContent.includes('***@***') || fileContent.includes('@'), 'Email phải được mask');
+
+    // Dọn dẹp thư mục test
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  await runTest('8.3 runValidationCLI: Không in raw exception chứa secrets ra console.error', async () => {
+    const originalConsoleError = console.error;
+    const errorLogs: string[] = [];
+    console.error = (...args: any[]) => {
+      errorLogs.push(args.join(' '));
+    };
+
+    const originalArgv = process.argv;
+    try {
+      // Giả lập cờ CLI invalid database mode với URL nhạy cảm
+      process.argv = ['node', 'validate.ts', '--mode=database'];
+      process.env.DATABASE_URL = 'postgres://admin:SuperLeakedSecret123@localhost:5432/apartment_prod';
+      process.env.ALLOW_DATASET_VALIDATION = 'true';
+      process.env.DATASET_DB_ALLOWLIST = 'localhost:5432/apartment_prod';
+
+      const exitCode = await runValidationCLI();
+      assert.strictEqual(exitCode, 1, 'Chế độ database production target phải return exit code 1');
+
+      const fullLog = errorLogs.join('\n');
+      assert.strictEqual(fullLog.includes('SuperLeakedSecret123'), false, 'Console.error không được để lộ secret password');
+    } finally {
+      console.error = originalConsoleError;
+      process.argv = originalArgv;
+      delete process.env.DATABASE_URL;
+      delete process.env.ALLOW_DATASET_VALIDATION;
+      delete process.env.DATASET_DB_ALLOWLIST;
+    }
+  });
+
+  await runTest('8.4 PRISMA_SCHEMA_EXPECTED_FIELDS: Định nghĩa chính xác 100% các scalar fields theo schema.prisma cho cả 8 models', () => {
+    // 1. Room: 7 fields
+    assert.deepStrictEqual([...PRISMA_SCHEMA_EXPECTED_FIELDS.rooms].sort(), [
+      'area', 'createdAt', 'floor', 'id', 'roomNumber', 'status', 'updatedAt'
+    ].sort());
+
+    // 2. User: 11 fields
+    assert.deepStrictEqual([...PRISMA_SCHEMA_EXPECTED_FIELDS.users].sort(), [
+      'createdAt', 'email', 'fullName', 'id', 'isApproved', 'password', 'phone', 'role', 'roomId', 'updatedAt', 'username'
+    ].sort());
+
+    // 3. Ticket: 16 fields
+    assert.deepStrictEqual([...PRISMA_SCHEMA_EXPECTED_FIELDS.tickets].sort(), [
+      'category', 'completedMediaUrl', 'createdAt', 'description', 'id', 'isDuplicate', 'materials',
+      'mediaUrl', 'rating', 'ratingComment', 'residentId', 'roomId', 'status', 'technicianId', 'title', 'updatedAt'
+    ].sort());
+
+    // 4. Invoice: 13 fields
+    assert.deepStrictEqual([...PRISMA_SCHEMA_EXPECTED_FIELDS.invoices].sort(), [
+      'createdAt', 'dueDate', 'id', 'managementFee', 'month', 'otherFee', 'paidAmount', 'parkingFee',
+      'roomId', 'status', 'totalAmount', 'updatedAt', 'waterFee'
+    ].sort());
+
+    // 5. Payment: 7 fields (Không có createdAt/updatedAt)
+    assert.deepStrictEqual([...PRISMA_SCHEMA_EXPECTED_FIELDS.payments].sort(), [
+      'amount', 'id', 'invoiceId', 'note', 'paidAt', 'paymentMethod', 'transactionCode'
+    ].sort());
+
+    // 6. Feedback: 10 fields
+    assert.deepStrictEqual([...PRISMA_SCHEMA_EXPECTED_FIELDS.feedbacks].sort(), [
+      'content', 'createdAt', 'id', 'isResolved', 'repliedAt', 'reply', 'residentId', 'roomId', 'title', 'updatedAt'
+    ].sort());
+
+    // 7. Notification: 6 fields (Không có updatedAt)
+    assert.deepStrictEqual([...PRISMA_SCHEMA_EXPECTED_FIELDS.notifications].sort(), [
+      'authorId', 'content', 'createdAt', 'id', 'targetRoom', 'title'
+    ].sort());
+
+    // 8. MediaAsset: 17 fields
+    assert.deepStrictEqual([...PRISMA_SCHEMA_EXPECTED_FIELDS.mediaAssets].sort(), [
+      'bytes', 'confirmedAt', 'createdAt', 'deliveryType', 'duration', 'format', 'height', 'id',
+      'isConfirmed', 'publicId', 'purpose', 'resourceType', 'ticketId', 'updatedAt', 'uploaderId', 'url', 'width'
+    ].sort());
+  });
+
+  await runTest('8.5 compareDatasetSnapshots: Thiếu trường schema ở snapshot 1 hoặc snapshot 2 phải FAIL', () => {
+    // Trường hợp 1: Thiếu trường 'area' ở snapshot 1
+    const s1 = createBaseValidSnapshot();
+    const s2 = createBaseValidSnapshot();
+    delete (s1.rooms[0] as any).area;
+
+    const res1 = compareDatasetSnapshots(s1, s2);
+    assert.strictEqual(res1.isDeterministic, false);
+    assert.ok(res1.differences.some((d) => d.includes("snapshot 1 thiếu trường schema bắt buộc 'area'")));
+
+    // Trường hợp 2: Thiếu trường 'status' ở snapshot 2
+    const s3 = createBaseValidSnapshot();
+    const s4 = createBaseValidSnapshot();
+    delete (s4.rooms[0] as any).status;
+
+    const res2 = compareDatasetSnapshots(s3, s4);
+    assert.strictEqual(res2.isDeterministic, false);
+    assert.ok(res2.differences.some((d) => d.includes("snapshot 2 thiếu trường schema bắt buộc 'status'")));
+  });
+
+  await runTest('8.6 compareDatasetSnapshots: Thiếu trường schema ở CẢ HAI snapshots phải FAIL', () => {
+    const s1 = createBaseValidSnapshot();
+    const s2 = createBaseValidSnapshot();
+
+    // Xóa 'updatedAt' ở cả hai snapshots
+    delete (s1.rooms[0] as any).updatedAt;
+    delete (s2.rooms[0] as any).updatedAt;
+
+    const res = compareDatasetSnapshots(s1, s2);
+    assert.strictEqual(res.isDeterministic, false);
+    assert.ok(
+      res.differences.some((d) => d.includes("cả snapshot 1 và 2 đều thiếu trường schema bắt buộc 'updatedAt'")),
+      'Thiếu ở cả hai snapshot phải được ghi nhận và báo FAIL'
+    );
+  });
+
+  await runTest('8.7 Strict excludeFields: Từ chối bất kỳ trường nào ngoài duy nhất users.password', () => {
+    const s1 = createBaseValidSnapshot();
+    const s2 = createBaseValidSnapshot();
+
+    // 1. Cố ý loại trừ 'rooms.status'
+    const resRoom = compareDatasetSnapshots(s1, s2, {
+      excludeFields: { rooms: ['status'] },
+    });
+    assert.strictEqual(resRoom.isDeterministic, false);
+    assert.ok(resRoom.differences.some((d) => d.includes("Yêu cầu loại trừ không hợp lệ cho model 'rooms', trường 'status'")));
+
+    // 2. Cố ý loại trừ 'tickets.category'
+    const resTicket = compareDatasetSnapshots(s1, s2, {
+      excludeFields: { tickets: ['category'] },
+    });
+    assert.strictEqual(resTicket.isDeterministic, false);
+    assert.ok(resTicket.differences.some((d) => d.includes("Yêu cầu loại trừ không hợp lệ cho model 'tickets', trường 'category'")));
+
+    // 3. Cố ý loại trừ 'invoices.totalAmount'
+    const resInv = compareDatasetSnapshots(s1, s2, {
+      excludeFields: { invoices: ['totalAmount'] },
+    });
+    assert.strictEqual(resInv.isDeterministic, false);
+    assert.ok(resInv.differences.some((d) => d.includes("Yêu cầu loại trừ không hợp lệ cho model 'invoices', trường 'totalAmount'")));
+
+    // 4. Loại trừ hợp lệ: duy nhất 'users.password' (Bcrypt random salt)
+    const resPassword = compareDatasetSnapshots(s1, s2, {
+      excludeFields: { users: ['password'] },
+    });
+    assert.strictEqual(resPassword.isDeterministic, true, 'Loại trừ users.password phải được chấp nhận và PASS');
+  });
+
+  await runTest('8.8 areCanonicalValuesEqual: So sánh trực tiếp tránh va chạm sentinel undefined vs __UNDEFINED__', () => {
+    // 1. undefined vs undefined
+    assert.strictEqual(areCanonicalValuesEqual(undefined, undefined), true);
+
+    // 2. undefined vs chuỗi '__UNDEFINED__' -> BẮT BUỘC KHÔNG BẰNG NHAU (NO COLLISION)
+    assert.strictEqual(areCanonicalValuesEqual(undefined, '__UNDEFINED__'), false);
+    assert.strictEqual(areCanonicalValuesEqual('__UNDEFINED__', undefined), false);
+
+    // 3. '__UNDEFINED__' vs '__UNDEFINED__'
+    assert.strictEqual(areCanonicalValuesEqual('__UNDEFINED__', '__UNDEFINED__'), true);
+
+    // 4. null vs undefined
+    assert.strictEqual(areCanonicalValuesEqual(null, undefined), false);
+
+    // 5. null vs null
+    assert.strictEqual(areCanonicalValuesEqual(null, null), true);
+
+    // 6. Decimal so sánh chuẩn
+    const decA = new Prisma.Decimal('1500000.00');
+    const decB = new Prisma.Decimal('1500000.00');
+    const decC = new Prisma.Decimal('1500000.01');
+    assert.strictEqual(areCanonicalValuesEqual(decA, decB), true);
+    assert.strictEqual(areCanonicalValuesEqual(decA, decC), false);
+
+    // 7. Date so sánh chuẩn
+    const dateA = new Date('2026-10-15T08:00:00.000Z');
+    const dateB = new Date('2026-10-15T08:00:00.000Z');
+    const dateC = new Date('2026-10-15T08:00:00.001Z');
+    assert.strictEqual(areCanonicalValuesEqual(dateA, dateB), true);
+    assert.strictEqual(areCanonicalValuesEqual(dateA, dateC), false);
+
+    // 8. So sánh trong snapshot thực tế: note = null vs note = '__UNDEFINED__'
+    const s1 = createBaseValidSnapshot();
+    const s2 = createBaseValidSnapshot();
+    s1.payments[0].note = null;
+    s2.payments[0].note = '__UNDEFINED__';
+    const res = compareDatasetSnapshots(s1, s2);
+    assert.strictEqual(res.isDeterministic, false);
+    assert.ok(res.differences.some((d) => d.includes("field 'note' mismatch")));
+  });
+
+  await runTest('8.9 verifyDatasetDeterminism: Toàn bộ 1,440 bản ghi trên cả 8 models đơn định 100%', () => {
+    const res = verifyDatasetDeterminism({ seed: 20261111 });
+    assert.strictEqual(res.isDeterministic, true, 'Hai lần sinh dữ liệu với fixed password hash phải đơn định 100%');
+    assert.strictEqual(res.differences.length, 0);
+    assert.strictEqual(res.comparedModels.length, 8);
+    assert.strictEqual(res.totalRecordsCompared, 1440);
+  });
+
   restoreEnv();
 
   console.log('\n======================================================');
-  console.log(`🎉 TOÀN BỘ ${passedTests}/${totalTests} TESTS M10.1.1 ĐẠT CHUẨN!`);
+  console.log(`🎉 TOÀN BỘ ${passedTests}/${totalTests} TESTS M10.1.2 ĐẠT CHUẨN!`);
   console.log('======================================================');
 }
 

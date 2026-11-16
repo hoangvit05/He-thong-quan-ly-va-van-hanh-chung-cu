@@ -17,7 +17,7 @@ const BCRYPT_HASH_REGEX = /^\$2[abxy]\$\d{2}\$[./A-Za-z0-9]{53}$/;
  * Regex phát hiện số điện thoại Việt Nam (kể cả định dạng có dấu cách, dấu chấm, dấu gạch ngang)
  * Ví dụ: 0987123456, 0987.123.456, 0987-123-456, 0987 123 456, +84 987 123 456
  */
-const VN_PHONE_REGEX = /(?:(?:\+84|0)(?:3[2-9]|5[689]|7[06-9]|8[1-9]|9\d)(?:[\s.-]?\d){7})\b/g;
+const VN_PHONE_REGEX = /(?:(?:\+84|84|0)[\s.-]?(?:3[2-9]|5[689]|7[06-9]|8[1-9]|9\d)(?:[\s.-]?\d){7})\b/g;
 
 /**
  * Regex phát hiện dãy 12 chữ số liên tiếp tương ứng định dạng Căn cước công dân (CCCD)

@@ -272,9 +272,17 @@ Hệ thống kiểm định áp dụng nguyên tắc **Fail-Closed**, đối chi
    - **Username Masking**: Hàm `maskUsername` che giấu username trong error log (`ad***n`, `re***1`), loại bỏ hoàn toàn việc in username nguyên văn.
    - **Tài khoản Ngân hàng (STK)**: Quét chuỗi 8–19 chữ số đi kèm từ khóa ngữ cảnh ngân hàng. Che giấu `1903****9123`.
    - **Mật khẩu Băm**: Xác minh 100% mật khẩu User được băm Bcrypt chuẩn (`$2a$`, `$2b$`, `$2y$`).
-   - **Bảo Vệ Đường Đi Báo Cáo (Report Privacy & Error Path Protection)**:
-     - Tuyệt đối không đưa raw `err.message` từ exception không tin cậy vào report. Khi một check gặp ngoại lệ bất thường, hệ thống ghi nhận thông điệp đã sanitize: `Validation check failed unexpectedly; internal error details redacted for privacy.`.
-     - Báo cáo JSON (`validation-report.json`) được khử sạch credentials (`:***@`), không chứa stack trace, không chứa raw record và không ghi `passwordHash`.
+   - **Bảo Vệ Đường Đi Báo Cáo & Serializer Allowlist (Milestone 10.1.2 Report Sanitization)**:
+     - **Allowlist Serializer**: `saveValidationReport()` tuyệt đối không sử dụng spread operator (`{ ...report }`, `{ ...r }`). Chỉ tuần tự hóa các trường thuộc danh mục an toàn được phê duyệt (`timestamp`, `mode`, `targetDatabase`, `totalChecks`, `passedChecks`, `failedChecks`, `overallStatus`, `modelCounts`, `results`). Mọi trường lạ, raw exception, stack trace hoặc nested objects nhạy cảm ngoài allowlist đều bị triệt tiêu hoàn toàn.
+     - **Khử sạch PII đa tầng**: Mọi chuỗi văn bản trong `message`, `errors`, `details` và `targetDatabase` đều được khử sạch:
+       - Email (che giấu cả username và domain nhạy cảm).
+       - Số điện thoại Việt Nam (kể cả định dạng có dấu cách, dấu chấm, dấu gạch ngang, đầu số `+84` hay `0`).
+       - Số tài khoản ngân hàng (STK) 8–19 chữ số kèm ngữ cảnh.
+       - Định danh người dùng (Username) dạng `username: ...` hoặc `người dùng '...'`.
+       - Chuỗi băm Bcrypt (`$2a$`, `$2b$`, `$2x$`, `$2y$`) được thay bằng `[REDACTED_BCRYPT_HASH]`.
+       - Mật khẩu, token, secret, credential, Bearer token (`[REDACTED_SECRET]`, `[REDACTED_TOKEN]`).
+       - Stack trace và đường dẫn mã nguồn nội bộ (`[REDACTED_STACK_TRACE]`, `[REDACTED_SOURCE_PATH]`).
+     - **CLI Sanitized Error Logging**: `runValidationCLI()` bọc toàn bộ thông báo lỗi trong `sanitizeTextForReport()`, tuyệt đối không in raw exception message hay stack trace nhạy cảm ra `console.error` hoặc `console.warn`.
    - *Lưu ý*: Quét regex có giới hạn kỹ thuật, không thể đảm bảo 100% nếu PII bị biến dạng; nghiêm cấm tuyệt đối đưa dữ liệu cư dân thật vào mã nguồn.
 
 4. **Kiểm toán Quan hệ & Ràng Buộc Duy Nhất (Blocker F — Relational Audit)**:
@@ -297,23 +305,35 @@ Hệ thống kiểm định áp dụng nguyên tắc **Fail-Closed**, đối chi
 
 - **So Sánh Canonical Business Snapshot trên Cả 8 Models**:
   Hàm `compareDatasetSnapshots()` và `verifyDatasetDeterminism()` thực hiện so sánh toàn diện 100% tất cả bản ghi và mọi trường nghiệp vụ của toàn bộ 8 Prisma models (Room: 100, User: 128, Ticket: 175, Invoice: 500, Payment: 472, Feedback: 40, Notification: 25, MediaAsset: 0 — Tổng cộng **1,440 bản ghi**):
-  - **Chuẩn hóa giá trị (Canonicalization)**:
-    - Sắp xếp thứ tự object keys theo alphabet ổn định.
-    - Chuyển đổi `Prisma.Decimal` sang chuỗi thập phân chính xác (`dec.toString()`), giữ nguyên độ chính xác, không ép kiểu sang JavaScript Number để tránh mất precision.
-    - Chuẩn hóa `Date` thành ISO 8601 string (`date.toISOString()`).
-    - Phân biệt rõ rệt `null`, `undefined` (`__UNDEFINED__`) và giá trị rỗng.
+  - **Thẩm Tra Ràng Buộc Schema & So Sánh Giá Trị Chuẩn Hóa (Milestone 10.1.2 Schema Hardening)**:
+    - **Tập trường mong đợi theo Prisma Schema (`PRISMA_SCHEMA_EXPECTED_FIELDS`)**:
+      Đối chiếu 100% tất cả các trường vô hướng (scalar fields) của toàn bộ 8 models theo `schema.prisma`:
+      - `Room` (7 trường): `id`, `roomNumber`, `floor`, `area`, `status`, `createdAt`, `updatedAt`.
+      - `User` (11 trường): `id`, `username`, `password`, `fullName`, `phone`, `email`, `role`, `roomId`, `isApproved`, `createdAt`, `updatedAt`.
+      - `Ticket` (16 trường): `id`, `title`, `category`, `description`, `mediaUrl`, `status`, `roomId`, `residentId`, `technicianId`, `materials`, `completedMediaUrl`, `rating`, `ratingComment`, `isDuplicate`, `createdAt`, `updatedAt`.
+      - `Invoice` (13 trường): `id`, `roomId`, `month`, `managementFee`, `parkingFee`, `waterFee`, `otherFee`, `totalAmount`, `paidAmount`, `dueDate`, `status`, `createdAt`, `updatedAt`.
+      - `Payment` (7 trường): `id`, `invoiceId`, `amount`, `paymentMethod`, `transactionCode`, `note`, `paidAt` (không có createdAt/updatedAt theo schema).
+      - `Feedback` (10 trường): `id`, `residentId`, `roomId`, `title`, `content`, `reply`, `isResolved`, `repliedAt`, `createdAt`, `updatedAt`.
+      - `Notification` (6 trường): `id`, `title`, `content`, `targetRoom`, `authorId`, `createdAt` (không có updatedAt theo schema).
+      - `MediaAsset` (17 trường): `id`, `publicId`, `url`, `resourceType`, `deliveryType`, `purpose`, `bytes`, `format`, `width`, `height`, `duration`, `uploaderId`, `ticketId`, `isConfirmed`, `confirmedAt`, `createdAt`, `updatedAt`.
+    - **Thẩm định Sự Hiện Diện Của Trường Schema Trên Từng Bản Ghi**:
+      Validator kiểm tra sự tồn tại của 100% các trường schema trên mọi bản ghi. Nếu bất kỳ trường schema nào bị thiếu ở snapshot 1, snapshot 2, hoặc thiếu ở cả hai snapshots, phép so sánh lập tức ghi nhận vi phạm và kết luận FAIL.
+    - **Chính Sách Loại Trừ Nghiêm Ngặt (`Strict excludeFields`)**:
+      Hệ thống áp dụng chính sách Fail-Closed đối với danh sách loại trừ: **CHỈ DUY NHẤT trường `users.password` được phép đưa vào `excludeFields`** do tính chất muối ngẫu nhiên của thuật toán Bcrypt. Bất kỳ yêu cầu loại trừ trường nghiệp vụ nào khác (ví dụ: `rooms.status`, `tickets.category`, `invoices.totalAmount`, ...) đều bị từ chối tuyệt đối và làm hỏng kết quả kiểm định (`isDeterministic = false`).
+    - **So Sánh Bình Đẳng Ngữ Nghĩa Trực Tiếp (`areCanonicalValuesEqual`)**:
+      So sánh trực tiếp giá trị giữa hai bản ghi mà không dựa vào chuỗi sentinel `'__UNDEFINED__'`, triệt tiêu hoàn toàn nguy cơ va chạm chuỗi (sentinel collision) khi dữ liệu thực tế chứa chuỗi `'__UNDEFINED__'`. Hỗ trợ so sánh Decimal chính xác tuyệt đối qua `equals()`, Date qua timestamp `getTime()`, và đệ quy cấu trúc mảng / đối tượng đã sắp xếp khóa ổn định.
   - **Chính sách về Mật Khẩu Băm (Password Hash Determinism)**:
     - Khi kiểm định determinism, generator nhận cùng một hash Bcrypt đầu vào cố định (`fixedPasswordHash`). Nhờ đó, **100% tất cả các trường (bao gồm cả `User.password`) đều trùng khớp tuyệt đối, không có bất kỳ trường nào bị loại trừ (`excludedFields = {}`)**.
     - Nếu hai lần chạy độc lập không truyền `passwordHash`, trường duy nhất có sự khác biệt là `User.password` do cơ chế sinh muối ngẫu nhiên (`crypto.randomBytes`) của thuật toán Bcrypt. Bộ so sánh hỗ trợ tham số `excludeFields: { users: ['password'] }` với lý do kỹ thuật rõ ràng này.
   - **Độ nhạy phát hiện vi phạm**: Bất kỳ thay đổi nào trên từng trường nghiệp vụ của bất kỳ model nào (kể cả các trường như `Ticket.materials`, `Invoice.waterFee`, `Feedback.reply`, `Payment.note`, `Notification.targetRoom`, `Room.status`) đều bị phát hiện ngay lập tức.
 - **Lưu Báo Cáo Kiểm Định JSON**:
-  Hàm `saveValidationReport()` tự động xuất báo cáo kết quả chi tiết ra tệp `backend/dataset/reports/validation-report.json`, bao gồm trạng thái tổng thể, số lượng kiểm tra, chi tiết lỗi từng nhóm và siêu dữ liệu môi trường đã được sanitize.
+  Hàm `saveValidationReport()` tự động xuất báo cáo kết quả chi tiết ra tệp `backend/dataset/reports/validation-report.json`, bao gồm trạng thái tổng thể, số lượng kiểm tra, chi tiết lỗi từng nhóm và siêu dữ liệu môi trường đã được sanitize qua Allowlist Serializer.
 
 ---
 
 > [!NOTE]
 > **Hiện trạng Kiểm chứng & Giới hạn Thực thi Cơ sở Dữ liệu**:  
 > 1. **In-Memory Validation**: Đã được kiểm thử 100% và đạt kết quả PASS toàn diện trên cả 8 nhóm tiêu chuẩn nghiệp vụ.
-> 2. **Stateful Mock Transactions**: Đã được kiểm chứng 100% (47/47 tests PASS trong validation suite, 238/238 tests toàn bộ dự án PASS).
+> 2. **Stateful Mock Transactions**: Đã được kiểm chứng 100% (56/56 tests PASS trong validation suite, 247/247 tests toàn bộ dự án PASS).
 > 3. **PostgreSQL Sandbox Integration**: **Chưa được thực hiện trên cơ sở dữ liệu PostgreSQL thật**. Hệ thống tuân thủ nghiêm ngặt nguyên tắc an toàn: chỉ thực thi seed và database validation khi người dùng cung cấp và xác nhận một môi trường database sandbox chuyên dụng (tuyệt đối không chạy trên môi trường production).
 
