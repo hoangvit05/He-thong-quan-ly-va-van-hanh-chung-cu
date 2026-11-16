@@ -119,13 +119,13 @@ Expected output:
 
 ## MILESTONE 08 — MEDIA ASSET POLICY AND REAL ASSET INTEGRATION
 
-- [ ] Inspect the existing Cloudinary Direct Signed Upload flow.
-- [ ] Document the legitimate upload and confirmation process.
-- [ ] Never fabricate Cloudinary URLs.
-- [ ] Never invent public IDs or verified metadata.
-- [ ] Keep MediaAsset empty when no real verified assets exist.
-- [ ] If genuine assets are supplied, verify them through the backend workflow.
-- [ ] Preserve all MediaAsset schema fields.
+- [x] Inspect the existing Cloudinary Direct Signed Upload flow.
+- [x] Document the legitimate upload and confirmation process.
+- [x] Never fabricate Cloudinary URLs.
+- [x] Never invent public IDs or verified metadata.
+- [x] Keep MediaAsset empty when no real verified assets exist.
+- [x] If genuine assets are supplied, verify them through the backend workflow.
+- [x] Preserve all MediaAsset schema fields.
 
 Expected output:
 - Dataset media instructions and verification documentation.

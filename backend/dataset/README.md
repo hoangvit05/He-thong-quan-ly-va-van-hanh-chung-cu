@@ -76,8 +76,19 @@ backend/dataset/
    - Tuyệt đối **KHÔNG dùng `prisma.model.deleteMany()` bừa bãi** làm thao tác dọn dẹp thường quy.
 3. **Idempotent / Upsert an toàn**:
    - Sử dụng khóa duy nhất (unique keys như `roomNumber`, `username`, `[roomId, month]`) để đảm bảo việc chạy lại (rerun) không gây trùng lặp bản ghi hoặc crash hệ thống.
-4. **Không tạo tài nguyên Media giả mạo**:
-   - Không sinh bản ghi `MediaAsset` giả đánh dấu `isConfirmed = true`. Nếu không có Cloudinary thật, số lượng bản ghi `MediaAsset` được giữ bằng 0.
+4. **Chính sách MediaAsset & Tích hợp Tài sản Thật (Milestone 8)**:
+   - **Zero-Asset Default**: Mặc định dataset có 0 bản ghi `MediaAsset`.
+   - **Chống tài nguyên giả mạo**: Tuyệt đối không tự sinh Cloudinary URL, publicId, signature hoặc metadata giả mạo; không tự đặt `isConfirmed = true`.
+   - **Quy trình upload & confirm hợp lệ của Backend**:
+     1. Client gửi yêu cầu cấp chữ ký tới `POST /api/media/signature` kèm mục đích (`purpose`: `tickets`, `materials`, `announcements`), `resourceType` (`image` hoặc `video`) và `ticketId` (nếu có).
+     2. Backend xác thực vai trò (RBAC), tạo `folder` an toàn, sinh HMAC-SHA256 `intentToken` có thời hạn 15 phút và chữ ký Cloudinary Direct Upload.
+     3. Client tải trực tiếp tệp lên Cloudinary thông qua URL được cấp chữ ký.
+     4. Client gửi yêu cầu xác nhận tới `POST /api/media/confirm` kèm `intentToken` và `publicId`.
+     5. Backend xác thực `intentToken`, truy vấn Cloudinary Admin API (`cloudinary.api.resource`) để lấy kích thước bytes và format thực tế:
+        - Ảnh: tối đa 5 MB (5,242,880 bytes), format: `jpg`, `jpeg`, `png`, `webp`.
+        - Video: tối đa 20 MB (20,971,520 bytes), format: `mp4`, `mov`.
+     6. Chỉ khi vượt qua kiểm duyệt, Backend mới lưu bản ghi vào bảng `MediaAsset` với `isConfirmed = true` và `confirmedAt = now()`.
+   - **Seed Engine**: Không gọi Cloudinary API và không upload file giả trong quá trình seed. Chỉ các tài sản thật đã qua quy trình trên mới được hợp thức hóa.
 
 ---
 
