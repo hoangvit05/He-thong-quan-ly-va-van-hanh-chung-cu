@@ -76,19 +76,33 @@ backend/dataset/
    - Tuyệt đối **KHÔNG dùng `prisma.model.deleteMany()` bừa bãi** làm thao tác dọn dẹp thường quy.
 3. **Idempotent / Upsert an toàn**:
    - Sử dụng khóa duy nhất (unique keys như `roomNumber`, `username`, `[roomId, month]`) để đảm bảo việc chạy lại (rerun) không gây trùng lặp bản ghi hoặc crash hệ thống.
-4. **Chính sách MediaAsset & Tích hợp Tài sản Thật (Milestone 8)**:
-   - **Zero-Asset Default**: Mặc định dataset có 0 bản ghi `MediaAsset`.
-   - **Chống tài nguyên giả mạo**: Tuyệt đối không tự sinh Cloudinary URL, publicId, signature hoặc metadata giả mạo; không tự đặt `isConfirmed = true`.
-   - **Quy trình upload & confirm hợp lệ của Backend**:
-     1. Client gửi yêu cầu cấp chữ ký tới `POST /api/media/signature` kèm mục đích (`purpose`: `tickets`, `materials`, `announcements`), `resourceType` (`image` hoặc `video`) và `ticketId` (nếu có).
-     2. Backend xác thực vai trò (RBAC), tạo `folder` an toàn, sinh HMAC-SHA256 `intentToken` có thời hạn 15 phút và chữ ký Cloudinary Direct Upload.
-     3. Client tải trực tiếp tệp lên Cloudinary thông qua URL được cấp chữ ký.
-     4. Client gửi yêu cầu xác nhận tới `POST /api/media/confirm` kèm `intentToken` và `publicId`.
-     5. Backend xác thực `intentToken`, truy vấn Cloudinary Admin API (`cloudinary.api.resource`) để lấy kích thước bytes và format thực tế:
-        - Ảnh: tối đa 5 MB (5,242,880 bytes), format: `jpg`, `jpeg`, `png`, `webp`.
-        - Video: tối đa 20 MB (20,971,520 bytes), format: `mp4`, `mov`.
-     6. Chỉ khi vượt qua kiểm duyệt, Backend mới lưu bản ghi vào bảng `MediaAsset` với `isConfirmed = true` và `confirmedAt = now()`.
-   - **Seed Engine**: Không gọi Cloudinary API và không upload file giả trong quá trình seed. Chỉ các tài sản thật đã qua quy trình trên mới được hợp thức hóa.
+4. **Chính sách MediaAsset & Quy trình Tải lên Hợp lệ của Backend (Milestone 8 & 8.1)**:
+   - **Zero-Asset Default**: Mặc định dataset có **0** bản ghi `MediaAsset` (`MAX_VERIFIED = 0`). Dataset seed engine tuyệt đối không tự tạo hoặc giả lập tài nguyên đa phương tiện.
+   - **Chống tài nguyên giả mạo**: Tuyệt đối không tự sinh Cloudinary URL, publicId, signature hoặc metadata giả; không tự đặt `isConfirmed = true`; không có API nhận dữ liệu tự khai báo từ caller để hợp thức hóa thành MediaAsset.
+   - **Quy trình Media Upload & Xác thực hợp lệ của Backend**:
+     Tài sản MediaAsset thật chỉ được tạo ra thông qua luồng nghiệp vụ chính thống của backend application:
+     1. **Cấp chữ ký & Intent Token (`POST /api/media/signature`)**:
+        - **Phân quyền vai trò (RBAC)**:
+          - `tickets`: `RESIDENT`, `BQL`, `ADMIN`. Nếu có `ticketId`: Cư dân chỉ được tải ảnh cho phiếu của chính mình hoặc cùng căn hộ; thợ kỹ thuật bị cấm (`FORBIDDEN_TECH_PURPOSE`).
+          - `materials`: `TECHNICIAN`, `BQL`, `ADMIN`. Bắt buộc phải có `ticketId` (`MISSING_TICKET_ID`); cư dân bị cấm (`FORBIDDEN_RESIDENT_MATERIALS`).
+          - `announcements`: `BQL`, `ADMIN` (thông báo tòa nhà, không gắn `ticketId`).
+        - **Ràng buộc phân công thợ & trạng thái Ticket đối với `materials`**:
+          - Thợ kỹ thuật bắt buộc phải là người được chỉ định phụ trách phiếu sự cố đó (`ticket.technicianId === currentUser.id`).
+          - Phiếu sự cố bắt buộc phải đang ở trạng thái `IN_PROGRESS` hoặc `COMPLETED`.
+        - **Chính sách Delivery Type**:
+          - `announcements`: `'upload'` (công khai CDN cho toàn cư dân).
+          - `tickets` & `materials`: `'authenticated'` (riêng tư, chỉ truy cập qua Signed URL).
+        - **Giới hạn tệp**:
+          - Ảnh: Tối đa 5 MB (5,242,880 bytes), định dạng: `jpg`, `jpeg`, `png`, `webp`.
+          - Video: Tối đa 20 MB (20,971,520 bytes), định dạng: `mp4`, `mov`.
+        - Máy chủ sinh Upload Intent Token (HMAC-SHA256) có thời hạn 15 phút (900 giây) kèm chữ ký Cloudinary Direct Upload.
+     2. **Tải lên trực tiếp**: Client tải tệp trực tiếp từ thiết bị lên Cloudinary qua URL đã ký.
+     3. **Xác nhận & Kiểm duyệt qua Admin API (`POST /api/media/confirm`)**:
+        - Client gửi `publicId`, `intentToken` và `resourceType` lên backend.
+        - Backend xác thực chữ ký và hạn 15 phút của `intentToken`, kiểm tra khớp chủ sở hữu (`userId`) và `publicId`.
+        - Backend truy vấn Cloudinary Admin API (`cloudinary.api.resource`) để lấy kích thước bytes và định dạng thực tế. Nếu vượt dung lượng hoặc sai định dạng, backend tự động xóa tệp trên Cloudinary (`cloudinary.uploader.destroy`) và từ chối.
+        - Chỉ sau khi xác minh thành công qua Admin API, Backend mới lưu bản ghi vào bảng `MediaAsset` trên PostgreSQL với `isConfirmed = true` và `confirmedAt = now()`.
+   - **Seed Engine Scope**: Dataset seed không gọi Cloudinary API, không gọi backend API, và không giả lập quy trình xác minh. Generator luôn duy trì chế độ Zero-Asset.
 
 ---
 
