@@ -6,7 +6,7 @@
 
 import path from 'path';
 import dotenv from 'dotenv';
-import { Role } from '@prisma/client';
+import { Role, Prisma } from '@prisma/client';
 import defaultPrisma from '../../src/database/prisma';
 import { DATASET_CONFIG } from '../config/dataset.config';
 import { PRNG } from './utils/random';
@@ -262,18 +262,17 @@ export function assertSafeDatabaseEnvironment(
 
   const currentTarget: DatabaseTarget = { host: hostname, port, database: dbName };
 
-  // 6. Phát hiện dấu hiệu Production (Fail-Closed)
+  // 6. Phát hiện dấu hiệu Production toàn diện (Fail-Closed, không phụ thuộc dấu phân cách)
   const prodKeywords = ['prod', 'production', 'live', 'main', 'master', 'release'];
   for (const kw of prodKeywords) {
-    const regex = new RegExp(`(^|[._-])${kw}([._-]|$)`, 'i');
-    if (regex.test(hostname) || hostname === kw) {
+    if (hostname.includes(kw)) {
       throw new Error(
-        `[FATAL DATABASE SAFETY ERROR] Phát hiện dấu hiệu Production trong hostname ('${kw}'). Tuyệt đối từ chối thực thi kể cả khi có ALLOW_DATASET_SEED=true!`
+        `[FATAL DATABASE SAFETY ERROR] Phát hiện dấu hiệu Production trong hostname ('${kw}' trong '${hostname}'). Tuyệt đối từ chối thực thi kể cả khi có ALLOW_DATASET_SEED=true!`
       );
     }
-    if (regex.test(dbName) || dbName === kw) {
+    if (dbName.includes(kw)) {
       throw new Error(
-        `[FATAL DATABASE SAFETY ERROR] Phát hiện dấu hiệu Production trong tên database ('${kw}'). Tuyệt đối từ chối thực thi kể cả khi có ALLOW_DATASET_SEED=true!`
+        `[FATAL DATABASE SAFETY ERROR] Phát hiện dấu hiệu Production trong tên database ('${kw}' trong '${dbName}'). Tuyệt đối từ chối thực thi kể cả khi có ALLOW_DATASET_SEED=true!`
       );
     }
   }
@@ -589,40 +588,56 @@ export async function executeSeed(options: SeedOrchestrationOptions = {}): Promi
   // 4. Lấy Prisma Client
   const client: any = options.prismaClient ?? defaultPrisma;
 
+  let currentStage = 'INIT';
   try {
-    // 5. Kiểm tra dữ liệu hiện hữu trên database target (Non-Destructive Fail-Closed Protection)
-    logger('[Seed Safety] Kiểm tra dữ liệu hiện hữu trên target database (Non-Destructive Check)...');
-    const [roomCount, userCount, invoiceCount, paymentCount, ticketCount, feedbackCount, notificationCount] =
-      await Promise.all([
-        client.room.count(),
-        client.user.count(),
-        client.invoice.count(),
-        client.payment.count(),
-        client.ticket.count(),
-        client.feedback.count(),
-        client.notification.count(),
-      ]);
-
-    const existingTotal =
-      roomCount + userCount + invoiceCount + paymentCount + ticketCount + feedbackCount + notificationCount;
-
-    if (existingTotal > 0) {
-      throw new Error(
-        `[FATAL DATABASE SAFETY ERROR] Phát hiện dữ liệu hiện hữu trên database target (` +
-          `Room: ${roomCount}, User: ${userCount}, Invoice: ${invoiceCount}, Payment: ${paymentCount}, ` +
-          `Ticket: ${ticketCount}, Feedback: ${feedbackCount}, Notification: ${notificationCount}). ` +
-          `Do Prisma schema hiện tại không có trường định danh dataset (như datasetBatchId hoặc isDataset), ` +
-          `hệ thống TUYỆT ĐỐI KHÔNG dùng upsert/update hoặc xóa dữ liệu để tránh làm hỏng hoặc ghi đè dữ liệu ứng dụng. ` +
-          `Hệ thống từ chối seed theo chính sách Fail-Closed. Vui lòng chạy trên database rỗng chuyên dụng hoặc đề xuất bổ sung dataset identity marker.`
-      );
-    }
-
-    // 6. Ghi dữ liệu vào database trong một transaction an toàn
-    logger('[Seed] Khởi tạo transaction ghi dữ liệu vào database (Timeout: 60s)...');
-    let currentStage = 'INIT';
+    // 5. Ghi dữ liệu vào database trong một transaction Serializable bảo đảm kiểm tra rỗng nguyên tử
+    logger('[Seed] Khởi tạo giao dịch Serializable bảo đảm kiểm tra rỗng nguyên tử và ghi dataset (Timeout: 60s)...');
 
     await client.$transaction(
       async (tx: any) => {
+        // Giai đoạn 0: Thẩm tra cơ sở dữ liệu rỗng nguyên tử (Atomic Empty Database Check - Chống TOCTOU)
+        currentStage = 'EMPTY_CHECK';
+        const [
+          roomCount,
+          userCount,
+          invoiceCount,
+          paymentCount,
+          ticketCount,
+          feedbackCount,
+          notificationCount,
+          mediaAssetCount,
+        ] = await Promise.all([
+          tx.room.count(),
+          tx.user.count(),
+          tx.invoice.count(),
+          tx.payment.count(),
+          tx.ticket.count(),
+          tx.feedback.count(),
+          tx.notification.count(),
+          tx.mediaAsset.count(),
+        ]);
+
+        const existingTotal =
+          roomCount +
+          userCount +
+          invoiceCount +
+          paymentCount +
+          ticketCount +
+          feedbackCount +
+          notificationCount +
+          mediaAssetCount;
+
+        if (existingTotal > 0) {
+          throw new Error(
+            `[FATAL DATABASE SAFETY ERROR] Phát hiện dữ liệu hiện hữu trên database target (` +
+              `Room: ${roomCount}, User: ${userCount}, Invoice: ${invoiceCount}, Payment: ${paymentCount}, ` +
+              `Ticket: ${ticketCount}, Feedback: ${feedbackCount}, Notification: ${notificationCount}, MediaAsset: ${mediaAssetCount}). ` +
+              `Do Prisma schema hiện tại không có trường định danh dataset (như datasetBatchId hoặc isDataset), ` +
+              `hệ thống TUYỆT ĐỐI KHÔNG dùng upsert/update hoặc xóa dữ liệu để tránh làm hỏng hoặc ghi đè dữ liệu ứng dụng. ` +
+              `Giao dịch bị hủy và rollback theo chính sách Fail-Closed. Vui lòng chạy trên database rỗng chuyên dụng hoặc đề xuất bổ sung dataset identity marker.`
+          );
+        }
+
         // Giai đoạn 1: Room (Master Data)
         currentStage = 'ROOM';
         const roomIdMap = new Map<number, number>();
@@ -776,10 +791,20 @@ export async function executeSeed(options: SeedOrchestrationOptions = {}): Promi
           throw new Error('Vi phạm chính sách Zero-Asset: Tuyệt đối không tạo bản ghi MediaAsset giả mạo vào database.');
         }
       },
-      { timeout: 60000, maxWait: 10000 }
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        timeout: 60000,
+        maxWait: 10000,
+      }
     );
   } catch (err: any) {
-    logger(`[Seed Error] Ghi dữ liệu thất bại: ${err.message}`);
+    if (err.code === 'P2034' || err.message?.toLowerCase().includes('serialization')) {
+      logger(
+        `[Seed Error] Xung đột giao dịch tuần tự (Serialization Conflict): ${err.message}. Giao dịch đã được hủy an toàn và rollback. Không tự động retry thiếu kiểm soát.`
+      );
+    } else {
+      logger(`[Seed Error] Ghi dữ liệu thất bại tại giai đoạn [${currentStage}]: ${err.message}`);
+    }
     throw err;
   } finally {
     if (!options.skipPrismaDisconnect && typeof client.$disconnect === 'function') {

@@ -115,29 +115,32 @@ backend/dataset/
 
 ---
 
-5. **Điều phối Seed & Bảo vệ An toàn Cơ sở Dữ liệu (Milestone 9.1 - Database Safety & Non-Destructive Seed)**:
+5. **Điều phối Seed & Bảo vệ An toàn Cơ sở Dữ liệu (Milestone 9.1.1 - Atomic Empty Check & Production Guard)**:
    - **Khai báo Database Target Allowlist bắt buộc**:
      - Cấu hình qua biến môi trường `DATASET_DB_ALLOWLIST` (chuỗi phân tách dấu phẩy `host:port/dbname` hoặc JSON array `[{"host":"...","port":5432,"database":"..."}]`).
      - Tuyệt đối không hardcode allowlist mặc định trong source code.
      - So sánh mục tiêu thực tế trích xuất từ `DATABASE_URL` (host, port, dbName) với allowlist. Mọi trường hợp thiếu allowlist hoặc mismatch target đều bị từ chối (Fail-Closed) trước khi kết nối DB.
      - Không bao giờ mặc định ngầm hiểu `localhost`, `postgres`, hay `apartment_db` là môi trường an toàn.
-   - **Bật Opt-in & Chặn Production**:
+   - **Bật Opt-in & Production Guard Toàn diện (Substring Pattern)**:
      - Bắt buộc `NODE_ENV !== 'production'`.
      - Bắt buộc cờ xác nhận rõ ràng `ALLOW_DATASET_SEED=true`.
-     - Quét từ khóa Production (`prod`, `production`, `live`, `main`, `master`, `release`) trong cả hostname và tên database, chặn đứng kể cả khi được đưa vào allowlist.
+     - Quét từ khóa Production (`prod`, `production`, `live`, `main`, `master`, `release`) trong cả hostname và tên database dưới dạng chuỗi con (substring) không phụ thuộc dấu phân cách (ngăn chặn triệt để các trường hợp như `production-db`, `myproductiondb`, `myprodserver`, `apartment-main`, `release-db`).
+     - Target có dấu hiệu Production tuyệt đối bị chặn kể cả khi caller cố ý đưa vào allowlist.
      - Che giấu thông tin nhạy cảm: Tuyệt đối không log username/password hay raw DATABASE_URL.
-   - **Bảo vệ Không Phá Hủy (Non-Destructive Safety Strategy)**:
-     - Trước khi mở transaction ghi dữ liệu, seed engine thẩm tra số lượng bản ghi hiện hữu (`count()`) trên toàn bộ 7 models (Room, User, Invoice, Payment, Ticket, Feedback, Notification).
-     - **Điều kiện từ chối seed**: Nếu phát hiện bất kỳ bảng nào có dữ liệu hiện hữu, seed engine lập tức ngắt tiến trình và ném lỗi từ chối (Fail-Closed).
-     - **Không ghi đè dữ liệu ứng dụng**: Tuyệt đối không dùng `upsert`, `update`, hoặc `findFirst` với các trường nghiệp vụ để tránh sửa nhầm dữ liệu ứng dụng. Mọi thao tác ghi mới chỉ sử dụng `create` thuần túy.
+   - **Thẩm tra Rỗng Nguyên tử (Atomic Empty Database Check - Anti-TOCTOU)**:
+     - Việc kiểm tra cơ sở dữ liệu rỗng và toàn bộ thao tác `create` được thực thi **bên trong cùng một Prisma Interactive Transaction** với mức cô lập cao nhất: `isolationLevel: Prisma.TransactionIsolationLevel.Serializable`.
+     - Kiểm tra toàn bộ 8 models: Room, User, Invoice, Payment, Ticket, Feedback, Notification, MediaAsset.
+     - **Điều kiện từ chối seed**: Nếu bất kỳ model nào có count > 0, transaction lập tức throw lỗi và rollback sạch sẽ. Tuyệt đối không có lệnh `create` nào xảy ra trước khi kiểm tra rỗng hoàn tất.
+     - **Xử lý Serialization Conflict**: Nếu xảy ra xung đột tuần tự do ghi đồng thời (`P2034` hoặc Serialization Failure), transaction bị hủy an toàn và rollback; hệ thống không tự động retry thiếu kiểm soát.
+     - **Không ghi đè dữ liệu ứng dụng**: Tuyệt đối không dùng `upsert`, `update`, hoặc `findFirst` với các trường nghiệp vụ. Mọi thao tác ghi mới chỉ sử dụng `create` thuần túy.
      - Tuyệt đối không sử dụng `deleteMany`, `delete`, `TRUNCATE` hay raw SQL để dọn dẹp dữ liệu.
    - **Giới hạn Rerun & Đề xuất Kiến trúc Identity Marker**:
      - Do Prisma schema hiện tại không có trường định danh nguồn gốc dataset (như `datasetBatchId String?` hoặc `isDataset Boolean @default(false)`), hệ thống không thể phân biệt bản ghi dataset với bản ghi người dùng thực tế.
      - Do đó, **hệ thống từ chối rerun trên database đã có dữ liệu**. Muốn seed lại, cần chạy trên database rỗng chuyên dụng được chỉ định trong allowlist.
      - Để hỗ trợ rerun an toàn và idempotency thực thụ trong tương lai, kiến trúc khuyến nghị bổ sung trường `datasetBatchId` vào schema thông qua migration chính thức.
    - **Giao dịch Interactive Transaction (Atomicity Guard)**:
-     - Toàn bộ quá trình tạo bản ghi được thực thi trong Prisma Interactive Transaction với `timeout: 60000` (60 giây).
-     - **Lưu ý quan trọng**: Transaction rollback là cơ chế bảo vệ tính nguyên tử (Atomicity - All or Nothing) khi có lỗi phát sinh trong quá trình nạp, **không phải** cơ chế bảo vệ khỏi việc ghi đè dữ liệu ứng dụng (việc này được đảm bảo bởi Non-Destructive Check ở trên).
+     - Toàn bộ quá trình tạo bản ghi được thực thi trong Prisma Interactive Transaction với `isolationLevel: Serializable` và `timeout: 60000` (60 giây).
+     - **Lưu ý quan trọng**: Transaction rollback là cơ chế bảo vệ tính nguyên tử (Atomicity - All or Nothing) khi có lỗi phát sinh trong quá trình nạp, **không phải** cơ chế bảo vệ khỏi việc ghi đè dữ liệu ứng dụng (việc này được đảm bảo bởi Atomic Empty Check ở trên).
    - **Ánh xạ ID Động (Dynamic ID Mapping)**:
      - Ghi nhận ID thực tế do database tự sinh cho Room, User, Invoice để ánh xạ chính xác 100% vào các quan hệ khóa ngoại (User.roomId, Invoice.roomId, Payment.invoiceId, Ticket.residentId/technicianId/roomId, Feedback.residentId/roomId, Notification.authorId).
 
@@ -157,10 +160,10 @@ ALLOW_DATASET_SEED=true DATASET_DB_ALLOWLIST="localhost:5432/apartment_demo" npx
 
 ### 5.2. Chạy bộ kiểm thử (Unit & Regression Tests)
 ```bash
-# Chạy kiểm thử điều phối seed & an toàn database M9.1
+# Chạy kiểm thử điều phối seed & an toàn database M9.1.1
 npx ts-node -T dataset/validation/seed-orchestration.test.ts
 
-# Chạy kiểm định toàn bộ các bộ generator (M3 - M9.1)
+# Chạy kiểm định toàn bộ các bộ generator (M3 - M9.1.1)
 npx ts-node -T dataset/validation/reference-data.test.ts
 npx ts-node -T dataset/validation/room-user-generator.test.ts
 npx ts-node -T dataset/validation/invoice-payment-generator.test.ts
