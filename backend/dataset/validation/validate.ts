@@ -1,10 +1,12 @@
 // =========================================================================
 // HỆ THỐNG KIỂM ĐỊNH CHẤT LƯỢNG DATASET (DATASET VALIDATION RUNNER)
 // Phân hệ: backend/dataset/validation/validate.ts
-// Đặc tả: Milestone 10 — Hai chế độ IN_MEMORY và DATABASE (Read-Only Safety Guard)
+// Đặc tả: Milestone 10.1 — Red Team Fix: RepeatableRead Isolation, Report Consistency & Persistence
 // =========================================================================
 
-import { PrismaClient, Role } from '@prisma/client';
+import * as fs from 'fs';
+import * as path from 'path';
+import { PrismaClient, Prisma, Role } from '@prisma/client';
 import { DATASET_CONFIG } from '../config/dataset.config';
 import { generateEntireDataset, sanitizeDatabaseUrl } from '../seed/index';
 import { checkCounts, validateCounts } from './checks/counts.check';
@@ -175,7 +177,6 @@ export function assertSafeDatabaseValidation(
   }
 
   // 2. Bắt buộc có cờ xác nhận độc lập cho validation: ALLOW_DATASET_VALIDATION === 'true'
-  // Tuyệt đối không chấp nhận ALLOW_DATASET_SEED thay thế
   const optIn = process.env.ALLOW_DATASET_VALIDATION;
   if (optIn !== 'true') {
     throw new Error(
@@ -191,7 +192,7 @@ export function assertSafeDatabaseValidation(
 
   const currentTarget = parseValidationDatabaseTarget(effectiveUrl);
 
-  // 4. Kiểm tra từ chối các dấu hiệu production (kể cả khi cố tình đưa vào allowlist)
+  // 4. Kiểm tra từ chối các dấu hiệu production
   if (isValidationProductionTarget(currentTarget)) {
     throw new Error(
       `[FATAL VALIDATION SAFETY] Phát hiện dấu hiệu PRODUCTION trong target '${formatDatabaseTarget(
@@ -231,48 +232,79 @@ export function assertSafeDatabaseValidation(
 }
 
 /**
+ * Danh sách 8 tên tiêu chuẩn kiểm định chính thức
+ */
+export const VALIDATION_CHECK_NAMES = [
+  'Counts Integrity Check',
+  'Relational Integrity Check',
+  'Financial Consistency Check',
+  'Ticket Consistency Check',
+  'Feedback Integrity Check',
+  'Notification Integrity Check',
+  'Media Integrity Check',
+  'Privacy & PII Integrity Check',
+] as const;
+
+/**
  * Động cơ kiểm định tính toàn vẹn thuần túy (Pure In-Memory Validation Engine)
- * Chạy toàn bộ 8 bài kiểm tra độc lập và tổng hợp báo cáo toàn diện
+ * Chạy toàn bộ 8 bài kiểm tra độc lập và bảo đảm tính nhất quán của báo cáo (Blocker E Fix)
  */
 export function validateDataset(
   snapshot: DatasetSnapshot,
   mode: 'IN_MEMORY' | 'DATABASE' = 'IN_MEMORY',
   targetDatabase?: string
 ): DatasetValidationReport {
-  // 1. Thu thập số lượng thực tế
-  const adminCount = snapshot.users.filter((u) => u.role === Role.ADMIN).length;
-  const bqlCount = snapshot.users.filter((u) => u.role === Role.BQL).length;
-  const techCount = snapshot.users.filter((u) => u.role === Role.TECHNICIAN).length;
-  const residentCount = snapshot.users.filter((u) => u.role === Role.RESIDENT).length;
+  // 1. Thu thập số lượng thực tế an toàn (defensive)
+  const usersList = Array.isArray(snapshot?.users) ? snapshot.users : [];
+  const adminCount = usersList.filter((u) => u?.role === Role.ADMIN).length;
+  const bqlCount = usersList.filter((u) => u?.role === Role.BQL).length;
+  const techCount = usersList.filter((u) => u?.role === Role.TECHNICIAN).length;
+  const residentCount = usersList.filter((u) => u?.role === Role.RESIDENT).length;
 
   const modelCounts: ModelCounts = {
-    rooms: snapshot.rooms.length,
+    rooms: Array.isArray(snapshot?.rooms) ? snapshot.rooms.length : 0,
     users: {
-      total: snapshot.users.length,
+      total: usersList.length,
       admin: adminCount,
       bql: bqlCount,
       technician: techCount,
       resident: residentCount,
     },
-    tickets: snapshot.tickets.length,
-    invoices: snapshot.invoices.length,
-    payments: snapshot.payments.length,
-    feedbacks: snapshot.feedbacks.length,
-    notifications: snapshot.notifications.length,
-    mediaAssets: snapshot.mediaAssets.length,
+    tickets: Array.isArray(snapshot?.tickets) ? snapshot.tickets.length : 0,
+    invoices: Array.isArray(snapshot?.invoices) ? snapshot.invoices.length : 0,
+    payments: Array.isArray(snapshot?.payments) ? snapshot.payments.length : 0,
+    feedbacks: Array.isArray(snapshot?.feedbacks) ? snapshot.feedbacks.length : 0,
+    notifications: Array.isArray(snapshot?.notifications) ? snapshot.notifications.length : 0,
+    mediaAssets: Array.isArray(snapshot?.mediaAssets) ? snapshot.mediaAssets.length : 0,
   };
 
-  // 2. Chạy 8 nhóm kiểm định tính toàn vẹn (mỗi check chạy độc lập, một check fail không ảnh hưởng check khác)
-  const results: CheckResult[] = [
-    validateCounts(snapshot),
-    validateRelationalIntegrity(snapshot),
-    validateFinancialIntegrity(snapshot),
-    validateTicketIntegrity(snapshot),
-    validateFeedbackIntegrity(snapshot),
-    validateNotificationIntegrity(snapshot),
-    validateMediaIntegrity(snapshot),
-    validatePrivacyIntegrity(snapshot),
+  // 2. Chạy 8 nhóm kiểm định tính toàn vẹn
+  // Mỗi check được bọc try-catch riêng để một ngoại lệ bất thường không làm mất kết quả các check khác (Blocker E)
+  const checkRunners: Array<{ name: string; run: () => CheckResult }> = [
+    { name: 'Counts Integrity Check', run: () => validateCounts(snapshot) },
+    { name: 'Relational Integrity Check', run: () => validateRelationalIntegrity(snapshot) },
+    { name: 'Financial Consistency Check', run: () => validateFinancialIntegrity(snapshot) },
+    { name: 'Ticket Consistency Check', run: () => validateTicketIntegrity(snapshot) },
+    { name: 'Feedback Integrity Check', run: () => validateFeedbackIntegrity(snapshot) },
+    { name: 'Notification Integrity Check', run: () => validateNotificationIntegrity(snapshot) },
+    { name: 'Media Integrity Check', run: () => validateMediaIntegrity(snapshot) },
+    { name: 'Privacy & PII Integrity Check', run: () => validatePrivacyIntegrity(snapshot) },
   ];
+
+  const results: CheckResult[] = [];
+  for (const runner of checkRunners) {
+    try {
+      results.push(runner.run());
+    } catch (err: any) {
+      results.push({
+        name: runner.name,
+        passed: false,
+        message: `Lỗi ngoại lệ khi thực thi kiểm tra: ${err.message}`,
+        violationsCount: 1,
+        errors: [`Lỗi ngoại lệ: ${err.message}`],
+      });
+    }
+  }
 
   const passedChecks = results.filter((r) => r.passed).length;
   const failedChecks = results.length - passedChecks;
@@ -313,6 +345,7 @@ export function validateInMemory(options: { seed?: number } = {}): DatasetValida
 
 /**
  * Kiểm định Read-Only trên cơ sở dữ liệu PostgreSQL
+ * Sử dụng RepeatableRead Isolation để chụp snapshot nhất quán tuyệt đối (Blocker D Fix)
  */
 export function validateDatabase(
   options: DatabaseValidationOptions = {}
@@ -326,22 +359,30 @@ export function validateDatabase(
   return (async () => {
     try {
       // 2. Đọc toàn bộ snapshot dữ liệu trong một Transaction Read-Only nhất quán
+      // Sử dụng Prisma.TransactionIsolationLevel.RepeatableRead (Blocker D)
       // TUYỆT ĐỐI CHỈ DÙNG findMany, KHÔNG dùng write/update/delete/mutation
       const [rooms, users, invoices, payments, tickets, feedbacks, notifications, mediaAssets] =
-        await prisma.$transaction(async (tx: any) => {
-          const r = await tx.room.findMany();
-          const u = await tx.user.findMany();
-          const inv = await tx.invoice.findMany();
-          const p = await tx.payment.findMany();
-          const t = await tx.ticket.findMany();
-          const f = await tx.feedback.findMany();
-          const n = await tx.notification.findMany();
-          const ma = await tx.mediaAsset.findMany();
+        await prisma.$transaction(
+          async (tx: any) => {
+            const r = await tx.room.findMany();
+            const u = await tx.user.findMany();
+            const inv = await tx.invoice.findMany();
+            const p = await tx.payment.findMany();
+            const t = await tx.ticket.findMany();
+            const f = await tx.feedback.findMany();
+            const n = await tx.notification.findMany();
+            const ma = await tx.mediaAsset.findMany();
 
-          return [r, u, inv, p, t, f, n, ma];
-        });
+            return [r, u, inv, p, t, f, n, ma];
+          },
+          {
+            isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+            timeout: 30000,
+            maxWait: 5000,
+          }
+        );
 
-      // 3. Nếu database rỗng: Tuyệt đối không tự ý seed! Báo cáo lỗi kiểm định ngay lập tức
+      // 3. Nếu database rỗng: Báo cáo FAIL với cấu trúc nhất quán 8 kết quả (Blocker E Fix)
       const totalRecords =
         rooms.length +
         users.length +
@@ -353,6 +394,15 @@ export function validateDatabase(
         mediaAssets.length;
 
       if (totalRecords === 0) {
+        const emptyResults: CheckResult[] = VALIDATION_CHECK_NAMES.map((name) => ({
+          name,
+          passed: false,
+          message:
+            'Cơ sở dữ liệu hoàn toàn rỗng (0 bản ghi). Hệ thống từ chối kiểm định theo chính sách Fail-Closed.',
+          violationsCount: 1,
+          errors: ['Cơ sở dữ liệu rỗng, không có dữ liệu để kiểm định.'],
+        }));
+
         return {
           timestamp: new Date().toISOString(),
           mode: 'DATABASE',
@@ -371,16 +421,7 @@ export function validateDatabase(
             notifications: 0,
             mediaAssets: 0,
           },
-          results: [
-            {
-              name: 'Database Empty Check',
-              passed: false,
-              message:
-                'Cơ sở dữ liệu hoàn toàn rỗng (0 bản ghi). Hệ thống không tự động seed và từ chối kiểm định theo chính sách Fail-Closed.',
-              violationsCount: 1,
-              errors: ['Database rỗng, không có dữ liệu để kiểm định.'],
-            },
-          ],
+          results: emptyResults,
         };
       }
 
@@ -407,11 +448,95 @@ export function validateDatabase(
 }
 
 /**
+ * Lưu báo cáo kiểm định thành tệp JSON phục vụ nghiệm thu (Section 9)
+ * Che giấu thông tin nhạy cảm và credentials
+ */
+export function saveValidationReport(
+  report: DatasetValidationReport,
+  outputDir = path.resolve(__dirname, '../reports')
+): string {
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir, { recursive: true });
+  }
+
+  // Sanitized report không chứa credentials
+  const sanitizedReport = {
+    ...report,
+    targetDatabase: report.targetDatabase
+      ? report.targetDatabase.replace(/:[^:@]+@/, ':***@')
+      : undefined,
+  };
+
+  const reportFilePath = path.join(outputDir, 'validation-report.json');
+  fs.writeFileSync(reportFilePath, JSON.stringify(sanitizedReport, null, 2), 'utf-8');
+  return reportFilePath;
+}
+
+/**
+ * Xác minh tính đơn định (Determinism) giữa hai lượt sinh dữ liệu (Section 9)
+ */
+export function verifyDatasetDeterminism(seed = DATASET_CONFIG.RANDOM_SEED): {
+  isDeterministic: boolean;
+  differences: string[];
+} {
+  const ds1 = generateEntireDataset({ seed });
+  const ds2 = generateEntireDataset({ seed });
+
+  const diffs: string[] = [];
+
+  if (ds1.rooms.length !== ds2.rooms.length) diffs.push('Số lượng Room không khớp');
+  if (ds1.users.length !== ds2.users.length) diffs.push('Số lượng User không khớp');
+  if (ds1.tickets.length !== ds2.tickets.length) diffs.push('Số lượng Ticket không khớp');
+  if (ds1.invoices.length !== ds2.invoices.length) diffs.push('Số lượng Invoice không khớp');
+  if (ds1.payments.length !== ds2.payments.length) diffs.push('Số lượng Payment không khớp');
+  if (ds1.feedbacks.length !== ds2.feedbacks.length) diffs.push('Số lượng Feedback không khớp');
+  if (ds1.notifications.length !== ds2.notifications.length) diffs.push('Số lượng Notification không khớp');
+
+  // Kiểm tra chi tiết từng bản ghi nghiệp vụ
+  for (let i = 0; i < ds1.rooms.length; i++) {
+    if (ds1.rooms[i].roomNumber !== ds2.rooms[i].roomNumber || ds1.rooms[i].area !== ds2.rooms[i].area) {
+      diffs.push(`Room[${i}] sai lệch thuộc tính nghiệp vụ`);
+      break;
+    }
+  }
+
+  for (let i = 0; i < ds1.users.length; i++) {
+    if (ds1.users[i].username !== ds2.users[i].username || ds1.users[i].role !== ds2.users[i].role) {
+      diffs.push(`User[${i}] sai lệch username/role`);
+      break;
+    }
+  }
+
+  for (let i = 0; i < ds1.tickets.length; i++) {
+    if (
+      ds1.tickets[i].category !== ds2.tickets[i].category ||
+      ds1.tickets[i].isDuplicate !== ds2.tickets[i].isDuplicate ||
+      ds1.tickets[i].status !== ds2.tickets[i].status
+    ) {
+      diffs.push(`Ticket[${i}] sai lệch nghiệp vụ sự cố`);
+      break;
+    }
+  }
+
+  for (let i = 0; i < ds1.invoices.length; i++) {
+    if (!ds1.invoices[i].totalAmount.equals(ds2.invoices[i].totalAmount)) {
+      diffs.push(`Invoice[${i}] totalAmount sai lệch`);
+      break;
+    }
+  }
+
+  return {
+    isDeterministic: diffs.length === 0,
+    differences: diffs,
+  };
+}
+
+/**
  * Định dạng và in báo cáo kiểm định ra màn hình console (Sanitized Output)
  */
 export function printValidationReport(report: DatasetValidationReport): void {
   console.log('================================================================');
-  console.log('📋  BÁO CÁO KIỂM TOÁN TÍNH TOÀN VẸN VÀ BẢO MẬT DATASET (M10)');
+  console.log('📋  BÁO CÁO KIỂM TOÁN TÍNH TOÀN VẸN VÀ BẢO MẬT DATASET (M10.1)');
   console.log('================================================================');
   console.log(`Thời điểm kiểm toán:  ${report.timestamp}`);
   console.log(`Chế độ thực thi:      ${report.mode}`);
@@ -469,7 +594,7 @@ export async function runValidationCLI(): Promise<number> {
   const args = process.argv.slice(2);
   const isDbMode = args.includes('--mode=database');
 
-  console.log('🚀 Khởi động Dataset Validation Runner (Milestone 10)...');
+  console.log('🚀 Khởi động Dataset Validation Runner (Milestone 10.1)...');
 
   try {
     let report: DatasetValidationReport;
@@ -481,6 +606,15 @@ export async function runValidationCLI(): Promise<number> {
     }
 
     printValidationReport(report);
+
+    // Tự động lưu báo cáo JSON phục vụ kiểm toán nghiệm thu (Section 9)
+    try {
+      const savedPath = saveValidationReport(report);
+      console.log(`💾 Báo cáo nghiệm thu đã được lưu tự động tại: ${savedPath}`);
+    } catch (saveErr: any) {
+      console.warn(`⚠️ Không thể lưu báo cáo JSON: ${saveErr.message}`);
+    }
+
     return report.overallStatus === 'PASS' ? 0 : 1;
   } catch (err: any) {
     console.error('\n❌ [FATAL VALIDATION ERROR]:', err.message);

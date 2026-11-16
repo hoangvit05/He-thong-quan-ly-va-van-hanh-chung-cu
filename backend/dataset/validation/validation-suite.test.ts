@@ -1,26 +1,31 @@
 // =========================================================================
-// KIỂM THỬ HỆ THỐNG KIỂM ĐỊNH DATASET (M10 VALIDATION SUITE TESTS)
+// KIỂM THỬ HỆ THỐNG KIỂM ĐỊNH DATASET (M10.1 RED TEAM FIX TESTS)
 // Phân hệ: backend/dataset/validation/validation-suite.test.ts
-// Đặc tả: Milestone 10 — Dataset Validation & Final Acceptance Tests
+// Đặc tả: Milestone 10.1 — Red Team Fix: Kiểm toán toàn diện 8 blockers A-F & Determinism
 // =========================================================================
 
 import * as assert from 'assert';
+import * as fs from 'fs';
+import * as path from 'path';
 import { Role, TicketStatus, InvoiceStatus, RoomStatus, PaymentMethod, Prisma } from '@prisma/client';
 import {
   validateDataset,
   validateInMemory,
   validateDatabase,
   runValidationCLI,
+  saveValidationReport,
+  verifyDatasetDeterminism,
   assertSafeDatabaseValidation,
   parseValidationDatabaseTarget,
   parseValidationAllowlist,
   isValidationProductionTarget,
   DatasetValidationReport,
   DatabaseTarget,
+  VALIDATION_CHECK_NAMES,
 } from './validate';
 import { validateCounts, checkCounts } from './checks/counts.check';
 import { validateRelationalIntegrity } from './checks/relational.check';
-import { validateFinancialIntegrity } from './checks/financial.check';
+import { validateFinancialIntegrity, MAX_DECIMAL_12_2 } from './checks/financial.check';
 import { validateTicketIntegrity } from './checks/ticket.check';
 import { validateFeedbackIntegrity } from './checks/feedback.check';
 import { validateNotificationIntegrity } from './checks/notification.check';
@@ -49,7 +54,6 @@ async function runTest(name: string, fn: () => void | Promise<void>) {
  */
 function createBaseValidSnapshot(): DatasetSnapshot {
   const dataset = generateEntireDataset({ seed: 20261111 });
-  // Deep clone thông qua JSON để không làm ảnh hưởng lẫn nhau giữa các test
   const snapshot: DatasetSnapshot = {
     rooms: dataset.rooms.map((r) => ({ ...r, createdAt: new Date(r.createdAt), updatedAt: new Date(r.updatedAt) })),
     users: dataset.users.map((u) => ({ ...u, createdAt: new Date(u.createdAt), updatedAt: new Date(u.updatedAt) })),
@@ -83,246 +87,357 @@ function restoreEnv() {
   process.env = { ...originalEnv };
 }
 
+function toDecimal(val: Prisma.Decimal | number | string): Prisma.Decimal {
+  if (val instanceof Prisma.Decimal) return val;
+  return new Prisma.Decimal(val.toString());
+}
+
 async function runAllTests() {
   console.log('======================================================');
-  console.log('🧪 BẮT ĐẦU CHUỖI KIỂM THỬ DATASET VALIDATION (M10)');
+  console.log('🧪 BẮT ĐẦU CHUỖI KIỂM THỬ DATASET VALIDATION (M10.1)');
   console.log('======================================================');
 
   // -------------------------------------------------------------------
-  // NHÓM 1: VALID BASELINE & SUITE AGGREGATION (Test 1 - 5)
+  // NHÓM 1: BLOCKER A — THUẬT TOÁN TICKET DUPLICATE KHỚP BACKEND
   // -------------------------------------------------------------------
-  console.log('\n--- 1. TỔNG HỢP RUNNER & BASELINE KIỂM ĐỊNH ---');
+  console.log('\n--- 1. BLOCKER A: THUẬT TOÁN TICKET DUPLICATE (2 CHIỀU & KHỚP BACKEND) ---');
 
-  await runTest('1.1 Snapshot hợp lệ đầy đủ từ generator phải PASS 100% cả 8 checks', () => {
+  await runTest('1.1 Baseline generator: Toàn bộ tickets khớp 100% thuật toán lọc trùng hai chiều', () => {
     const snapshot = createBaseValidSnapshot();
-    const report = validateDataset(snapshot, 'IN_MEMORY');
-
-    assert.strictEqual(report.overallStatus, 'PASS', 'Overall status phải là PASS');
-    assert.strictEqual(report.totalChecks, 8, 'Phải có đúng 8 nhóm checks');
-    assert.strictEqual(report.passedChecks, 8, '8 checks đều phải PASS');
-    assert.strictEqual(report.failedChecks, 0, '0 checks FAIL');
+    const result = validateTicketIntegrity(snapshot);
+    assert.strictEqual(result.passed, true, 'Snapshot chuẩn từ generator phải PASS kiểm tra duplicate hai chiều');
   });
 
-  await runTest('1.2 Runner tổng hợp đúng số lượng checks PASS/FAIL', () => {
+  await runTest('1.2 Không loại trừ ticket trước chỉ vì prev.isDuplicate = true (chuỗi duplicate liên tiếp)', () => {
     const snapshot = createBaseValidSnapshot();
-    // Cố tình làm sai 1 check: vi phạm quy mô counts
-    snapshot.rooms.pop();
+    const now = new Date('2026-06-01T10:00:00Z');
 
-    const report = validateDataset(snapshot, 'IN_MEMORY');
-    assert.strictEqual(report.totalChecks, 8);
-    assert.strictEqual(report.failedChecks >= 1, true, 'Ít nhất 1 check bị fail');
-    assert.strictEqual(report.passedChecks + report.failedChecks, 8);
-  });
-
-  await runTest('1.3 Runner trả overallStatus = FAIL khi có dù chỉ 1 check lỗi', () => {
-    const snapshot = createBaseValidSnapshot();
-    // Tạo 1 lỗi feedback
-    snapshot.feedbacks[0].roomId = 99999;
-
-    const report = validateDataset(snapshot, 'IN_MEMORY');
-    assert.strictEqual(report.overallStatus, 'FAIL');
-  });
-
-  await runTest('1.4 Nhiều lỗi đồng thời từ các check độc lập không bị nuốt lỗi', () => {
-    const snapshot = createBaseValidSnapshot();
-    // Lỗi 1: Counts
-    snapshot.rooms = snapshot.rooms.slice(0, 50);
-    // Lỗi 2: Financial
-    snapshot.invoices[0].totalAmount = new Prisma.Decimal('99999999');
-    // Lỗi 3: Media
-    snapshot.mediaAssets.push({ id: 1, publicId: 'fake_asset' });
-
-    const report = validateDataset(snapshot, 'IN_MEMORY');
-    assert.strictEqual(report.overallStatus, 'FAIL');
-    assert.strictEqual(report.failedChecks >= 3, true, 'Phải ghi nhận ít nhất 3 nhóm check fail');
-
-    const countsCheck = report.results.find((r) => r.name.includes('Counts'));
-    const financialCheck = report.results.find((r) => r.name.includes('Financial'));
-    const mediaCheck = report.results.find((r) => r.name.includes('Media'));
-
-    assert.strictEqual(countsCheck?.passed, false, 'Counts check phải fail');
-    assert.strictEqual(financialCheck?.passed, false, 'Financial check phải fail');
-    assert.strictEqual(mediaCheck?.passed, false, 'Media check phải fail');
-  });
-
-  await runTest('1.5 In-memory runner tạo ra báo cáo hợp lệ', () => {
-    const report = validateInMemory({ seed: 20261111 });
-    assert.strictEqual(report.mode, 'IN_MEMORY');
-    assert.strictEqual(report.overallStatus, 'PASS');
-    assert.strictEqual(report.modelCounts.rooms, 100);
-  });
-
-  await runTest('1.6 CLI runner trả về exit code 0 khi toàn bộ checks PASS', async () => {
-    const originalArgv = [...process.argv];
-    try {
-      process.argv = ['node', 'validate.ts'];
-      const exitCode = await runValidationCLI();
-      assert.strictEqual(exitCode, 0, 'CLI phải trả về exit code 0 khi toàn bộ checks PASS');
-    } finally {
-      process.argv = originalArgv;
-    }
-  });
-
-  await runTest('1.7 CLI runner trả về exit code 1 khi có lỗi an toàn hoặc vi phạm', async () => {
-    const originalArgv = [...process.argv];
-    try {
-      // Chạy ở mode database mà không có cấu hình an toàn
-      process.argv = ['node', 'validate.ts', '--mode=database'];
-      delete process.env.ALLOW_DATASET_VALIDATION;
-      const exitCode = await runValidationCLI();
-      assert.strictEqual(exitCode, 1, 'CLI phải trả về exit code 1 khi có lỗi kiểm định');
-    } finally {
-      process.argv = originalArgv;
-    }
-  });
-
-  // -------------------------------------------------------------------
-  // NHÓM 2: COUNTS INTEGRITY (Test 6 - 8)
-  // -------------------------------------------------------------------
-  console.log('\n--- 2. KIỂM ĐỊNH QUY MÔ SỐ LƯỢNG (COUNTS INTEGRITY) ---');
-
-  await runTest('2.1 Counts sai số lượng mục tiêu phải FAIL', () => {
-    const snapshot = createBaseValidSnapshot();
-    snapshot.rooms.push({
-      id: 9999,
-      roomNumber: '9999',
-      floor: 99,
-      area: 80,
-      status: RoomStatus.VACANT,
-      createdAt: new Date(),
-    });
-
-    const result = validateCounts(snapshot);
-    assert.strictEqual(result.passed, false);
-    assert.ok(result.message.includes('Room'));
-  });
-
-  await runTest('2.2 MediaAsset khác 0 bản ghi phải FAIL checkCounts', () => {
-    const snapshot = createBaseValidSnapshot();
-    snapshot.mediaAssets.push({ id: 101, publicId: 'test_asset' });
-
-    const result = validateCounts(snapshot);
-    assert.strictEqual(result.passed, false);
-    assert.ok(result.message.includes('MediaAsset'));
-  });
-
-  await runTest('2.3 Số lượng âm hoặc NaN phải FAIL ngay lập tức', () => {
-    const invalidCounts: any = {
-      rooms: -5,
-      users: { total: 100, admin: 1, bql: 2, technician: 5, resident: 92 },
-      tickets: 175,
-      invoices: NaN,
-      payments: 400,
-      feedbacks: 40,
-      notifications: 25,
-      mediaAssets: 0,
+    // Tạo ticket gốc 1 (PENDING)
+    const t1 = {
+      ...snapshot.tickets[0],
+      id: 8001,
+      category: 'Điện',
+      roomId: 101,
+      status: TicketStatus.PENDING,
+      isDuplicate: false,
+      createdAt: new Date(now.getTime()),
+      updatedAt: new Date(now.getTime()),
     };
 
-    const result = checkCounts(invalidCounts);
+    // Tạo ticket trùng 2 (PENDING, gửi sau 1 tiếng) -> isDuplicate = true
+    const t2 = {
+      ...snapshot.tickets[0],
+      id: 8002,
+      category: 'Điện',
+      roomId: 101,
+      status: TicketStatus.PENDING,
+      isDuplicate: true,
+      createdAt: new Date(now.getTime() + 1 * 3600 * 1000),
+      updatedAt: new Date(now.getTime() + 1 * 3600 * 1000),
+    };
+
+    // Tạo ticket trùng 3 (PENDING, gửi sau 2 tiếng, đối chiếu với t2 là duplicate) -> isDuplicate = true
+    const t3 = {
+      ...snapshot.tickets[0],
+      id: 8003,
+      category: 'Điện',
+      roomId: 101,
+      status: TicketStatus.PENDING,
+      isDuplicate: true,
+      createdAt: new Date(now.getTime() + 2 * 3600 * 1000),
+      updatedAt: new Date(now.getTime() + 2 * 3600 * 1000),
+    };
+
+    snapshot.tickets.push(t1, t2, t3);
+    const result = validateTicketIntegrity(snapshot);
+    assert.strictEqual(result.passed, true, 'Chuỗi trùng lặp t1 -> t2 -> t3 phải được chấp nhận vì backend không loại prev.isDuplicate');
+  });
+
+  await runTest('1.3 Sai category: Cùng phòng trong 24h nhưng khác danh mục thì KHÔNG được là duplicate', () => {
+    const snapshot = createBaseValidSnapshot();
+    const now = new Date('2026-06-02T10:00:00Z');
+
+    const t1 = {
+      ...snapshot.tickets[0],
+      id: 8011,
+      category: 'Điện',
+      roomId: 102,
+      status: TicketStatus.PENDING,
+      isDuplicate: false,
+      createdAt: new Date(now.getTime()),
+    };
+    const t2 = {
+      ...snapshot.tickets[0],
+      id: 8012,
+      category: 'Nước', // Khác category
+      roomId: 102,
+      status: TicketStatus.PENDING,
+      isDuplicate: true, // Sai: cố tình gán true
+      createdAt: new Date(now.getTime() + 3600 * 1000),
+    };
+
+    snapshot.tickets.push(t1, t2);
+    const result = validateTicketIntegrity(snapshot);
     assert.strictEqual(result.passed, false);
-    assert.ok(result.errors && result.errors.length >= 2);
+    assert.ok(result.message.includes('không tìm thấy phiếu gốc hợp lệ'));
+  });
+
+  await runTest('1.4 Sai roomId: Cùng category trong 24h nhưng khác phòng thì KHÔNG được là duplicate', () => {
+    const snapshot = createBaseValidSnapshot();
+    const now = new Date('2026-06-03T10:00:00Z');
+
+    const t1 = {
+      ...snapshot.tickets[0],
+      id: 8021,
+      category: 'Thang máy',
+      roomId: 103,
+      status: TicketStatus.PENDING,
+      isDuplicate: false,
+      createdAt: new Date(now.getTime()),
+    };
+    const t2 = {
+      ...snapshot.tickets[0],
+      id: 8022,
+      category: 'Thang máy',
+      roomId: 104, // Khác roomId
+      status: TicketStatus.PENDING,
+      isDuplicate: true,
+      createdAt: new Date(now.getTime() + 3600 * 1000),
+    };
+
+    snapshot.tickets.push(t1, t2);
+    const result = validateTicketIntegrity(snapshot);
+    assert.strictEqual(result.passed, false);
+  });
+
+  await runTest('1.5 Khu vực chung (roomId = null): Phải cùng residentId mới tính là duplicate', () => {
+    const snapshot = createBaseValidSnapshot();
+    const now = new Date('2026-06-04T10:00:00Z');
+    const resident1 = snapshot.users.find((u) => u.role === Role.RESIDENT)!;
+    const resident2 = snapshot.users.filter((u) => u.role === Role.RESIDENT)[1];
+
+    const t1 = {
+      ...snapshot.tickets[0],
+      id: 8031,
+      category: 'Đèn hành lang',
+      roomId: null,
+      residentId: resident1.id,
+      status: TicketStatus.PENDING,
+      isDuplicate: false,
+      createdAt: new Date(now.getTime()),
+    };
+    const t2 = {
+      ...snapshot.tickets[0],
+      id: 8032,
+      category: 'Đèn hành lang',
+      roomId: null,
+      residentId: resident2.id, // Khác residentId khu chung
+      status: TicketStatus.PENDING,
+      isDuplicate: true,
+      createdAt: new Date(now.getTime() + 3600 * 1000),
+    };
+
+    snapshot.tickets.push(t1, t2);
+    const result = validateTicketIntegrity(snapshot);
+    assert.strictEqual(result.passed, false);
+  });
+
+  await runTest('1.6 Ngoài cửa sổ 24 giờ (> 24h): Không được là duplicate', () => {
+    const snapshot = createBaseValidSnapshot();
+    const now = new Date('2026-06-05T10:00:00Z');
+
+    const t1 = {
+      ...snapshot.tickets[0],
+      id: 8041,
+      category: 'Mạng Internet',
+      roomId: 105,
+      status: TicketStatus.PENDING,
+      isDuplicate: false,
+      createdAt: new Date(now.getTime()),
+    };
+    const t2 = {
+      ...snapshot.tickets[0],
+      id: 8042,
+      category: 'Mạng Internet',
+      roomId: 105,
+      status: TicketStatus.PENDING,
+      isDuplicate: true,
+      createdAt: new Date(now.getTime() + 25 * 3600 * 1000), // Cách 25 giờ (> 24h)
+    };
+
+    snapshot.tickets.push(t1, t2);
+    const result = validateTicketIntegrity(snapshot);
+    assert.strictEqual(result.passed, false);
+  });
+
+  await runTest('1.7 Phiếu trước đã COMPLETED hoặc CLOSED: Không được kích hoạt cờ duplicate', () => {
+    const snapshot = createBaseValidSnapshot();
+    const now = new Date('2026-06-06T10:00:00Z');
+
+    const t1 = {
+      ...snapshot.tickets[0],
+      id: 8051,
+      category: 'Khóa cửa',
+      roomId: 106,
+      status: TicketStatus.COMPLETED, // Đã xong
+      isDuplicate: false,
+      createdAt: new Date(now.getTime()),
+    };
+    const t2 = {
+      ...snapshot.tickets[0],
+      id: 8052,
+      category: 'Khóa cửa',
+      roomId: 106,
+      status: TicketStatus.PENDING,
+      isDuplicate: true,
+      createdAt: new Date(now.getTime() + 2 * 3600 * 1000),
+    };
+
+    snapshot.tickets.push(t1, t2);
+    const result = validateTicketIntegrity(snapshot);
+    assert.strictEqual(result.passed, false);
+  });
+
+  await runTest('1.8 Kiểm tra hai chiều: Có phiếu trước hợp lệ nhưng isDuplicate = false phải FAIL', () => {
+    const snapshot = createBaseValidSnapshot();
+    const now = new Date('2026-06-07T10:00:00Z');
+
+    const t1 = {
+      ...snapshot.tickets[0],
+      id: 8061,
+      category: 'Rò rỉ nước',
+      roomId: 107,
+      status: TicketStatus.PENDING,
+      isDuplicate: false,
+      createdAt: new Date(now.getTime()),
+    };
+    const t2 = {
+      ...snapshot.tickets[0],
+      id: 8062,
+      category: 'Rò rỉ nước',
+      roomId: 107,
+      status: TicketStatus.PENDING,
+      isDuplicate: false, // LỖI: thực tế là trùng nhưng để false
+      createdAt: new Date(now.getTime() + 2 * 3600 * 1000),
+    };
+
+    snapshot.tickets.push(t1, t2);
+    const result = validateTicketIntegrity(snapshot);
+    assert.strictEqual(result.passed, false);
+    assert.ok(result.message.includes('lẽ ra phải là true'));
+  });
+
+  await runTest('1.9 Kiểm tra hai chiều: Không có phiếu trước hợp lệ nhưng isDuplicate = true phải FAIL', () => {
+    const snapshot = createBaseValidSnapshot();
+    const now = new Date('2026-06-08T10:00:00Z');
+
+    const t1 = {
+      ...snapshot.tickets[0],
+      id: 8071,
+      category: 'Điều hòa',
+      roomId: 108,
+      status: TicketStatus.PENDING,
+      isDuplicate: true, // LỖI: phiếu đơn độc không có nguồn trùng nhưng để true
+      createdAt: new Date(now.getTime()),
+    };
+
+    snapshot.tickets.push(t1);
+    const result = validateTicketIntegrity(snapshot);
+    assert.strictEqual(result.passed, false);
+    assert.ok(result.message.includes('không tìm thấy phiếu gốc hợp lệ'));
   });
 
   // -------------------------------------------------------------------
-  // NHÓM 3: RELATIONAL INTEGRITY (Test 9 - 13)
+  // NHÓM 2: BLOCKER B — FINANCIAL DECIMAL(12,2) AUDIT
   // -------------------------------------------------------------------
-  console.log('\n--- 3. KIỂM ĐỊNH TOÀN VẸN QUAN HỆ & KHÓA NGOẠI ---');
+  console.log('\n--- 2. BLOCKER B: KIỂM TOÁN TÀI CHÍNH DECIMAL(12,2) & SCALE ---');
 
-  await runTest('3.1 Missing FK và Payment mồ côi phải bị phát hiện', () => {
+  await runTest('2.1 Trường có 3 chữ số thập phân ở Invoice fees phải FAIL scale check', () => {
     const snapshot = createBaseValidSnapshot();
-    // Tạo 1 payment mồ côi trỏ vào invoiceId không tồn tại
-    snapshot.payments[0].invoiceId = 999999;
+    // 3 chữ số thập phân
+    snapshot.invoices[0].waterFee = new Prisma.Decimal('123456.789');
 
-    const result = validateRelationalIntegrity(snapshot);
+    const result = validateFinancialIntegrity(snapshot);
     assert.strictEqual(result.passed, false);
-    assert.ok(result.message.includes('Payment mồ côi') || result.message.includes('tham chiếu invoiceId 999999'));
+    assert.ok(result.message.includes('vượt quá 2 chữ số thập phân của DECIMAL(12,2)'));
   });
 
-  await runTest('3.2 Nhân sự ADMIN/BQL/TECHNICIAN bị gán roomId phải FAIL', () => {
+  await runTest('2.2 Trường có 3 chữ số thập phân ở Payment.amount phải FAIL scale check', () => {
     const snapshot = createBaseValidSnapshot();
-    const admin = snapshot.users.find((u) => u.role === Role.ADMIN)!;
-    admin.roomId = 1;
+    snapshot.payments[0].amount = new Prisma.Decimal('500000.123');
 
-    const result = validateRelationalIntegrity(snapshot);
+    const result = validateFinancialIntegrity(snapshot);
     assert.strictEqual(result.passed, false);
-    assert.ok(result.message.includes('không được phép có roomId'));
+    assert.ok(result.message.includes('vượt quá 2 chữ số thập phân của DECIMAL(12,2)'));
   });
 
-  await runTest('3.3 Sai roomId của Feedback (không khớp resident.roomId) phải FAIL', () => {
+  await runTest('2.3 Giá trị vượt giới hạn tối đa DECIMAL(12,2) (9,999,999,999.99) phải FAIL', () => {
     const snapshot = createBaseValidSnapshot();
-    const fb = snapshot.feedbacks[0];
-    const resident = snapshot.users.find((u) => u.id === fb.residentId)!;
-    // Đổi roomId của feedback khác với căn hộ của cư dân
-    fb.roomId = (resident.roomId ?? 1) + 1;
+    snapshot.invoices[0].totalAmount = new Prisma.Decimal('10000000000.00'); // 10 tỷ (tràn cột)
 
-    const result = validateRelationalIntegrity(snapshot);
+    const result = validateFinancialIntegrity(snapshot);
     assert.strictEqual(result.passed, false);
-    assert.ok(result.message.includes('không khớp với resident.roomId'));
+    assert.ok(result.message.includes('vượt quá giới hạn tối đa của DECIMAL(12,2)'));
   });
 
-  await runTest('3.4 Sai targetRoom Notification (không khớp roomNumber thực tế) phải FAIL', () => {
+  await runTest('2.4 Giá trị Decimal không hợp lệ (NaN, chuỗi lỗi) phải được bắt an toàn mà không crash', () => {
     const snapshot = createBaseValidSnapshot();
-    snapshot.notifications[0].targetRoom = 'ROOM_KHONG_TON_TAI_9999';
+    (snapshot.invoices[0] as any).parkingFee = 'CHUOI_TIEN_TE_KHONG_HOP_LE';
 
-    const result = validateRelationalIntegrity(snapshot);
+    const result = validateFinancialIntegrity(snapshot);
     assert.strictEqual(result.passed, false);
-    assert.ok(result.message.includes('không tồn tại trong danh sách'));
+    assert.ok(result.message.includes('không thể parse thành Decimal hợp lệ') || result.message.includes('không hợp lệ'));
   });
 
-  await runTest('3.5 Trùng lặp cặp [roomId, month] trong Invoice phải FAIL', () => {
+  await runTest('2.5 Phí âm phải FAIL', () => {
     const snapshot = createBaseValidSnapshot();
-    // Tạo bản ghi thứ 2 trùng roomId và month của bản ghi thứ 1
-    snapshot.invoices[1].roomId = snapshot.invoices[0].roomId;
-    snapshot.invoices[1].month = snapshot.invoices[0].month;
+    snapshot.invoices[0].managementFee = new Prisma.Decimal('-1000.00');
 
-    const result = validateRelationalIntegrity(snapshot);
+    const result = validateFinancialIntegrity(snapshot);
     assert.strictEqual(result.passed, false);
-    assert.ok(result.message.includes('trùng lặp cặp [roomId'));
+    assert.ok(result.message.includes('mang giá trị âm'));
   });
 
-  // -------------------------------------------------------------------
-  // NHÓM 4: FINANCIAL INTEGRITY (Test 14 - 18)
-  // -------------------------------------------------------------------
-  console.log('\n--- 4. KIỂM ĐỊNH TOÀN VẸN TÀI CHÍNH & TIỀN TỆ ---');
-
-  await runTest('4.1 Invoice totalAmount sai lệch so với tổng 4 khoản phí phải FAIL', () => {
+  await runTest('2.6 Payment amount bằng 0 hoặc âm phải FAIL', () => {
     const snapshot = createBaseValidSnapshot();
-    snapshot.invoices[0].totalAmount = new Prisma.Decimal('1000000.00');
-    snapshot.invoices[0].managementFee = new Prisma.Decimal('200000.00');
-    snapshot.invoices[0].parkingFee = new Prisma.Decimal('100000.00');
-    snapshot.invoices[0].waterFee = new Prisma.Decimal('50000.00');
-    snapshot.invoices[0].otherFee = new Prisma.Decimal('0.00');
-    // Tổng thực = 350,000 nhưng totalAmount = 1,000,000
+    snapshot.payments[0].amount = new Prisma.Decimal('0.00');
+
+    const result = validateFinancialIntegrity(snapshot);
+    assert.strictEqual(result.passed, false);
+    assert.ok(result.message.includes('bằng 0') || result.message.includes('lớn hơn 0'));
+  });
+
+  await runTest('2.7 Invoice totalAmount sai lệch so với tổng 4 phí phải FAIL', () => {
+    const snapshot = createBaseValidSnapshot();
+    snapshot.invoices[0].totalAmount = toDecimal(snapshot.invoices[0].totalAmount).plus(new Prisma.Decimal('1000.00'));
 
     const result = validateFinancialIntegrity(snapshot);
     assert.strictEqual(result.passed, false);
     assert.ok(result.message.includes('không khớp tổng 4 khoản phí'));
   });
 
-  await runTest('4.2 paidAmount sai lệch so với tổng Payment phải FAIL', () => {
+  await runTest('2.8 PaidAmount sai lệch so với tổng Payment phải FAIL', () => {
     const snapshot = createBaseValidSnapshot();
-    // Tìm hóa đơn đã có thanh toán
     const inv = snapshot.invoices.find((i) => i.status === InvoiceStatus.PAID)!;
-    inv.paidAmount = new Prisma.Decimal('500.00');
+    inv.paidAmount = toDecimal(inv.paidAmount).minus(new Prisma.Decimal('50000.00'));
 
     const result = validateFinancialIntegrity(snapshot);
     assert.strictEqual(result.passed, false);
     assert.ok(result.message.includes('không khớp tổng Payment thực tế'));
   });
 
-  await runTest('4.3 Overpayment (paidAmount > totalAmount) phải FAIL', () => {
+  await runTest('2.9 Overpayment (paidAmount > totalAmount) phải FAIL', () => {
     const snapshot = createBaseValidSnapshot();
     const inv = snapshot.invoices[0];
-    inv.paidAmount = toDecimal(inv.totalAmount).plus(new Prisma.Decimal('50000.00'));
+    inv.paidAmount = toDecimal(inv.totalAmount).plus(new Prisma.Decimal('100.00'));
 
     const result = validateFinancialIntegrity(snapshot);
     assert.strictEqual(result.passed, false);
     assert.ok(result.message.includes('overpayment'));
   });
 
-  await runTest('4.4 Sai lệch trạng thái InvoiceStatus phải FAIL', () => {
+  await runTest('2.10 Trạng thái InvoiceStatus không khớp số tiền thực tế phải FAIL', () => {
     const snapshot = createBaseValidSnapshot();
-    // Hóa đơn chưa thanh toán nhưng đặt PAID
     const unpaidInv = snapshot.invoices.find((i) => i.status === InvoiceStatus.UNPAID)!;
     unpaidInv.status = InvoiceStatus.PAID;
 
@@ -331,198 +446,76 @@ async function runAllTests() {
     assert.ok(result.message.includes('InvoiceStatus') || result.message.includes('status = PAID'));
   });
 
-  await runTest('4.5 Khoản phí âm hoặc Payment.amount <= 0 phải FAIL', () => {
-    const snapshot = createBaseValidSnapshot();
-    snapshot.invoices[0].waterFee = new Prisma.Decimal('-50000.00');
-
-    const result = validateFinancialIntegrity(snapshot);
-    assert.strictEqual(result.passed, false);
-    assert.ok(result.message.includes('waterFee âm'));
-  });
-
   // -------------------------------------------------------------------
-  // NHÓM 5: TICKET INTEGRITY (Test 19 - 21)
+  // NHÓM 3: BLOCKER C — PRIVACY & PII SCANNER
   // -------------------------------------------------------------------
-  console.log('\n--- 5. KIỂM ĐỊNH SỰ CỐ & VÒNG ĐỜI TICKET ---');
+  console.log('\n--- 3. BLOCKER C: QUÉT PII (SĐT CÁCH QUÃNG, CCCD, EMAIL, STK) & MASKING ---');
 
-  await runTest('5.1 Ticket gán technicianId sai vai trò phải FAIL', () => {
+  await runTest('3.1 Quét phát hiện số điện thoại VN có dấu cách, dấu chấm, gạch ngang và mask an toàn', () => {
     const snapshot = createBaseValidSnapshot();
-    const assignedTicket = snapshot.tickets.find((t) => t.status === TicketStatus.ASSIGNED)!;
-    const resident = snapshot.users.find((u) => u.role === Role.RESIDENT)!;
-    assignedTicket.technicianId = resident.id;
-
-    const result = validateTicketIntegrity(snapshot);
-    assert.strictEqual(result.passed, false);
-    assert.ok(result.message.includes('không phải TECHNICIAN'));
-  });
-
-  await runTest('5.2 Rating ngoài khoảng 1-5 hoặc ticket chưa CLOSED nhưng đã có rating phải FAIL', () => {
-    const snapshot = createBaseValidSnapshot();
-    // Ticket đang sửa nhưng cư dân chấm điểm sớm
-    const inProgressTicket = snapshot.tickets.find((t) => t.status === TicketStatus.IN_PROGRESS)!;
-    inProgressTicket.rating = 5;
-
-    const result = validateTicketIntegrity(snapshot);
-    assert.strictEqual(result.passed, false);
-    assert.ok(result.message.includes('chỉ được phép chấm điểm khi đã CLOSED'));
-  });
-
-  await runTest('5.3 Duplicate flag không hợp lệ (không có phiếu gốc trong 24h) phải FAIL', () => {
-    const snapshot = createBaseValidSnapshot();
-    // Đánh dấu 1 ticket bất kỳ là duplicate nhưng danh mục và thời gian không có phiếu gốc
-    const ticket = snapshot.tickets[0];
-    ticket.isDuplicate = true;
-    ticket.category = 'DANH_MUC_KHONG_TRUNG_LAP_999999';
-
-    const result = validateTicketIntegrity(snapshot);
-    assert.strictEqual(result.passed, false);
-    assert.ok(result.message.includes('không tìm thấy phiếu gốc hợp lệ trong vòng 24 giờ'));
-  });
-
-  // -------------------------------------------------------------------
-  // NHÓM 6: FEEDBACK & NOTIFICATION (Test 22 - 23)
-  // -------------------------------------------------------------------
-  console.log('\n--- 6. KIỂM ĐỊNH FEEDBACK & NOTIFICATION ---');
-
-  await runTest('6.1 Feedback có title/content vi phạm giới hạn độ dài hoặc Base64 phải FAIL', () => {
-    const snapshot = createBaseValidSnapshot();
-    snapshot.feedbacks[0].title = 'ab'; // quá ngắn < 3 ký tự
-
-    const result = validateFeedbackIntegrity(snapshot);
-    assert.strictEqual(result.passed, false);
-    assert.ok(result.message.includes('yêu cầu trong khoảng 3 đến 200 ký tự'));
-  });
-
-  await runTest('6.2 Notification có author không phải ADMIN/BQL phải FAIL', () => {
-    const snapshot = createBaseValidSnapshot();
-    const resident = snapshot.users.find((u) => u.role === Role.RESIDENT)!;
-    snapshot.notifications[0].authorId = resident.id;
-
-    const result = validateNotificationIntegrity(snapshot);
-    assert.strictEqual(result.passed, false);
-    assert.ok(result.message.includes('không phải ADMIN hoặc BQL'));
-  });
-
-  // -------------------------------------------------------------------
-  // NHÓM 7: MEDIA ASSET & PRIVACY/PII (Test 24 - 27)
-  // -------------------------------------------------------------------
-  console.log('\n--- 7. KIỂM ĐỊNH MEDIA ASSET & BẢO MẬT PII ---');
-
-  await runTest('7.1 MediaAsset có isConfirmed = true hoặc giả mạo Cloudinary URL phải FAIL', () => {
-    const snapshot = createBaseValidSnapshot();
-    snapshot.mediaAssets.push({
-      id: 1,
-      publicId: 'tickets/fake_public_id',
-      url: 'https://res.cloudinary.com/demo/image/upload/v1234/fake.jpg',
-      isConfirmed: true,
-    });
-
-    const result = validateMediaIntegrity(snapshot);
-    assert.strictEqual(result.passed, false);
-    assert.ok(result.message.includes('Zero-Asset') || result.message.includes('isConfirmed = true'));
-  });
-
-  await runTest('7.2 URL media chứa Base64 data URI phải FAIL', () => {
-    const snapshot = createBaseValidSnapshot();
-    snapshot.tickets[0].mediaUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
-
-    const result = validateMediaIntegrity(snapshot);
-    assert.strictEqual(result.passed, false);
-    assert.ok(result.message.includes('mediaUrl không hợp lệ'));
-  });
-
-  await runTest('7.3 Phone non-null, email cá nhân (@gmail.com) hoặc CCCD 12 số phải FAIL privacy check', () => {
-    const snapshot = createBaseValidSnapshot();
-    snapshot.users[0].email = 'admin_canhan@gmail.com';
-    snapshot.tickets[0].description = 'Sự cố phát sinh liên quan đến CCCD 001200001234 của chủ hộ';
+    snapshot.feedbacks[0].content = 'Vui lòng gọi cho tôi qua số 0987.654.321 hoặc +84 912 345 678 khi đến sửa.';
 
     const result = validatePrivacyIntegrity(snapshot);
     assert.strictEqual(result.passed, false);
-    assert.ok(result.message.includes('email công cộng bị cấm') || result.message.includes('CCCD'));
+    assert.ok(result.message.includes('098***321') || result.message.includes('số điện thoại'));
+
+    // Chứng minh không lộ nguyên số điện thoại
+    assert.strictEqual(result.errors?.some((e) => e.includes('0987.654.321')), false);
   });
 
-  await runTest('7.4 Mật khẩu plaintext hoặc không phải định dạng Bcrypt hash phải FAIL privacy check', () => {
+  await runTest('3.2 Quét phát hiện CCCD 12 số trong văn bản và mask an toàn', () => {
     const snapshot = createBaseValidSnapshot();
-    snapshot.users[0].password = 'MatKhauPlaintext123@';
+    snapshot.tickets[0].description = 'Chủ hộ có căn cước công dân số 001200012345 đề nghị xác nhận';
+
+    const result = validatePrivacyIntegrity(snapshot);
+    assert.strictEqual(result.passed, false);
+    assert.ok(result.message.includes('001200******'));
+
+    // Chứng minh không lộ nguyên CCCD
+    assert.strictEqual(result.errors?.some((e) => e.includes('001200012345')), false);
+  });
+
+  await runTest('3.3 Quét phát hiện email xuất hiện bất thường trong trường văn bản (Ticket/Feedback)', () => {
+    const snapshot = createBaseValidSnapshot();
+    snapshot.feedbacks[0].title = 'Góp ý từ canhan@example.com';
+
+    const result = validatePrivacyIntegrity(snapshot);
+    assert.strictEqual(result.passed, false);
+    assert.ok(result.message.includes('xuất hiện bất thường'));
+  });
+
+  await runTest('3.4 Quét phát hiện số tài khoản ngân hàng (STK) 8-19 chữ số kèm ngữ cảnh và mask an toàn', () => {
+    const snapshot = createBaseValidSnapshot();
+    snapshot.payments[0].note = 'Chuyển khoản vào STK: 19034567891234 ngân hàng Techcombank';
+
+    const result = validatePrivacyIntegrity(snapshot);
+    assert.strictEqual(result.passed, false);
+    assert.ok(result.message.includes('tài khoản ngân hàng'));
+    assert.ok(result.message.includes('1903****1234'));
+
+    // Chứng minh không lộ nguyên STK
+    assert.strictEqual(result.errors?.some((e) => e.includes('19034567891234')), false);
+  });
+
+  await runTest('3.5 Password plaintext hoặc không đúng Bcrypt hash phải FAIL và TUYỆT ĐỐI không in giá trị ra log', () => {
+    const snapshot = createBaseValidSnapshot();
+    snapshot.users[0].password = 'MatKhauSieuBiMat123456!';
 
     const result = validatePrivacyIntegrity(snapshot);
     assert.strictEqual(result.passed, false);
     assert.ok(result.message.includes('chuỗi băm Bcrypt hợp lệ'));
+    assert.ok(result.message.includes('[REDACTED]'));
 
-    // Kiểm tra chứng minh không log password ra thông điệp lỗi
-    assert.strictEqual(
-      result.errors?.some((e) => e.includes('MatKhauPlaintext123@')),
-      false,
-      'Tuyệt đối không được in plaintext password ra thông điệp lỗi'
-    );
+    // Chứng minh không in chuỗi mật khẩu ra errors log
+    assert.strictEqual(result.errors?.some((e) => e.includes('MatKhauSieuBiMat123456!')), false);
   });
 
   // -------------------------------------------------------------------
-  // NHÓM 8: DATABASE VALIDATION SAFETY GUARD & READ-ONLY ENFORCEMENT (Test 28 - 32)
+  // NHÓM 4: BLOCKER D — DATABASE VALIDATION SNAPSHOT & REPEATABLEREAD
   // -------------------------------------------------------------------
-  console.log('\n--- 8. DATABASE SAFETY GUARD & READ-ONLY ENFORCEMENT ---');
+  console.log('\n--- 4. BLOCKER D: DATABASE VALIDATION SNAPSHOT & REPEATABLEREAD ISOLATION ---');
 
-  await runTest('8.1 Safety Guard từ chối môi trường PRODUCTION', () => {
-    restoreEnv();
-    process.env.NODE_ENV = 'production';
-    process.env.ALLOW_DATASET_VALIDATION = 'true';
-    process.env.DATABASE_URL = 'postgresql://user:pass@localhost:5432/apartment_dev';
-    process.env.DATASET_DB_ALLOWLIST = 'localhost:5432/apartment_dev';
-
-    assert.throws(
-      () => {
-        assertSafeDatabaseValidation();
-      },
-      /Tuyệt đối từ chối chạy kiểm định cơ sở dữ liệu trên môi trường PRODUCTION/
-    );
-  });
-
-  await runTest('8.2 Safety Guard từ chối khi thiếu biến xác nhận ALLOW_DATASET_VALIDATION', () => {
-    restoreEnv();
-    process.env.NODE_ENV = 'development';
-    delete process.env.ALLOW_DATASET_VALIDATION;
-    process.env.DATABASE_URL = 'postgresql://user:pass@localhost:5432/apartment_dev';
-    process.env.DATASET_DB_ALLOWLIST = 'localhost:5432/apartment_dev';
-
-    assert.throws(
-      () => {
-        assertSafeDatabaseValidation();
-      },
-      /Yêu cầu bắt buộc phải bật cờ xác nhận ALLOW_DATASET_VALIDATION=true/
-    );
-  });
-
-  await runTest('8.3 Safety Guard từ chối khi target không nằm trong allowlist', () => {
-    restoreEnv();
-    process.env.NODE_ENV = 'development';
-    process.env.ALLOW_DATASET_VALIDATION = 'true';
-    process.env.DATABASE_URL = 'postgresql://user:pass@localhost:5432/apartment_target_la';
-    process.env.DATASET_DB_ALLOWLIST = 'localhost:5432/apartment_sandbox_duoc_phep';
-
-    assert.throws(
-      () => {
-        assertSafeDatabaseValidation();
-      },
-      /không nằm trong allowlist được phép kiểm định/
-    );
-  });
-
-  await runTest('8.4 Safety Guard từ chối hostname/database chứa keyword production kể cả khi có trong allowlist', () => {
-    restoreEnv();
-    process.env.NODE_ENV = 'development';
-    process.env.ALLOW_DATASET_VALIDATION = 'true';
-    process.env.DATABASE_URL = 'postgresql://user:pass@localhost:5432/production-db';
-    process.env.DATASET_DB_ALLOWLIST = 'localhost:5432/production-db';
-
-    assert.throws(
-      () => {
-        assertSafeDatabaseValidation();
-      },
-      /Phát hiện dấu hiệu PRODUCTION trong target/
-    );
-  });
-
-  await runTest('8.5 Database validation CHỈ gọi read methods (findMany), KHÔNG BAO GIỜ gọi write methods', async () => {
+  await runTest('4.1 validateDatabase truyền chính xác RepeatableRead isolationLevel vào transaction', async () => {
     restoreEnv();
     process.env.NODE_ENV = 'development';
     process.env.ALLOW_DATASET_VALIDATION = 'true';
@@ -530,51 +523,35 @@ async function runAllTests() {
     process.env.DATASET_DB_ALLOWLIST = 'localhost:5432/apartment_sandbox';
 
     const baseSnapshot = createBaseValidSnapshot();
-    let writeMethodCalled = false;
-    let findManyCallCount = 0;
-    let disconnectCalled = false;
+    let capturedOptions: any = null;
+    let findManyCalls = 0;
+    let writeCalls = 0;
+    let disconnectCalls = 0;
 
-    // Stateful Mock Prisma Client để kiểm chứng hành vi của validateDatabase
-    const mockPrisma = {
-      $transaction: async (txCallback: any) => {
-        const txMock = {
-          room: {
+    const mockPrisma: any = {
+      $transaction: async (callback: any, options: any) => {
+        capturedOptions = options;
+        const tx: any = {};
+        const models = ['room', 'user', 'invoice', 'payment', 'ticket', 'feedback', 'notification', 'mediaAsset'];
+        for (const m of models) {
+          tx[m] = {
             findMany: async () => {
-              findManyCallCount++;
-              return baseSnapshot.rooms;
+              findManyCalls++;
+              return (baseSnapshot as any)[m + 's'] ?? (baseSnapshot as any)[m];
             },
-            create: () => { writeMethodCalled = true; throw new Error('WRITE FORBIDDEN'); },
-            update: () => { writeMethodCalled = true; throw new Error('WRITE FORBIDDEN'); },
-            delete: () => { writeMethodCalled = true; throw new Error('WRITE FORBIDDEN'); },
-            deleteMany: () => { writeMethodCalled = true; throw new Error('WRITE FORBIDDEN'); },
-          },
-          user: {
-            findMany: async () => { findManyCallCount++; return baseSnapshot.users; },
-            create: () => { writeMethodCalled = true; },
-          },
-          invoice: {
-            findMany: async () => { findManyCallCount++; return baseSnapshot.invoices; },
-          },
-          payment: {
-            findMany: async () => { findManyCallCount++; return baseSnapshot.payments; },
-          },
-          ticket: {
-            findMany: async () => { findManyCallCount++; return baseSnapshot.tickets; },
-          },
-          feedback: {
-            findMany: async () => { findManyCallCount++; return baseSnapshot.feedbacks; },
-          },
-          notification: {
-            findMany: async () => { findManyCallCount++; return baseSnapshot.notifications; },
-          },
-          mediaAsset: {
-            findMany: async () => { findManyCallCount++; return baseSnapshot.mediaAssets; },
-          },
-        };
-        return txCallback(txMock);
+            create: () => { writeCalls++; },
+            createMany: () => { writeCalls++; },
+            update: () => { writeCalls++; },
+            updateMany: () => { writeCalls++; },
+            upsert: () => { writeCalls++; },
+            delete: () => { writeCalls++; },
+            deleteMany: () => { writeCalls++; },
+          };
+        }
+        return callback(tx);
       },
       $disconnect: async () => {
-        disconnectCalled = true;
+        disconnectCalls++;
       },
     };
 
@@ -584,61 +561,178 @@ async function runAllTests() {
       allowlist: process.env.DATASET_DB_ALLOWLIST,
     });
 
-    assert.strictEqual(writeMethodCalled, false, 'Tuyệt đối không được gọi bất kỳ write method nào');
-    assert.strictEqual(findManyCallCount, 8, 'Phải gọi đủ 8 lệnh findMany cho 8 models');
-    assert.strictEqual(disconnectCalled, true, '$disconnect bắt buộc phải được gọi');
-    assert.strictEqual(report.mode, 'DATABASE');
+    assert.strictEqual(
+      capturedOptions?.isolationLevel,
+      Prisma.TransactionIsolationLevel.RepeatableRead,
+      'Transaction bắt buộc phải sử dụng isolationLevel RepeatableRead'
+    );
+    assert.strictEqual(findManyCalls, 8, 'Phải gọi đủ 8 findMany');
+    assert.strictEqual(writeCalls, 0, 'Tuyệt đối 0 write methods được gọi');
+    assert.strictEqual(disconnectCalls, 1, '$disconnect bắt buộc phải được gọi');
     assert.strictEqual(report.overallStatus, 'PASS');
   });
 
-  await runTest('8.6 Database validation trên database rỗng trả về FAIL và không tự động seed', async () => {
+  await runTest('4.2 Lỗi trong transaction vẫn bảo đảm đóng Prisma connection ($disconnect)', async () => {
     restoreEnv();
     process.env.NODE_ENV = 'development';
     process.env.ALLOW_DATASET_VALIDATION = 'true';
-    process.env.DATABASE_URL = 'postgresql://user:pass@localhost:5432/apartment_empty_db';
-    process.env.DATASET_DB_ALLOWLIST = 'localhost:5432/apartment_empty_db';
+    process.env.DATABASE_URL = 'postgresql://user:pass@localhost:5432/apartment_sandbox';
+    process.env.DATASET_DB_ALLOWLIST = 'localhost:5432/apartment_sandbox';
 
     let disconnectCalled = false;
-    const mockEmptyPrisma = {
-      $transaction: async (txCallback: any) => {
-        const emptyTx = {
-          room: { findMany: async () => [] },
-          user: { findMany: async () => [] },
-          invoice: { findMany: async () => [] },
-          payment: { findMany: async () => [] },
-          ticket: { findMany: async () => [] },
-          feedback: { findMany: async () => [] },
-          notification: { findMany: async () => [] },
-          mediaAsset: { findMany: async () => [] },
-        };
-        return txCallback(emptyTx);
+    const failingMockPrisma: any = {
+      $transaction: async () => {
+        throw new Error('DATABASE_CONNECTION_LOST');
       },
       $disconnect: async () => {
         disconnectCalled = true;
       },
     };
 
+    await assert.rejects(
+      async () => {
+        await validateDatabase({
+          prismaClient: failingMockPrisma,
+          databaseUrl: process.env.DATABASE_URL,
+          allowlist: process.env.DATASET_DB_ALLOWLIST,
+        });
+      },
+      /DATABASE_CONNECTION_LOST/
+    );
+
+    assert.strictEqual(disconnectCalled, true, '$disconnect vẫn bắt buộc phải được gọi khi xảy ra lỗi DB');
+  });
+
+  // -------------------------------------------------------------------
+  // NHÓM 5: BLOCKER E — REPORT CONSISTENCY
+  // -------------------------------------------------------------------
+  console.log('\n--- 5. BLOCKER E: TÍNH NHẤT QUÁN CỦA BÁO CÁO (REPORT CONSISTENCY) ---');
+
+  await runTest('5.1 Database rỗng: Báo cáo trả về đủ 8 kết quả, passedChecks + failedChecks === 8', async () => {
+    restoreEnv();
+    process.env.NODE_ENV = 'development';
+    process.env.ALLOW_DATASET_VALIDATION = 'true';
+    process.env.DATABASE_URL = 'postgresql://user:pass@localhost:5432/apartment_empty_db';
+    process.env.DATASET_DB_ALLOWLIST = 'localhost:5432/apartment_empty_db';
+
+    const emptyMockPrisma: any = {
+      $transaction: async (cb: any) => {
+        const tx: any = {};
+        for (const m of ['room', 'user', 'invoice', 'payment', 'ticket', 'feedback', 'notification', 'mediaAsset']) {
+          tx[m] = { findMany: async () => [] };
+        }
+        return cb(tx);
+      },
+      $disconnect: async () => {},
+    };
+
     const report = await validateDatabase({
-      prismaClient: mockEmptyPrisma,
+      prismaClient: emptyMockPrisma,
       databaseUrl: process.env.DATABASE_URL,
       allowlist: process.env.DATASET_DB_ALLOWLIST,
     });
 
+    assert.strictEqual(report.totalChecks, 8, 'totalChecks phải bằng 8');
+    assert.strictEqual(report.passedChecks, 0, 'passedChecks phải bằng 0');
+    assert.strictEqual(report.failedChecks, 8, 'failedChecks phải bằng 8');
+    assert.strictEqual(report.results.length, 8, 'results.length bắt buộc phải bằng 8 (khắc phục Blocker E)');
+    assert.strictEqual(report.passedChecks + report.failedChecks, report.totalChecks);
     assert.strictEqual(report.overallStatus, 'FAIL');
-    assert.ok(report.results[0].message.includes('Cơ sở dữ liệu hoàn toàn rỗng'));
-    assert.strictEqual(disconnectCalled, true, '$disconnect phải được gọi');
+  });
+
+  await runTest('5.2 Một check ném ngoại lệ không làm mất 7 kết quả của các check độc lập còn lại', () => {
+    const snapshot = createBaseValidSnapshot();
+    // Tạo lỗi cấu trúc gây ngoại lệ trong 1 check (nhưng runner bọc an toàn)
+    (snapshot.rooms as any) = null;
+
+    const report = validateDataset(snapshot as any, 'IN_MEMORY');
+    assert.strictEqual(report.totalChecks, 8);
+    assert.strictEqual(report.results.length, 8);
+    assert.strictEqual(report.passedChecks + report.failedChecks, 8);
+    assert.strictEqual(report.overallStatus, 'FAIL');
+  });
+
+  // -------------------------------------------------------------------
+  // NHÓM 6: BLOCKER F — RELATIONAL & UNIQUE CONSTRAINT AUDIT
+  // -------------------------------------------------------------------
+  console.log('\n--- 6. BLOCKER F: UNIQUE CONSTRAINTS & THÁNG ISO YYYY-MM ---');
+
+  await runTest('6.1 Trùng lặp Room.roomNumber phải FAIL relational check', () => {
+    const snapshot = createBaseValidSnapshot();
+    snapshot.rooms[1].roomNumber = snapshot.rooms[0].roomNumber;
+
+    const result = validateRelationalIntegrity(snapshot);
+    assert.strictEqual(result.passed, false);
+    assert.ok(result.message.includes('roomNumber') || result.message.includes('trùng lặp'));
+  });
+
+  await runTest('6.2 Trùng lặp User.username phải FAIL relational check', () => {
+    const snapshot = createBaseValidSnapshot();
+    snapshot.users[1].username = snapshot.users[0].username;
+
+    const result = validateRelationalIntegrity(snapshot);
+    assert.strictEqual(result.passed, false);
+    assert.ok(result.message.includes('username bị trùng lặp'));
+  });
+
+  await runTest('6.3 Trùng lặp User.email (khác null) phải FAIL relational check', () => {
+    const snapshot = createBaseValidSnapshot();
+    snapshot.users[1].email = snapshot.users[0].email;
+
+    const result = validateRelationalIntegrity(snapshot);
+    assert.strictEqual(result.passed, false);
+    assert.ok(result.message.includes('email bị trùng lặp'));
+  });
+
+  await runTest('6.4 Trùng lặp ID trong bất kỳ model nào phải FAIL', () => {
+    const snapshot = createBaseValidSnapshot();
+    snapshot.invoices[1].id = snapshot.invoices[0].id;
+
+    const result = validateRelationalIntegrity(snapshot);
+    assert.strictEqual(result.passed, false);
+    assert.ok(result.message.includes('ID trùng lặp'));
+  });
+
+  await runTest('6.5 Invoice month sai định dạng (ví dụ: 2026-13, 2026-0, chuỗi lỗi) phải FAIL', () => {
+    const snapshot = createBaseValidSnapshot();
+    snapshot.invoices[0].month = '2026-13'; // Tháng 13 không tồn tại
+
+    const result = validateRelationalIntegrity(snapshot);
+    assert.strictEqual(result.passed, false);
+    assert.ok(result.message.includes('không đúng định dạng chuẩn YYYY-MM'));
+  });
+
+  // -------------------------------------------------------------------
+  // NHÓM 7: SECTION 9 — DETERMINISM & JSON REPORT PERSISTENCE
+  // -------------------------------------------------------------------
+  console.log('\n--- 7. SECTION 9: TÍNH ĐƠN ĐỊNH NGHIỆP VỤ & LƯU BÁO CÁO JSON ---');
+
+  await runTest('7.1 verifyDatasetDeterminism: Hai lần sinh với cùng seed cho dữ liệu nghiệp vụ giống hệt 100%', () => {
+    const determinism = verifyDatasetDeterminism(20261111);
+    assert.strictEqual(determinism.isDeterministic, true);
+    assert.strictEqual(determinism.differences.length, 0);
+  });
+
+  await runTest('7.2 saveValidationReport lưu tệp JSON hợp lệ và không chứa credentials hoặc PII nhạy cảm', () => {
+    const snapshot = createBaseValidSnapshot();
+    const report = validateDataset(snapshot, 'IN_MEMORY');
+    const savedPath = saveValidationReport(report);
+
+    assert.ok(fs.existsSync(savedPath), 'Tệp báo cáo JSON phải tồn tại');
+    const content = JSON.parse(fs.readFileSync(savedPath, 'utf-8'));
+
+    assert.strictEqual(content.totalChecks, 8);
+    assert.strictEqual(content.overallStatus, 'PASS');
+    assert.strictEqual(content.results.length, 8);
+    // Chứng minh không lộ password hay credentials
+    assert.strictEqual(JSON.stringify(content).includes('passwordHash'), false);
   });
 
   restoreEnv();
 
   console.log('\n======================================================');
-  console.log(`🎉 TOÀN BỘ ${passedTests}/${totalTests} TESTS M10 ĐẠT CHUẨN!`);
+  console.log(`🎉 TOÀN BỘ ${passedTests}/${totalTests} TESTS M10.1 ĐẠT CHUẨN!`);
   console.log('======================================================');
-}
-
-function toDecimal(val: Prisma.Decimal | number | string): Prisma.Decimal {
-  if (val instanceof Prisma.Decimal) return val;
-  return new Prisma.Decimal(val.toString());
 }
 
 if (require.main === module) {

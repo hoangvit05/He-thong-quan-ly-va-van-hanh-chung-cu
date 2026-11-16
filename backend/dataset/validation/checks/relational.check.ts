@@ -1,7 +1,7 @@
 // =========================================================================
 // KIỂM TRA TÍNH TOÀN VẸN QUAN HỆ & KHÓA NGOẠI (RELATIONAL INTEGRITY CHECK)
 // Phân hệ: backend/dataset/validation/checks/relational.check.ts
-// Đặc tả: Milestone 10 — Kiểm toán quan hệ khóa ngoại và tính nhất quán 8 models
+// Đặc tả: Milestone 10.1 — Red Team Fix: Kiểm toán khóa ngoại, unique constraint & ID 8 models
 // =========================================================================
 
 import { Role } from '@prisma/client';
@@ -16,6 +16,11 @@ export interface RelationalValidationInput {
   orphanedPayments: number;
   duplicateRoomMonths: number;
 }
+
+/**
+ * Regex kiểm tra định dạng tháng hợp lệ ISO YYYY-MM (tháng từ 01 đến 12)
+ */
+const VALID_MONTH_REGEX = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 /**
  * Hàm kiểm tra từ bộ đếm số liệu thô (giữ tương thích ngược với các test cũ)
@@ -61,10 +66,11 @@ export function checkRelationalIntegrity(input: RelationalValidationInput): Chec
 }
 
 /**
- * Kiểm tra toàn diện tính toàn vẹn quan hệ và khóa ngoại trực tiếp trên Dataset Snapshot
+ * Kiểm tra toàn diện tính toàn vẹn quan hệ, khóa chính và unique constraint trực tiếp trên Dataset Snapshot
  */
 export function validateRelationalIntegrity(snapshot: DatasetSnapshot): CheckResult {
   const errors: string[] = [];
+
   const roomMap = new Map<number, (typeof snapshot.rooms)[0]>(
     snapshot.rooms.map((r) => [r.id, r])
   );
@@ -74,7 +80,10 @@ export function validateRelationalIntegrity(snapshot: DatasetSnapshot): CheckRes
   const invoiceMap = new Map<number, (typeof snapshot.invoices)[0]>(
     snapshot.invoices.map((i) => [i.id, i])
   );
-  const roomNumberSet = new Set<string>(snapshot.rooms.map((r) => r.roomNumber));
+  const ticketMap = new Map<number, (typeof snapshot.tickets)[0]>(
+    snapshot.tickets.map((t) => [t.id, t])
+  );
+  const roomNumberSet = new Set<string>();
 
   let invalidRoomRefs = 0;
   let invalidUserRefs = 0;
@@ -82,7 +91,102 @@ export function validateRelationalIntegrity(snapshot: DatasetSnapshot): CheckRes
   let orphanedPayments = 0;
   let duplicateRoomMonths = 0;
 
-  // 1. Quan hệ Room / User
+  // 1. Kiểm tra tính duy nhất của ID và các trường Unique trong từng Model (Blocker F)
+  // 1.1 Model Room
+  const roomIdSet = new Set<number>();
+  for (const r of snapshot.rooms) {
+    if (roomIdSet.has(r.id)) {
+      errors.push(`Bảng Room phát hiện ID trùng lặp: #${r.id}.`);
+    }
+    roomIdSet.add(r.id);
+
+    if (roomNumberSet.has(r.roomNumber)) {
+      errors.push(`Bảng Room phát hiện số phòng (roomNumber) bị trùng lặp: '${r.roomNumber}'.`);
+    }
+    roomNumberSet.add(r.roomNumber);
+  }
+
+  // 1.2 Model User
+  const userIdSet = new Set<number>();
+  const usernameSet = new Set<string>();
+  const emailSet = new Set<string>();
+  for (const u of snapshot.users) {
+    if (userIdSet.has(u.id)) {
+      errors.push(`Bảng User phát hiện ID trùng lặp: #${u.id}.`);
+    }
+    userIdSet.add(u.id);
+
+    if (usernameSet.has(u.username)) {
+      errors.push(`Bảng User phát hiện username bị trùng lặp: '${u.username}'.`);
+    }
+    usernameSet.add(u.username);
+
+    if (u.email !== null && u.email !== undefined) {
+      const emailLower = u.email.toLowerCase();
+      if (emailSet.has(emailLower)) {
+        errors.push(`Bảng User phát hiện email bị trùng lặp: '${u.email}'.`);
+      }
+      emailSet.add(emailLower);
+    }
+  }
+
+  // 1.3 Model Ticket ID
+  const ticketIdSet = new Set<number>();
+  for (const t of snapshot.tickets) {
+    if (ticketIdSet.has(t.id)) {
+      errors.push(`Bảng Ticket phát hiện ID trùng lặp: #${t.id}.`);
+    }
+    ticketIdSet.add(t.id);
+  }
+
+  // 1.4 Model Invoice ID
+  const invoiceIdSet = new Set<number>();
+  for (const inv of snapshot.invoices) {
+    if (invoiceIdSet.has(inv.id)) {
+      errors.push(`Bảng Invoice phát hiện ID trùng lặp: #${inv.id}.`);
+    }
+    invoiceIdSet.add(inv.id);
+  }
+
+  // 1.5 Model Payment ID
+  const paymentIdSet = new Set<number>();
+  for (const p of snapshot.payments) {
+    if (paymentIdSet.has(p.id)) {
+      errors.push(`Bảng Payment phát hiện ID trùng lặp: #${p.id}.`);
+    }
+    paymentIdSet.add(p.id);
+  }
+
+  // 1.6 Model Feedback ID
+  const feedbackIdSet = new Set<number>();
+  for (const f of snapshot.feedbacks) {
+    if (feedbackIdSet.has(f.id)) {
+      errors.push(`Bảng Feedback phát hiện ID trùng lặp: #${f.id}.`);
+    }
+    feedbackIdSet.add(f.id);
+  }
+
+  // 1.7 Model Notification ID
+  const notificationIdSet = new Set<number>();
+  for (const n of snapshot.notifications) {
+    if (notificationIdSet.has(n.id)) {
+      errors.push(`Bảng Notification phát hiện ID trùng lặp: #${n.id}.`);
+    }
+    notificationIdSet.add(n.id);
+  }
+
+  // 1.8 Model MediaAsset ID (nếu có)
+  const mediaAssetIdSet = new Set<number>();
+  for (const m of snapshot.mediaAssets) {
+    if (m.id !== undefined) {
+      if (mediaAssetIdSet.has(m.id)) {
+        errors.push(`Bảng MediaAsset phát hiện ID trùng lặp: #${m.id}.`);
+      }
+      mediaAssetIdSet.add(m.id);
+    }
+  }
+
+  // 2. Quan hệ Room / User
   for (const u of snapshot.users) {
     if (u.role === Role.ADMIN || u.role === Role.BQL || u.role === Role.TECHNICIAN) {
       if (u.roomId !== null) {
@@ -99,14 +203,27 @@ export function validateRelationalIntegrity(snapshot: DatasetSnapshot): CheckRes
         );
       }
     }
-    // RESIDENT có thể có roomId === null (được phép theo schema). Không cấm nhiều resident trong cùng một room.
   }
 
-  // 2. Quan hệ Ticket
+  // 3. Quan hệ Ticket
   for (const t of snapshot.tickets) {
-    if (!userMap.has(t.residentId)) {
+    const creator = userMap.get(t.residentId);
+    if (!creator) {
       invalidUserRefs++;
       errors.push(`Ticket #${t.id} tham chiếu residentId ${t.residentId} không tồn tại.`);
+    } else {
+      // Backend cấm TECHNICIAN tạo ticket
+      if (creator.role === Role.TECHNICIAN) {
+        errors.push(
+          `Ticket #${t.id} có người tạo mang vai trò TECHNICIAN (Thợ kỹ thuật bị cấm tạo phiếu báo hỏng).`
+        );
+      }
+      // Sự cố thuộc căn hộ yêu cầu người tạo là RESIDENT
+      if (t.roomId !== null && creator.role !== Role.RESIDENT) {
+        errors.push(
+          `Ticket #${t.id} của căn hộ #${t.roomId} có người tạo mang vai trò ${creator.role} (sự cố căn hộ bắt buộc người tạo là RESIDENT).`
+        );
+      }
     }
 
     if (t.technicianId !== null) {
@@ -116,7 +233,7 @@ export function validateRelationalIntegrity(snapshot: DatasetSnapshot): CheckRes
         errors.push(`Ticket #${t.id} tham chiếu technicianId ${t.technicianId} không tồn tại.`);
       } else if (tech.role !== Role.TECHNICIAN) {
         errors.push(
-          `Ticket #${t.id} gán technicianId ${t.technicianId} cho người dùng #${tech.id} có vai trò ${tech.role} (không phải TECHNICIAN).`
+          `Ticket #${t.id} gán technicianId ${t.technicianId} cho người dùng mang vai trò ${tech.role} (không phải TECHNICIAN).`
         );
       }
     }
@@ -127,7 +244,7 @@ export function validateRelationalIntegrity(snapshot: DatasetSnapshot): CheckRes
     }
   }
 
-  // 3. Quan hệ Invoice & Payment & Unique [roomId, month]
+  // 4. Quan hệ Invoice & Payment, unique [roomId, month] và định dạng month YYYY-MM
   const roomMonthSet = new Set<string>();
   for (const inv of snapshot.invoices) {
     if (!roomMap.has(inv.roomId)) {
@@ -135,11 +252,18 @@ export function validateRelationalIntegrity(snapshot: DatasetSnapshot): CheckRes
       errors.push(`Hóa đơn #${inv.id} tham chiếu roomId ${inv.roomId} không tồn tại.`);
     }
 
+    // Kiểm tra định dạng month YYYY-MM (01 đến 12)
+    if (typeof inv.month !== 'string' || !VALID_MONTH_REGEX.test(inv.month)) {
+      errors.push(
+        `Hóa đơn #${inv.id} có month '${inv.month}' không đúng định dạng chuẩn YYYY-MM (tháng từ 01 đến 12).`
+      );
+    }
+
     const key = `${inv.roomId}_${inv.month}`;
     if (roomMonthSet.has(key)) {
       duplicateRoomMonths++;
       errors.push(
-        `Hóa đơn #${inv.id} trùng lặp cặp [roomId: ${inv.roomId}, month: '${inv.month}'] với hóa đơn khác.`
+        `Hóa đơn #${inv.id} trùng lặp cặp [roomId: ${inv.roomId}, month: '${inv.month}'] vi phạm unique constraint.`
       );
     }
     roomMonthSet.add(key);
@@ -154,7 +278,7 @@ export function validateRelationalIntegrity(snapshot: DatasetSnapshot): CheckRes
     }
   }
 
-  // 4. Quan hệ Feedback
+  // 5. Quan hệ Feedback
   for (const f of snapshot.feedbacks) {
     const resident = userMap.get(f.residentId);
     if (!resident) {
@@ -162,20 +286,18 @@ export function validateRelationalIntegrity(snapshot: DatasetSnapshot): CheckRes
       errors.push(`Feedback #${f.id} tham chiếu residentId ${f.residentId} không tồn tại.`);
     } else if (resident.role !== Role.RESIDENT) {
       errors.push(
-        `Feedback #${f.id} người tạo #${resident.id} có vai trò ${resident.role} (không phải RESIDENT).`
+        `Feedback #${f.id} người tạo mang vai trò ${resident.role} (chỉ RESIDENT mới có quyền gửi góp ý).`
       );
     }
 
-    // Ràng buộc khớp roomId của Feedback với resident.roomId
     if (resident) {
       if (resident.roomId !== null) {
         if (f.roomId !== resident.roomId) {
           errors.push(
-            `Feedback #${f.id} của cư dân #${resident.id} có roomId (${f.roomId}) không khớp với resident.roomId (${resident.roomId}). Cư dân có phòng không được gửi phản ánh roomId khác.`
+            `Feedback #${f.id} của cư dân #${resident.id} có roomId (${f.roomId}) không khớp với resident.roomId (${resident.roomId}).`
           );
         }
       } else {
-        // Cư dân chưa có phòng chỉ được gửi feedback có roomId = null
         if (f.roomId !== null) {
           errors.push(
             `Feedback #${f.id} của cư dân không có phòng #${resident.id} phải có roomId = null nhưng nhận được ${f.roomId}.`
@@ -190,7 +312,7 @@ export function validateRelationalIntegrity(snapshot: DatasetSnapshot): CheckRes
     }
   }
 
-  // 5. Quan hệ Notification
+  // 6. Quan hệ Notification
   for (const n of snapshot.notifications) {
     if (n.authorId !== null) {
       const author = userMap.get(n.authorId);
@@ -199,7 +321,7 @@ export function validateRelationalIntegrity(snapshot: DatasetSnapshot): CheckRes
         errors.push(`Thông báo #${n.id} tham chiếu authorId ${n.authorId} không tồn tại.`);
       } else if (author.role !== Role.ADMIN && author.role !== Role.BQL) {
         errors.push(
-          `Thông báo #${n.id} có người tạo #${author.id} mang vai trò ${author.role} (không phải ADMIN hoặc BQL).`
+          `Thông báo #${n.id} có tác giả mang vai trò ${author.role} (chỉ ADMIN hoặc BQL mới có quyền phát thông báo).`
         );
       }
     }
@@ -213,12 +335,27 @@ export function validateRelationalIntegrity(snapshot: DatasetSnapshot): CheckRes
     }
   }
 
+  // 7. Quan hệ MediaAsset (nếu có tài sản)
+  for (const ma of snapshot.mediaAssets) {
+    if (ma.uploaderId !== undefined) {
+      if (!userMap.has(ma.uploaderId)) {
+        invalidUserRefs++;
+        errors.push(`MediaAsset #${ma.id ?? ma.publicId} tham chiếu uploaderId ${ma.uploaderId} không tồn tại.`);
+      }
+    }
+    if (ma.ticketId !== undefined && ma.ticketId !== null) {
+      if (!ticketMap.has(ma.ticketId)) {
+        errors.push(`MediaAsset #${ma.id ?? ma.publicId} tham chiếu ticketId ${ma.ticketId} không tồn tại.`);
+      }
+    }
+  }
+
   return {
     name: 'Relational Integrity Check',
     passed: errors.length === 0,
     message:
       errors.length === 0
-        ? 'Toàn bộ quan hệ và khóa ngoại của 8 models nhất quán 100%.'
+        ? 'Toàn bộ quan hệ, khóa ngoại, unique constraint và định dạng tháng nhất quán 100%.'
         : `Phát hiện ${errors.length} vi phạm quan hệ: ${errors.slice(0, 10).join('; ')}${
             errors.length > 10 ? `... và ${errors.length - 10} lỗi khác` : ''
           }`,

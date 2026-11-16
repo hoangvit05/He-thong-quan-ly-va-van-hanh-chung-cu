@@ -1,0 +1,140 @@
+{
+  "timestamp": "2026-11-16T10:36:47.464Z",
+  "mode": "IN_MEMORY",
+  "totalChecks": 8,
+  "passedChecks": 8,
+  "failedChecks": 0,
+  "overallStatus": "PASS",
+  "modelCounts": {
+    "rooms": 100,
+    "users": {
+      "total": 128,
+      "admin": 1,
+      "bql": 2,
+      "technician": 5,
+      "resident": 120
+    },
+    "tickets": 175,
+    "invoices": 500,
+    "payments": 472,
+    "feedbacks": 40,
+    "notifications": 25,
+    "mediaAssets": 0
+  },
+  "results": [
+    {
+      "name": "Counts Integrity Check",
+      "passed": true,
+      "message": "Toàn bộ số lượng bản ghi thỏa mãn quy mô đã duyệt.",
+      "violationsCount": 0,
+      "errors": [],
+      "details": {
+        "rooms": 100,
+        "users": {
+          "total": 128,
+          "admin": 1,
+          "bql": 2,
+          "technician": 5,
+          "resident": 120
+        },
+        "tickets": 175,
+        "invoices": 500,
+        "payments": 472,
+        "feedbacks": 40,
+        "notifications": 25,
+        "mediaAssets": 0
+      }
+    },
+    {
+      "name": "Relational Integrity Check",
+      "passed": true,
+      "message": "Toàn bộ quan hệ, khóa ngoại, unique constraint và định dạng tháng nhất quán 100%.",
+      "violationsCount": 0,
+      "errors": [],
+      "details": {
+        "invalidRoomReferences": 0,
+        "invalidUserReferences": 0,
+        "staffWithRoomId": 0,
+        "orphanedPayments": 0,
+        "duplicateRoomMonths": 0,
+        "totalErrors": 0
+      }
+    },
+    {
+      "name": "Financial Consistency Check",
+      "passed": true,
+      "message": "Dữ liệu tài chính, dòng tiền và Decimal(12,2) nhất quán 100%.",
+      "violationsCount": 0,
+      "errors": [],
+      "details": {
+        "mismatchedTotalAmounts": 0,
+        "mismatchedPaidAmounts": 0,
+        "overpaymentCount": 0,
+        "invalidStatusCount": 0,
+        "negativeFeeCount": 0,
+        "totalErrors": 0
+      }
+    },
+    {
+      "name": "Ticket Consistency Check",
+      "passed": true,
+      "message": "Toàn bộ vòng đời Ticket, phân công thợ, rating và cờ lọc trùng 24h hai chiều hợp lệ 100%.",
+      "violationsCount": 0,
+      "errors": [],
+      "details": {
+        "invalidTechnicianAssignments": 0,
+        "invalidRatings": 0,
+        "invalidDuplicateFlags": 0,
+        "totalErrors": 0
+      }
+    },
+    {
+      "name": "Feedback Integrity Check",
+      "passed": true,
+      "message": "Dữ liệu Feedback tuân thủ đầy đủ quy tắc RBAC, phạm vi phòng và độ dài văn bản 100%.",
+      "violationsCount": 0,
+      "errors": [],
+      "details": {
+        "totalFeedbacks": 40,
+        "errorsCount": 0
+      }
+    },
+    {
+      "name": "Notification Integrity Check",
+      "passed": true,
+      "message": "Dữ liệu Notification hợp lệ, đúng vai trò tác giả và khớp số phòng 100%.",
+      "violationsCount": 0,
+      "errors": [],
+      "details": {
+        "totalNotifications": 25,
+        "errorsCount": 0
+      }
+    },
+    {
+      "name": "Media Integrity Check",
+      "passed": true,
+      "message": "Tài nguyên Media tuân thủ nghiêm ngặt chính sách Zero-Asset và an toàn URL 100%.",
+      "violationsCount": 0,
+      "errors": [],
+      "details": {
+        "fakeCloudinaryAssets": 0,
+        "unconfirmedAssetsCount": 0,
+        "invalidMediaUrls": 0,
+        "totalErrors": 0
+      }
+    },
+    {
+      "name": "Privacy & PII Integrity Check",
+      "passed": true,
+      "message": "Dữ liệu không rò rỉ PII, không chứa SĐT/CCCD/Email/STK/Base64, email synthetic chuẩn và mật khẩu 100% Bcrypt hash.",
+      "violationsCount": 0,
+      "errors": [],
+      "details": {
+        "invalidPasswords": 0,
+        "invalidEmails": 0,
+        "piiViolations": 0,
+        "totalErrors": 0
+      }
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 // =========================================================================
 // KIỂM TRA TÍNH TOÀN VẸN TÀI CHÍNH & TIỀN TỆ (FINANCIAL INTEGRITY CHECK)
 // Phân hệ: backend/dataset/validation/checks/financial.check.ts
-// Đặc tả: Milestone 10 — Kiểm toán tính nhất quán Decimal, dòng tiền và hóa đơn
+// Đặc tả: Milestone 10.1 — Red Team Fix: Kiểm toán Decimal(12,2), scale, precision & dòng tiền
 // =========================================================================
 
 import { InvoiceStatus, Prisma } from '@prisma/client';
@@ -16,6 +16,12 @@ export interface FinancialValidationInput {
   invalidStatusCount: number;
   negativeFeeCount: number;
 }
+
+/**
+ * Giới hạn lưu trữ tối đa của cột PostgreSQL DECIMAL(12, 2)
+ * Tổng 12 chữ số, 2 chữ số thập phân -> tối đa 9,999,999,999.99
+ */
+export const MAX_DECIMAL_12_2 = new Prisma.Decimal('9999999999.99');
 
 /**
  * Hàm kiểm tra từ bộ đếm số liệu thô (giữ tương thích ngược với các test cũ)
@@ -64,12 +70,83 @@ export function checkFinancialIntegrity(input: FinancialValidationInput): CheckR
   };
 }
 
+interface AuditedDecimal {
+  val: Prisma.Decimal | null;
+  isValid: boolean;
+}
+
 /**
- * Chuyển đổi an toàn giá trị tiền tệ sang Prisma.Decimal
+ * Kiểm định chuyên sâu một trường Decimal(12,2)
+ * Bắt lỗi cấu trúc an toàn, không để exception làm sập validation runner
  */
-function toDecimal(val: Prisma.Decimal | number | string): Prisma.Decimal {
-  if (val instanceof Prisma.Decimal) return val;
-  return new Prisma.Decimal(val.toString());
+function auditDecimalField(
+  rawVal: any,
+  fieldName: string,
+  context: string,
+  errors: string[],
+  options: { mustBePositive?: boolean; allowZero?: boolean } = {}
+): AuditedDecimal {
+  if (rawVal === undefined || rawVal === null) {
+    errors.push(`${context} có ${fieldName} bị null hoặc undefined.`);
+    return { val: null, isValid: false };
+  }
+
+  let dec: Prisma.Decimal;
+  try {
+    if (rawVal instanceof Prisma.Decimal) {
+      dec = rawVal;
+    } else if (typeof rawVal === 'number') {
+      if (!Number.isFinite(rawVal) || Number.isNaN(rawVal)) {
+        errors.push(`${context} có ${fieldName} không phải số hữu hạn (nhận: ${rawVal}).`);
+        return { val: null, isValid: false };
+      }
+      dec = new Prisma.Decimal(rawVal.toString());
+    } else if (typeof rawVal === 'string') {
+      dec = new Prisma.Decimal(rawVal.trim());
+    } else {
+      errors.push(`${context} có ${fieldName} có kiểu dữ liệu không hợp lệ.`);
+      return { val: null, isValid: false };
+    }
+  } catch (err: any) {
+    errors.push(`${context} có ${fieldName} không thể parse thành Decimal hợp lệ: ${err.message}`);
+    return { val: null, isValid: false };
+  }
+
+  // 1. Kiểm tra NaN và Infinity
+  if (dec.isNaN() || !dec.isFinite()) {
+    errors.push(`${context} có ${fieldName} mang giá trị NaN hoặc không hữu hạn.`);
+    return { val: null, isValid: false };
+  }
+
+  // 2. Kiểm tra scale (tối đa 2 chữ số thập phân)
+  if (dec.decimalPlaces() > 2) {
+    errors.push(
+      `${context} có ${fieldName} (${dec.toString()}) vượt quá 2 chữ số thập phân của DECIMAL(12,2) (thực tế: ${dec.decimalPlaces()} số lẻ).`
+    );
+    return { val: dec, isValid: false };
+  }
+
+  // 3. Kiểm tra precision và giới hạn lưu trữ tối đa DECIMAL(12, 2)
+  if (dec.greaterThan(MAX_DECIMAL_12_2)) {
+    errors.push(
+      `${context} có ${fieldName} (${dec.toString()}) vượt quá giới hạn tối đa của DECIMAL(12,2) (tối đa: ${MAX_DECIMAL_12_2.toString()}).`
+    );
+    return { val: dec, isValid: false };
+  }
+
+  // 4. Kiểm tra số âm (phí không được âm)
+  if (dec.isNegative()) {
+    errors.push(`${context} có ${fieldName} mang giá trị âm: ${dec.toString()}`);
+    return { val: dec, isValid: false };
+  }
+
+  // 5. Kiểm tra giá trị > 0 cho Payment amount
+  if (options.mustBePositive && dec.isZero()) {
+    errors.push(`${context} có ${fieldName} bằng 0 (số tiền thanh toán bắt buộc phải lớn hơn 0).`);
+    return { val: dec, isValid: false };
+  }
+
+  return { val: dec, isValid: true };
 }
 
 /**
@@ -87,25 +164,20 @@ export function validateFinancialIntegrity(snapshot: DatasetSnapshot): CheckResu
   let invalidStatusCount = 0;
   let negativeFeeCount = 0;
 
-  // 1. Gom nhóm Payment theo invoiceId và kiểm tra từng giao dịch
+  // 1. Gom nhóm Payment theo invoiceId và kiểm định từng giao dịch
   const paymentsByInvoice = new Map<number, SnapshotPayment[]>();
 
   for (const p of snapshot.payments) {
-    const amountDec = toDecimal(p.amount);
+    const auditRes = auditDecimalField(
+      p.amount,
+      'amount',
+      `Giao dịch Payment #${p.id}`,
+      errors,
+      { mustBePositive: true }
+    );
 
-    // Tiền thanh toán không được âm hoặc bằng 0
-    if (amountDec.isNegative() || amountDec.isZero()) {
+    if (!auditRes.isValid && auditRes.val?.isNegative()) {
       negativeFeeCount++;
-      errors.push(
-        `Giao dịch Payment #${p.id} có số tiền ${amountDec.toString()} không hợp lệ (phải lớn hơn 0).`
-      );
-    }
-
-    // Kiểm tra độ chính xác thập phân (tối đa 2 chữ số thập phân theo DECIMAL(12,2))
-    if (amountDec.decimalPlaces() > 2) {
-      errors.push(
-        `Giao dịch Payment #${p.id} có số tiền ${amountDec.toString()} vượt quá 2 chữ số thập phân cho phép.`
-      );
     }
 
     // Kiểm tra Payment mồ côi
@@ -118,85 +190,100 @@ export function validateFinancialIntegrity(snapshot: DatasetSnapshot): CheckResu
     }
   }
 
-  // 2. Kiểm tra từng Invoice
+  // 2. Kiểm định từng Invoice
   for (const inv of snapshot.invoices) {
-    const mgmt = toDecimal(inv.managementFee);
-    const park = toDecimal(inv.parkingFee);
-    const water = toDecimal(inv.waterFee);
-    const other = toDecimal(inv.otherFee);
-    const total = toDecimal(inv.totalAmount);
-    const paid = toDecimal(inv.paidAmount);
+    const ctx = `Hóa đơn #${inv.id}`;
 
-    // Kiểm tra phí âm
-    if (mgmt.isNegative()) {
+    // Kiểm định 6 trường Decimal của Invoice
+    const mgmtRes = auditDecimalField(inv.managementFee, 'managementFee', ctx, errors);
+    const parkRes = auditDecimalField(inv.parkingFee, 'parkingFee', ctx, errors);
+    const waterRes = auditDecimalField(inv.waterFee, 'waterFee', ctx, errors);
+    const otherRes = auditDecimalField(inv.otherFee, 'otherFee', ctx, errors);
+    const totalRes = auditDecimalField(inv.totalAmount, 'totalAmount', ctx, errors);
+    const paidRes = auditDecimalField(inv.paidAmount, 'paidAmount', ctx, errors);
+
+    if (
+      (mgmtRes.val && mgmtRes.val.isNegative()) ||
+      (parkRes.val && parkRes.val.isNegative()) ||
+      (waterRes.val && waterRes.val.isNegative()) ||
+      (otherRes.val && otherRes.val.isNegative())
+    ) {
       negativeFeeCount++;
-      errors.push(`Hóa đơn #${inv.id} có managementFee âm: ${mgmt.toString()}`);
-    }
-    if (park.isNegative()) {
-      negativeFeeCount++;
-      errors.push(`Hóa đơn #${inv.id} có parkingFee âm: ${park.toString()}`);
-    }
-    if (water.isNegative()) {
-      negativeFeeCount++;
-      errors.push(`Hóa đơn #${inv.id} có waterFee âm: ${water.toString()}`);
-    }
-    if (other.isNegative()) {
-      negativeFeeCount++;
-      errors.push(`Hóa đơn #${inv.id} có otherFee âm: ${other.toString()}`);
     }
 
-    // Kiểm tra totalAmount = tổng 4 khoản phí
-    const expectedTotal = mgmt.plus(park).plus(water).plus(other);
-    if (!total.equals(expectedTotal)) {
-      mismatchedTotalAmounts++;
-      errors.push(
-        `Hóa đơn #${inv.id} có totalAmount (${total.toString()}) không khớp tổng 4 khoản phí (${expectedTotal.toString()} = ${mgmt.toString()} + ${park.toString()} + ${water.toString()} + ${other.toString()}).`
-      );
+    // Kiểm tra totalAmount = tổng 4 khoản phí (chỉ so sánh khi các trường hợp lệ)
+    if (mgmtRes.val && parkRes.val && waterRes.val && otherRes.val && totalRes.val) {
+      const expectedTotal = mgmtRes.val
+        .plus(parkRes.val)
+        .plus(waterRes.val)
+        .plus(otherRes.val);
+
+      if (!totalRes.val.equals(expectedTotal)) {
+        mismatchedTotalAmounts++;
+        errors.push(
+          `${ctx} có totalAmount (${totalRes.val.toString()}) không khớp tổng 4 khoản phí (${expectedTotal.toString()} = ${mgmtRes.val.toString()} + ${parkRes.val.toString()} + ${waterRes.val.toString()} + ${otherRes.val.toString()}).`
+        );
+      }
     }
 
     // Kiểm tra paidAmount = tổng Payment thực tế
     const invPayments = paymentsByInvoice.get(inv.id) ?? [];
     let expectedPaid = new Prisma.Decimal(0);
+    let allPaymentsValid = true;
+
     for (const p of invPayments) {
-      expectedPaid = expectedPaid.plus(toDecimal(p.amount));
+      try {
+        const pDec = p.amount instanceof Prisma.Decimal ? p.amount : new Prisma.Decimal(p.amount.toString());
+        if (pDec.isFinite() && !pDec.isNaN()) {
+          expectedPaid = expectedPaid.plus(pDec);
+        } else {
+          allPaymentsValid = false;
+        }
+      } catch {
+        allPaymentsValid = false;
+      }
     }
 
-    if (!paid.equals(expectedPaid)) {
-      mismatchedPaidAmounts++;
-      errors.push(
-        `Hóa đơn #${inv.id} có paidAmount (${paid.toString()}) không khớp tổng Payment thực tế (${expectedPaid.toString()}).`
-      );
-    }
-
-    // Kiểm tra nộp thừa (Overpayment)
-    if (paid.greaterThan(total)) {
-      overpaymentCount++;
-      errors.push(
-        `Hóa đơn #${inv.id} bị overpayment: số tiền đã trả (${paid.toString()}) vượt quá tổng tiền (${total.toString()}).`
-      );
-    }
-
-    // Kiểm tra tính nhất quán của InvoiceStatus với số tiền
-    if (paid.isZero()) {
-      if (inv.status !== InvoiceStatus.UNPAID) {
-        invalidStatusCount++;
+    if (paidRes.val && allPaymentsValid) {
+      if (!paidRes.val.equals(expectedPaid)) {
+        mismatchedPaidAmounts++;
         errors.push(
-          `Hóa đơn #${inv.id} chưa thanh toán (paidAmount = 0) nhưng có status = ${inv.status} (phải là UNPAID).`
+          `${ctx} có paidAmount (${paidRes.val.toString()}) không khớp tổng Payment thực tế (${expectedPaid.toString()}).`
         );
       }
-    } else if (paid.greaterThan(0) && paid.lessThan(total)) {
-      if (inv.status !== InvoiceStatus.PARTIALLY_PAID) {
-        invalidStatusCount++;
+
+      // Kiểm tra nộp thừa (Overpayment)
+      if (totalRes.val && paidRes.val.greaterThan(totalRes.val)) {
+        overpaymentCount++;
         errors.push(
-          `Hóa đơn #${inv.id} thanh toán một phần (0 < ${paid.toString()} < ${total.toString()}) nhưng có status = ${inv.status} (phải là PARTIALLY_PAID).`
+          `${ctx} bị overpayment: số tiền đã trả (${paidRes.val.toString()}) vượt quá tổng tiền (${totalRes.val.toString()}).`
         );
       }
-    } else if (paid.equals(total)) {
-      if (inv.status !== InvoiceStatus.PAID) {
-        invalidStatusCount++;
-        errors.push(
-          `Hóa đơn #${inv.id} đã thanh toán đủ (paidAmount = totalAmount = ${total.toString()}) nhưng có status = ${inv.status} (phải là PAID).`
-        );
+
+      // Kiểm tra tính nhất quán của InvoiceStatus với số tiền
+      if (totalRes.val) {
+        if (paidRes.val.isZero()) {
+          if (inv.status !== InvoiceStatus.UNPAID) {
+            invalidStatusCount++;
+            errors.push(
+              `${ctx} chưa thanh toán (paidAmount = 0) nhưng có status = ${inv.status} (phải là UNPAID).`
+            );
+          }
+        } else if (paidRes.val.greaterThan(0) && paidRes.val.lessThan(totalRes.val)) {
+          if (inv.status !== InvoiceStatus.PARTIALLY_PAID) {
+            invalidStatusCount++;
+            errors.push(
+              `${ctx} thanh toán một phần (0 < ${paidRes.val.toString()} < ${totalRes.val.toString()}) nhưng có status = ${inv.status} (phải là PARTIALLY_PAID).`
+            );
+          }
+        } else if (paidRes.val.equals(totalRes.val)) {
+          if (inv.status !== InvoiceStatus.PAID) {
+            invalidStatusCount++;
+            errors.push(
+              `${ctx} đã thanh toán đủ (paidAmount = totalAmount = ${totalRes.val.toString()}) nhưng có status = ${inv.status} (phải là PAID).`
+            );
+          }
+        }
       }
     }
   }
@@ -206,7 +293,7 @@ export function validateFinancialIntegrity(snapshot: DatasetSnapshot): CheckResu
     passed: errors.length === 0,
     message:
       errors.length === 0
-        ? 'Dữ liệu tài chính, dòng tiền và Decimal nhất quán 100%.'
+        ? 'Dữ liệu tài chính, dòng tiền và Decimal(12,2) nhất quán 100%.'
         : `Phát hiện ${errors.length} vi phạm tài chính: ${errors.slice(0, 10).join('; ')}${
             errors.length > 10 ? `... và ${errors.length - 10} lỗi khác` : ''
           }`,

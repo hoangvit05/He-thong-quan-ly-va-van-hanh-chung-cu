@@ -216,7 +216,8 @@ Kiểm tra dữ liệu đã nạp trong cơ sở dữ liệu PostgreSQL thực t
   - Bắt buộc bật cờ xác nhận độc lập: `ALLOW_DATASET_VALIDATION=true`. (Tuyệt đối không dùng `ALLOW_DATASET_SEED`).
   - Bắt buộc chỉ định danh sách allowlist khớp mục tiêu: `DATASET_DB_ALLOWLIST="host:port/dbname"`.
   - Từ chối ngay lập tức nếu target chứa từ khóa Production (`prod`, `production`, `apartment-main`, `release-db`).
-  - **Thuần túy Read-Only**: Chỉ sử dụng `findMany()` trong Prisma transaction để chụp snapshot nhất quán. Tuyệt đối KHÔNG có lệnh `create`, `update`, `upsert`, `delete`, `deleteMany` hay migration.
+  - **Thuần túy Read-Only**: Chỉ sử dụng `findMany()` trong Prisma transaction với `isolationLevel: RepeatableRead` để chụp snapshot nhất quán. Tuyệt đối KHÔNG có lệnh `create`, `update`, `upsert`, `delete`, `deleteMany` hay migration.
+  - **Phân biệt Cấp độ Bảo vệ**: Cơ chế Read-Only ở cấp mã nguồn (code-level transaction) không thay thế cho phân quyền tài khoản cơ sở dữ liệu. Khi chạy trên môi trường thực tế, khuyến nghị sử dụng tài khoản PostgreSQL chỉ có quyền `SELECT` (Read-Only database user).
   - **Không tự động seed**: Nếu phát hiện cơ sở dữ liệu rỗng (0 bản ghi), runner lập tức báo cáo FAIL; tuyệt đối không tự ý seed hoặc nạp dữ liệu thay thế.
   - **Không tự ý sửa dữ liệu**: Nếu phát hiện bản ghi lỗi, runner ghi nhận chi tiết vi phạm; tuyệt đối không tự sửa hoặc xóa dữ liệu ứng dụng.
 
@@ -225,8 +226,71 @@ cd backend
 ALLOW_DATASET_VALIDATION=true DATASET_DB_ALLOWLIST="localhost:5432/apartment_sandbox" npx ts-node dataset/validation/validate.ts --mode=database
 ```
 
+---
+
+### 5.4. Chi tiết 8 Nhóm Tiêu Chuẩn Kiểm Định (Milestone 10.1)
+
+Hệ thống kiểm định áp dụng nguyên tắc **Fail-Closed**, đối chiếu trực tiếp với Prisma Schema và Backend Application Controller:
+
+1. **Kiểm toán Trùng lặp Ticket (Blocker A — Backend Parity)**:
+   - Đối chiếu chính xác 100% thuật toán backend tại `backend/src/modules/tickets/tickets.controller.ts` (dòng 408–428).
+   - **Kiểm tra Hai chiều (Bi-directional Parity)**:
+     - Nếu có ticket trước đó trong vòng 24 giờ cùng `residentId`, `category` và `title`, ticket sau **bắt buộc** phải có `isDuplicate = true`.
+     - Nếu không có ticket trước đó thỏa mãn điều kiện trên, ticket **bắt buộc** phải có `isDuplicate = false`.
+   - **Không lọc bỏ Ticket đã trùng lặp**: Thuật toán backend không lọc `isDuplicate = false` khi tìm ticket trùng lặp trước đó, cho phép các chuỗi trùng lặp liên tiếp (T1 -> T2 -> T3) được nhận diện hợp lệ.
+   - **Kiểm toán Phân quyền & Quan hệ**:
+     - Cư dân tạo phiếu sự cố phòng (`roomId != null`) phải thuộc đúng căn hộ đó; thợ kỹ thuật tuyệt đối không được là người tạo phiếu (`residentId.role != TECHNICIAN`).
+     - Thợ được phân công (`technicianId`) bắt buộc phải có vai trò `TECHNICIAN`.
+     - Đánh giá sự cố (`rating` 1–5 sao) chỉ hợp lệ khi phiếu đã đóng (`status = CLOSED`).
+
+2. **Kiểm toán Tài chính & Decimal (Blocker B — Financial Audit)**:
+   - Áp dụng `Prisma.Decimal` cho toàn bộ 7 trường tiền tệ: `Invoice.{managementFee, parkingFee, waterFee, otherFee, totalAmount, paidAmount}` và `Payment.amount`.
+   - **Scale Audit**: Tất cả giá trị Decimal không được vượt quá 2 chữ số thập phân (`dec.decimalPlaces() <= 2`).
+   - **Precision Audit**: Giá trị không được vượt quá giới hạn schema `DECIMAL(12,2)` (`<= 9,999,999,999.99`).
+   - **Toán học chính xác**:
+     - Mọi khoản phí phải không âm (`fee >= 0`); số tiền thanh toán phải dương (`Payment.amount > 0`).
+     - Tổng tiền hóa đơn bằng chính xác tổng 4 thành phần phí: `totalAmount == managementFee + parkingFee + waterFee + otherFee`.
+     - Tổng số tiền đã thanh toán bằng chính xác tổng các phiếu thanh toán: `paidAmount == sum(Payment.amount)`.
+     - Không cho phép thanh toán vượt (`paidAmount <= totalAmount`).
+     - Trạng thái hóa đơn nhất quán: `UNPAID` (paidAmount = 0), `PARTIAL` (0 < paidAmount < totalAmount), `PAID` (paidAmount = totalAmount).
+
+3. **Bộ lọc Quyền Riêng Tư & Quét PII (Blocker C — Privacy Guard)**:
+   - **Số điện thoại**: Quét và phát hiện số điện thoại Việt Nam với các định dạng phân tách (khoảng trắng, dấu chấm, gạch ngang).
+   - **Số CCCD / CMND**: Phát hiện chuỗi 12 chữ số định danh công dân.
+   - **Email nhúng**: Quét địa chỉ email trong các trường văn bản tự do (`title`, `description`, `content`). Cấm tuyệt đối domain cá nhân thực tế (`gmail.com`, `yahoo.com`, `hotmail.com`, `outlook.com`, `icloud.com`). Chỉ cho phép domain giả lập `apartment.local`.
+   - **Tài khoản Ngân hàng (STK)**: Quét chuỗi 8–19 chữ số đi kèm từ khóa ngữ cảnh ngân hàng (`stk`, `số tài khoản`, `vietcombank`, `techcombank`, `mbbank`, ...).
+   - **Dữ liệu thô Base64**: Phát hiện và chặn các chuỗi Base64 Data URI nhúng trong văn bản.
+   - **Mật khẩu Băm**: Xác minh 100% mật khẩu User được băm Bcrypt chuẩn (`$2a$`, `$2b$`, `$2y$`).
+   - **Masking Bảo mật**: Toàn bộ dữ liệu PII vi phạm trong báo cáo lỗi đều được che giấu (`098***456`, `001200******`, `[REDACTED]`), tuyệt đối không để lộ dữ liệu thô ra log hoặc report.
+   - *Lưu ý*: Quét regex có giới hạn kỹ thuật, không thể đảm bảo 100% nếu PII bị biến dạng; nghiêm cấm tuyệt đối đưa dữ liệu cư dân thật vào mã nguồn.
+
+4. **Kiểm toán Quan hệ & Ràng Buộc Duy Nhất (Blocker F — Relational Audit)**:
+   - Ràng buộc duy nhất: `Room.roomNumber`, `User.username`, `User.email` (khi khác null), và toàn bộ ID của cả 8 models.
+   - Định dạng tháng: `Invoice.month` bắt buộc chuẩn ISO `YYYY-MM` (tháng từ 01 đến 12).
+   - Toàn vẹn khóa ngoại: Kiểm tra 100% các liên kết giữa 8 models (`User.roomId`, `Invoice.roomId`, `Payment.invoiceId`, `Ticket.{residentId, technicianId, roomId}`, `Feedback.{residentId, roomId}`, `Notification.authorId`).
+
+5. **Nhất Quán Báo Cáo & Khả Năng Kháng Lỗi (Blocker E — Report Consistency)**:
+   - Bất biến kiểm toán: Runner luôn trả về đúng 8 nhóm kết quả (`results.length === 8`).
+   - Luôn thỏa mãn đẳng thức: `totalChecks === 8` và `passedChecks + failedChecks === totalChecks`.
+   - Kháng lỗi độc lập: Mỗi runner được bao bọc trong khối `try/catch` độc lập; lỗi phát sinh ở một nhóm không làm triệt tiêu hay gián đoạn 7 nhóm còn lại.
+
+6. **Chính Sách Tài Sản Truyền Thông (Milestone 8 Policy)**:
+   - Xác minh `MediaAsset` mặc định là 0 bản ghi (`count === 0`).
+   - Nếu có tài sản thật, bắt buộc phải có `isConfirmed = true` và `confirmedAt != null`.
+
+---
+
+### 5.5. Kiểm Tra Tính Xác Định & Báo Cáo Kết Quả (Milestone 10 Acceptance)
+
+- **Kiểm tra Tính Xác Định (Determinism Check)**:
+  Hàm `verifyDatasetDeterminism()` chạy generator độc lập 2 lần với cùng random seed và so sánh sâu (deep equality) giữa 2 snapshot. Bất kỳ sự phân kỳ nào giữa 2 lần chạy đều khiến bài kiểm tra thất bại ngay lập tức.
+- **Lưu Báo Cáo Kiểm Định JSON**:
+  Hàm `saveValidationReport()` tự động xuất báo cáo kết quả chi tiết ra tệp `backend/dataset/reports/validation-report.json`, bao gồm trạng thái tổng thể, số lượng kiểm tra, chi tiết lỗi từng nhóm và siêu dữ liệu môi trường.
+
+---
+
 > [!NOTE]
 > **Hiện trạng Kiểm chứng Cơ sở Dữ liệu Thực tế**:  
-> Toàn bộ các cơ chế an toàn và quy trình kiểm định database trong Milestone 9 và 10 hiện đã được kiểm chứng 100% thông qua Stateful Mock Transactions và In-memory Snapshots (35/35 tests PASS).  
+> Toàn bộ các cơ chế an toàn và quy trình kiểm định database trong Milestone 9 và 10 hiện đã được kiểm chứng 100% thông qua Stateful Mock Transactions và In-memory Snapshots (35/35 tests PASS, 226/226 tests toàn bộ test suites PASS).  
 > Việc thực thi seed và database validation trên database PostgreSQL thực tế sẽ chỉ được thực hiện khi người dùng cung cấp và xác nhận một môi trường database sandbox chuyên dụng (không chạy trên production).
 
