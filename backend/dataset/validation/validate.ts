@@ -475,11 +475,11 @@ export function validateDatabase(
 }
 
 /**
- * Kiểm tra tính hợp lệ của chuỗi ISO 8601 timestamp theo lịch nghiêm ngặt (Milestone 10.1.4 Blocker B)
+ * Kiểm tra tính hợp lệ của chuỗi ISO 8601 timestamp theo lịch nghiêm ngặt (Milestone 10.1.4/10.1.5)
  * - Kiểm tra định dạng ISO 8601: YYYY-MM-DDTHH:mm:ss(.sss)?(Z|[+-]HH:mm)
  * - Kiểm tra tính hợp lệ của năm, tháng (1..12), ngày theo từng tháng thực tế (kể cả năm nhuận 29/02)
  * - Kiểm tra giới hạn giờ (00..23), phút (00..59), giây (00..59)
- * - Kiểm tra giới hạn timezone offset (+00..+14:00, -00..-12:00, phút 00..59)
+ * - Kiểm tra giới hạn timezone offset đối xứng từ -14:00 đến +14:00 (khi trị tuyệt đối bằng 14 giờ thì phút bắt buộc bằng 00, phút 00..59)
  * - Loại bỏ hoàn toàn timestamp chứa PII, secrets hoặc nội dung tùy ý
  */
 export function isValidIsoTimestamp(ts: any): boolean {
@@ -506,17 +506,11 @@ export function isValidIsoTimestamp(ts: any): boolean {
   if (second < 0 || second > 59) return false;
 
   if (match[8] !== 'Z') {
-    const tzSign = match[9];
     const tzHour = parseInt(match[10], 10);
     const tzMin = parseInt(match[11], 10);
     if (tzMin < 0 || tzMin > 59) return false;
-    if (tzSign === '+') {
-      if (tzHour < 0 || tzHour > 14) return false;
-      if (tzHour === 14 && tzMin > 0) return false;
-    } else {
-      if (tzHour < 0 || tzHour > 12) return false;
-      if (tzHour === 12 && tzMin > 0) return false;
-    }
+    if (tzHour < 0 || tzHour > 14) return false;
+    if (tzHour === 14 && tzMin > 0) return false;
   }
 
   const parsed = Date.parse(ts);

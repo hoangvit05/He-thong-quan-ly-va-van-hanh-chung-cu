@@ -2079,11 +2079,20 @@ async function runAllTests() {
     assert.strictEqual(isValidIsoTimestamp('2026-01-01T12:00:60Z'), false, 'Giây 60 không hợp lệ');
   });
 
-  await runTest('10.14 isValidIsoTimestamp: Timezone offset không hợp lệ bị từ chối (FAIL)', () => {
+  await runTest('10.14 isValidIsoTimestamp: Thẩm định đối xứng timezone offset [-14:00, +14:00] (PASS & FAIL)', () => {
+    // Phải PASS:
+    assert.strictEqual(isValidIsoTimestamp('2026-01-01T12:00:00-13:00'), true, '-13:00 hợp lệ theo chuẩn ISO 8601');
+    assert.strictEqual(isValidIsoTimestamp('2026-01-01T12:00:00-14:00'), true, '-14:00 hợp lệ theo chuẩn ISO 8601');
+    assert.strictEqual(isValidIsoTimestamp('2026-01-01T12:00:00+13:00'), true, '+13:00 hợp lệ theo chuẩn ISO 8601');
+    assert.strictEqual(isValidIsoTimestamp('2026-01-01T12:00:00+14:00'), true, '+14:00 hợp lệ theo chuẩn ISO 8601');
+
+    // Phải FAIL:
+    assert.strictEqual(isValidIsoTimestamp('2026-01-01T12:00:00-14:01'), false, '-14:01 vượt giới hạn 14 giờ');
+    assert.strictEqual(isValidIsoTimestamp('2026-01-01T12:00:00+14:01'), false, '+14:01 vượt giới hạn 14 giờ');
+    assert.strictEqual(isValidIsoTimestamp('2026-01-01T12:00:00-25:00'), false, '-25:00 vượt giới hạn timezone');
     assert.strictEqual(isValidIsoTimestamp('2026-01-01T12:00:00+25:00'), false, '+25:00 vượt giới hạn timezone');
-    assert.strictEqual(isValidIsoTimestamp('2026-01-01T12:00:00+14:30'), false, '+14:30 vượt giới hạn Kiribati (+14:00)');
-    assert.strictEqual(isValidIsoTimestamp('2026-01-01T12:00:00-13:00'), false, '-13:00 vượt giới hạn âm (-12:00)');
-    assert.strictEqual(isValidIsoTimestamp('2026-01-01T12:00:00+05:60'), false, 'Phút timezone 60 không hợp lệ');
+    assert.strictEqual(isValidIsoTimestamp('2026-01-01T12:00:00+05:60'), false, 'Offset có phút bằng 60 (+05:60) phải FAIL');
+    assert.strictEqual(isValidIsoTimestamp('2026-01-01T12:00:00-05:60'), false, 'Offset có phút bằng 60 (-05:60) phải FAIL');
   });
 
   await runTest('10.15 isValidIsoTimestamp: Timestamp chứa PII, email, secret hoặc chuỗi tùy ý bị từ chối (FAIL)', () => {
