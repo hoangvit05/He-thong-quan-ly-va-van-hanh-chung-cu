@@ -3,7 +3,7 @@
 
 **Vị trí:** `backend/dataset/`  
 **Công nghệ:** TypeScript, Prisma Client 5, Node.js (>= 20), PostgreSQL 16, Bcryptjs  
-**Trạng thái:** Milestone 2 — Dataset Folder Foundation  
+**Trạng thái:** Milestone 9 — Prisma Seed Orchestration  
 
 ---
 
@@ -46,8 +46,15 @@ backend/dataset/
 ├── fixtures/                      # Dữ liệu kiểm thử cố định (Deterministic fixtures)
 │   └── README.md
 ├── validation/                    # Bộ kiểm tra tính toàn vẹn dataset
-│   ├── validate.ts                # Runner chạy toàn bộ kiểm tra
-│   ├── media-asset-generator.test.ts # Kiểm thử chính sách Zero-Asset & RBAC đối chiếu
+│   ├── validate.ts                # Runner chạy toàn bộ kiểm tra nghiệm thu
+│   ├── debug.test.ts              # Kiểm tra nhanh sanity checks
+│   ├── reference-data.test.ts     # Kiểm thử dữ liệu tham chiếu (M3)
+│   ├── room-user-generator.test.ts # Kiểm thử Room & User generator (M4)
+│   ├── invoice-payment-generator.test.ts # Kiểm thử Invoice & Payment generator (M5)
+│   ├── ticket-generator.test.ts   # Kiểm thử Ticket generator (M6)
+│   ├── feedback-notification-generator.test.ts # Kiểm thử Feedback & Notification (M7)
+│   ├── media-asset-generator.test.ts # Kiểm thử chính sách Zero-Asset & RBAC (M8/M8.1)
+│   ├── seed-orchestration.test.ts # Kiểm thử điều phối seed, ID mapping & an toàn DB (M9)
 │   └── checks/                    # Các check logic chuyên biệt
 │       ├── counts.check.ts
 │       ├── relational.check.ts
@@ -108,19 +115,55 @@ backend/dataset/
 
 ---
 
-## 5. HƯỚNG DẪN VẬN HÀNH DỰ KIẾN
+5. **Điều phối Seed & Đảm bảo Toàn vẹn (Milestone 9 - Prisma Seed Orchestration)**:
+   - **Fail-Closed Safety Guard**: Kiểm tra đa tầng an toàn môi trường cơ sở dữ liệu:
+     - Từ chối tuyệt đối khi `NODE_ENV === 'production'`.
+     - Bắt buộc cờ xác nhận `ALLOW_DATASET_SEED === 'true'`.
+     - Phân tích `DATABASE_URL`: Từ chối nếu hostname hoặc database name chứa các từ khóa production (`prod`, `production`, `live`, `main`, `master`, `release`).
+     - Đối với cloud database providers (Neon, Supabase, RDS, v.v.), bắt buộc tên database phải chứa nhãn an toàn (`dev`, `test`, `local`, `seed`, `sandbox`).
+     - Không bao giờ mặc định ngầm hiểu `localhost` là môi trường phát triển nếu thiếu cấu hình tường minh.
+   - **Interactive Transaction & Timeout**:
+     - Toàn bộ 8 models được ghi trong một Prisma Interactive Transaction (`prisma.$transaction(..., { timeout: 60000 })`).
+     - Tự động rollback 100% nếu có bất kỳ lỗi nào xảy ra ở bất kỳ bước nào.
+   - **Dynamic Database ID Mapping**:
+     - Không bao giờ giả định ID bộ nhớ trùng với ID tự tăng của cơ sở dữ liệu.
+     - Xây dựng bản đồ ánh xạ thực tế (`roomIdMap`, `userIdMap`, `invoiceIdMap`) để tham chiếu chính xác toàn bộ quan hệ khóa ngoại (`residentId`, `technicianId`, `roomId`, `invoiceId`).
+   - **Pre-write In-Memory Validation**:
+     - Thẩm tra cấu trúc dữ liệu toàn diện trước khi mở transaction ghi DB: số lượng, Zero-Asset, tính duy nhất khóa, vai trò người tạo Ticket/Feedback, và tính nhất quán tài chính (tổng tiền các phí = tổng hóa đơn, trạng thái hóa đơn = tổng tiền thanh toán).
+   - **Guaranteed Cleanup**:
+     - Đảm bảo đóng kết nối Prisma (`prisma.$disconnect()`) trong khối `finally` ở mọi trường hợp thành công hoặc thất bại.
+
+---
+
+## 5. HƯỚNG DẪN VẬN HÀNH
 
 ### 5.1. Khởi tạo dữ liệu (Seeding)
-Sau khi hoàn thiện các generator tại các milestone tiếp theo, seed script sẽ được chạy độc lập thông qua lệnh:
+Seed script chạy độc lập với kiểm soát an toàn nghiêm ngặt:
 ```bash
 # Di chuyển vào thư mục backend
 cd backend
 
-# Chạy seed dữ liệu giả lập
-npx ts-node dataset/seed/index.ts
+# Chạy seed dữ liệu giả lập (yêu cầu cờ ALLOW_DATASET_SEED=true)
+ALLOW_DATASET_SEED=true npx ts-node dataset/seed/index.ts
 ```
 
-### 5.2. Kiểm tra tính toàn vẹn (Validation)
+### 5.2. Chạy bộ kiểm thử (Unit & Regression Tests)
+```bash
+# Chạy kiểm thử điều phối seed M9
+npx ts-node -T dataset/validation/seed-orchestration.test.ts
+
+# Chạy kiểm định toàn bộ các bộ generator (M3 - M9)
+npx ts-node -T dataset/validation/debug.test.ts
+npx ts-node -T dataset/validation/reference-data.test.ts
+npx ts-node -T dataset/validation/room-user-generator.test.ts
+npx ts-node -T dataset/validation/invoice-payment-generator.test.ts
+npx ts-node -T dataset/validation/ticket-generator.test.ts
+npx ts-node -T dataset/validation/feedback-notification-generator.test.ts
+npx ts-node -T dataset/validation/media-asset-generator.test.ts
+npx ts-node -T dataset/validation/seed-orchestration.test.ts
+```
+
+### 5.3. Kiểm tra tính toàn vẹn (Validation)
 Sau khi seed thành công vào database, bộ kiểm tra chất lượng dữ liệu được kích hoạt:
 ```bash
 # Kiểm tra 5 tiêu chí: Counts, Relations, Financials, Tickets, Media

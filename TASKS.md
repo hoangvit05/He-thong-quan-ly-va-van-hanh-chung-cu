@@ -132,15 +132,15 @@ Expected output:
 
 ## MILESTONE 09 — PRISMA SEED ORCHESTRATION
 
-- [ ] Implement deterministic seed orchestration.
-- [ ] Respect foreign key dependencies.
-- [ ] Use safe idempotent operations.
-- [ ] Protect production databases.
-- [ ] Require explicit opt-in before writing.
-- [ ] Avoid destructive cleanup.
-- [ ] Keep unit/integration fixtures separate.
-- [ ] Add a dataset-specific execution command if needed.
-- [ ] Confirm successful execution on an explicitly designated demo database.
+- [x] Implement deterministic seed orchestration.
+- [x] Respect foreign key dependencies.
+- [x] Use safe idempotent operations.
+- [x] Protect production databases.
+- [x] Require explicit opt-in before writing.
+- [x] Avoid destructive cleanup.
+- [x] Keep unit/integration fixtures separate.
+- [x] Add a dataset-specific execution command if needed.
+- [x] Confirm successful execution on an explicitly designated demo database.
 
 Expected output:
 - `backend/dataset/seed/index.ts`
