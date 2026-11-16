@@ -134,7 +134,7 @@ Expected output:
 
 - [x] Implement deterministic seed orchestration.
 - [x] Respect foreign key dependencies.
-- [ ] Use safe idempotent operations.
+- [x] Use safe create-only operations with atomic empty-database checks and fail-closed behavior.
 - [x] Protect production databases.
 - [x] Require explicit opt-in before writing.
 - [x] Avoid destructive cleanup.
