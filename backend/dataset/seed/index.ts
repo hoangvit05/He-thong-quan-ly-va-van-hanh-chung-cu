@@ -53,6 +53,15 @@ export interface EntireDataset {
 }
 
 /**
+ * Cấu trúc mục tiêu database (Host, Port, Database Name)
+ */
+export interface DatabaseTarget {
+  host: string;
+  port: number;
+  database: string;
+}
+
+/**
  * Tùy chọn cấu hình cho Seed Orchestrator
  */
 export interface SeedOrchestrationOptions {
@@ -61,6 +70,7 @@ export interface SeedOrchestrationOptions {
   skipPrismaDisconnect?: boolean;
   logger?: (msg: string) => void;
   databaseUrl?: string;
+  databaseAllowlist?: string | (string | DatabaseTarget)[];
   passwordHash?: string;
 }
 
@@ -92,18 +102,119 @@ export interface SeedPipelineSummary {
 }
 
 /**
+ * Làm sạch chuỗi kết nối DATABASE_URL, che giấu username và password
+ */
+export function sanitizeDatabaseUrl(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl);
+    const host = parsed.hostname;
+    const port = parsed.port || '5432';
+    const db = parsed.pathname.replace(/^\//, '').split('?')[0];
+    return `${parsed.protocol}//***:***@${host}:${port}/${db}`;
+  } catch {
+    return '[REDACTED_DATABASE_URL]';
+  }
+}
+
+/**
+ * Định dạng chuỗi target host:port/db
+ */
+export function formatDatabaseTarget(target: DatabaseTarget): string {
+  return `${target.host}:${target.port}/${target.database}`;
+}
+
+/**
+ * Phân tích cú pháp chuỗi target đơn lẻ (host:port/db hoặc url)
+ */
+function parseSingleTargetString(str: string): DatabaseTarget | null {
+  const trimmed = str.trim();
+  if (!trimmed) return null;
+
+  try {
+    if (trimmed.startsWith('postgres://') || trimmed.startsWith('postgresql://')) {
+      const url = new URL(trimmed);
+      return {
+        host: url.hostname.toLowerCase(),
+        port: url.port ? parseInt(url.port, 10) : 5432,
+        database: url.pathname.replace(/^\//, '').split('?')[0].trim().toLowerCase(),
+      };
+    }
+    // Dạng host:port/dbname hoặc host/dbname
+    const dummyUrl = new URL(`http://${trimmed}`);
+    return {
+      host: dummyUrl.hostname.toLowerCase(),
+      port: dummyUrl.port ? parseInt(dummyUrl.port, 10) : 5432,
+      database: dummyUrl.pathname.replace(/^\//, '').split('?')[0].trim().toLowerCase(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Phân tích cú pháp cấu hình allowlist database target
+ */
+export function parseDatabaseAllowlist(
+  raw?: string | (string | DatabaseTarget)[]
+): DatabaseTarget[] {
+  if (!raw) return [];
+
+  // Nếu là mảng
+  if (Array.isArray(raw)) {
+    const results: DatabaseTarget[] = [];
+    for (const item of raw) {
+      if (typeof item === 'object' && item !== null && 'host' in item && 'database' in item) {
+        results.push({
+          host: item.host.trim().toLowerCase(),
+          port: item.port ? Number(item.port) : 5432,
+          database: item.database.trim().toLowerCase(),
+        });
+      } else if (typeof item === 'string') {
+        const parsed = parseSingleTargetString(item);
+        if (parsed) results.push(parsed);
+      }
+    }
+    return results;
+  }
+
+  // Nếu là chuỗi JSON
+  const trimmed = raw.trim();
+  if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+    try {
+      const parsedJson = JSON.parse(trimmed);
+      return parseDatabaseAllowlist(parsedJson);
+    } catch {
+      // Fallback sang phân tách dấu phẩy nếu parse JSON lỗi
+    }
+  }
+
+  // Phân tách bằng dấu phẩy, chấm phẩy hoặc dòng mới
+  const items = trimmed.split(/[,;\n]/).map((s) => s.trim()).filter(Boolean);
+  const results: DatabaseTarget[] = [];
+  for (const item of items) {
+    const parsed = parseSingleTargetString(item);
+    if (parsed) results.push(parsed);
+  }
+  return results;
+}
+
+/**
  * 1. BẢO VỆ CƠ SỞ DỮ LIỆU & CHẶN PRODUCTION (DATABASE SAFETY GUARD - FAIL-CLOSED)
  *
- * Tiêu chí kiểm soát an toàn nghiêm ngặt:
+ * Tiêu chí kiểm soát an toàn nghiêm ngặt theo Milestone 9.1:
  * - Chặn tuyệt đối khi NODE_ENV === 'production'
  * - Bắt buộc có cờ xác nhận ALLOW_DATASET_SEED=true
  * - Bắt buộc DATABASE_URL hợp lệ và có thể parse
- * - Phát hiện và từ chối từ khóa Production trong Hostname và Database Name
- * - Từ chối database trên Cloud nếu không có nhãn dev/test/demo/sandbox
- * - Từ chối database target không xác định được tính an toàn
- * - Tuyệt đối không log DATABASE_URL chứa thông tin đăng nhập
+ * - Bắt buộc cấu hình allowlist database target riêng (hostname, port, database name)
+ * - Đối chiếu target từ DATABASE_URL với allowlist đã cấu hình
+ * - Không bao giờ mặc định localhost, postgres, apartment_db là an toàn
+ * - Phát hiện và từ chối từ khóa Production trong Hostname và Database Name (kể cả có trong allowlist)
+ * - Tuyệt đối không log thông tin nhạy cảm (username, password hoặc full URL)
  */
-export function assertSafeDatabaseEnvironment(customDatabaseUrl?: string): void {
+export function assertSafeDatabaseEnvironment(
+  customDatabaseUrl?: string,
+  customAllowlist?: string | (string | DatabaseTarget)[]
+): DatabaseTarget {
   // 1. Kiểm tra cờ cấu hình hệ thống
   if (!DATASET_CONFIG.SAFETY.REJECT_PRODUCTION) {
     throw new Error('[FATAL DATABASE SAFETY ERROR] Cấu hình hệ thống bắt buộc phải kích hoạt REJECT_PRODUCTION.');
@@ -142,14 +253,17 @@ export function assertSafeDatabaseEnvironment(customDatabaseUrl?: string): void 
   }
 
   const hostname = parsedUrl.hostname.toLowerCase();
+  const port = parsedUrl.port ? parseInt(parsedUrl.port, 10) : 5432;
   const dbName = parsedUrl.pathname.replace(/^\//, '').split('?')[0].trim().toLowerCase();
 
   if (!dbName) {
     throw new Error('[FATAL DATABASE SAFETY ERROR] DATABASE_URL không chứa tên database mục tiêu.');
   }
 
+  const currentTarget: DatabaseTarget = { host: hostname, port, database: dbName };
+
   // 6. Phát hiện dấu hiệu Production (Fail-Closed)
-  const prodKeywords = ['prod', 'production', 'live', 'main', 'master'];
+  const prodKeywords = ['prod', 'production', 'live', 'main', 'master', 'release'];
   for (const kw of prodKeywords) {
     const regex = new RegExp(`(^|[._-])${kw}([._-]|$)`, 'i');
     if (regex.test(hostname) || hostname === kw) {
@@ -164,51 +278,35 @@ export function assertSafeDatabaseEnvironment(customDatabaseUrl?: string): void 
     }
   }
 
-  // 7. Kiểm tra các dịch vụ Cloud Database phổ biến
-  const cloudProdDomains = [
-    'rds.amazonaws.com',
-    'cloud.google.com',
-    'azure.com',
-    'neon.tech',
-    'supabase.co',
-    'railway.app',
-    'render.com',
-  ];
-  for (const domain of cloudProdDomains) {
-    if (hostname.endsWith(domain)) {
-      const hasSafeCloudLabel =
-        dbName.includes('dev') ||
-        dbName.includes('test') ||
-        dbName.includes('demo') ||
-        dbName.includes('sandbox');
-      if (!hasSafeCloudLabel) {
-        throw new Error(
-          `[FATAL DATABASE SAFETY ERROR] Database trên Cloud (${domain}) không xác định được mức độ an toàn (thiếu nhãn dev/test/demo/sandbox). Từ chối theo chính sách Fail-Closed!`
-        );
-      }
-    }
-  }
+  // 7. Bắt buộc có cấu hình allowlist database target riêng (Không hardcode mặc định)
+  const allowlistInput = customAllowlist ?? process.env.DATASET_DB_ALLOWLIST;
+  const allowlist = parseDatabaseAllowlist(allowlistInput);
 
-  // 8. Xác minh database mục tiêu có căn cứ an toàn rõ ràng
-  const isLocalHost =
-    hostname === 'localhost' ||
-    hostname === '127.0.0.1' ||
-    hostname === '::1' ||
-    hostname === 'host.docker.internal';
-
-  const hasSafeIndicator =
-    dbName.includes('dev') ||
-    dbName.includes('test') ||
-    dbName.includes('demo') ||
-    dbName.includes('sandbox') ||
-    dbName.includes('apartment_db') ||
-    dbName === 'postgres';
-
-  if (!isLocalHost && !hasSafeIndicator) {
+  if (allowlist.length === 0) {
     throw new Error(
-      '[FATAL DATABASE SAFETY ERROR] Không đủ thông tin xác định database target là an toàn (không thuộc localhost và không có nhãn dev/test/demo/sandbox). Từ chối theo chính sách Fail-Closed!'
+      `[FATAL DATABASE SAFETY ERROR] Thiếu cấu hình allowlist database target (DATASET_DB_ALLOWLIST). ` +
+        `Hệ thống không cho phép seed nếu không có allowlist chỉ định rõ ràng hostname, port và database name. ` +
+        `Từ chối theo chính sách Fail-Closed!`
     );
   }
+
+  // 8. Đối chiếu target từ DATABASE_URL với allowlist đã cấu hình
+  const isAllowed = allowlist.some(
+    (allowed) =>
+      allowed.host === currentTarget.host &&
+      allowed.port === currentTarget.port &&
+      allowed.database === currentTarget.database
+  );
+
+  if (!isAllowed) {
+    throw new Error(
+      `[FATAL DATABASE SAFETY ERROR] Database target '${formatDatabaseTarget(currentTarget)}' không nằm trong allowlist được cấp phép. ` +
+        `Danh sách được phép: [${allowlist.map(formatDatabaseTarget).join(', ')}]. ` +
+        `Từ chối thực thi theo chính sách Fail-Closed!`
+    );
+  }
+
+  return currentTarget;
 }
 
 /**
@@ -456,23 +554,26 @@ export function validateDatasetBeforeWrite(dataset: EntireDataset): void {
 }
 
 /**
- * 4. THỰC THI SEED VÀO DATABASE (PRISMA TRANSACTION & ID MAPPING)
+ * 4. THỰC THI SEED VÀO DATABASE (PRISMA TRANSACTION, DYNAMIC ID MAPPING & NON-DESTRUCTIVE SAFETY)
  *
- * Chiến lược ghi dữ liệu:
- * - Bao trọn toàn bộ quá trình ghi trong Prisma Interactive Transaction ($transaction)
- * - Thứ tự ghi đảm bảo khóa ngoại: Room -> User -> Invoice -> Payment -> Ticket -> Feedback -> Notification
- * - Ánh xạ ID thực tế từ database sau khi upsert/insert entity cha sang entity con
- * - Idempotent an toàn: Không dùng generator ID bừa bãi; đối chiếu bản ghi qua unique keys hoặc natural composite keys
- * - Cấm tuyệt đối: deleteMany, delete, TRUNCATE, schema migration
- * - Rollback toàn diện khi có lỗi tại bất kỳ giai đoạn nào
- * - Luôn đóng kết nối Prisma ($disconnect) trong finally
+ * Chiến lược ghi dữ liệu theo Milestone 9.1:
+ * - Bảo vệ Fail-Closed tuyệt đối: Kiểm tra dữ liệu hiện hữu trên target database trước khi ghi.
+ * - Nếu phát hiện bất kỳ bảng nào đã có dữ liệu: Từ chối seed ngay lập tức để không bao giờ update/overwrite nhầm dữ liệu ứng dụng.
+ * - Toàn bộ các thao tác ghi dữ liệu chỉ sử dụng create thuần túy; tuyệt đối không dùng upsert, findFirst, update, delete, TRUNCATE.
+ * - Bao trọn toàn bộ quá trình ghi trong Prisma Interactive Transaction ($transaction) với timeout 60s.
+ * - Thứ tự ghi đảm bảo khóa ngoại: Room -> User -> Invoice -> Payment -> Ticket -> Feedback -> Notification.
+ * - Ánh xạ ID thực tế từ database sau khi create entity cha sang entity con (Dynamic ID Mapping).
+ * - Cấm tuyệt đối: deleteMany, delete, TRUNCATE, schema migration.
+ * - Rollback toàn diện khi có lỗi tại bất kỳ giai đoạn nào.
+ * - Luôn đóng kết nối Prisma ($disconnect) trong finally.
  */
 export async function executeSeed(options: SeedOrchestrationOptions = {}): Promise<SeedExecutionResult> {
   const startTime = Date.now();
   const logger = options.logger ?? console.log;
 
-  // 1. Kiểm tra an toàn database (Fail-Closed)
-  assertSafeDatabaseEnvironment(options.databaseUrl);
+  // 1. Kiểm tra an toàn database & đối chiếu allowlist (Fail-Closed)
+  const safeTarget = assertSafeDatabaseEnvironment(options.databaseUrl, options.databaseAllowlist);
+  logger(`[Seed Safety] Target database an toàn đã được xác thực: ${formatDatabaseTarget(safeTarget)}`);
 
   const seed = options.seed ?? DATASET_CONFIG.RANDOM_SEED;
 
@@ -488,11 +589,38 @@ export async function executeSeed(options: SeedOrchestrationOptions = {}): Promi
   // 4. Lấy Prisma Client
   const client: any = options.prismaClient ?? defaultPrisma;
 
-  // 5. Ghi dữ liệu vào database trong một transaction an toàn
-  logger('[Seed] Khởi tạo transaction ghi dữ liệu vào database...');
-  let currentStage = 'INIT';
-
   try {
+    // 5. Kiểm tra dữ liệu hiện hữu trên database target (Non-Destructive Fail-Closed Protection)
+    logger('[Seed Safety] Kiểm tra dữ liệu hiện hữu trên target database (Non-Destructive Check)...');
+    const [roomCount, userCount, invoiceCount, paymentCount, ticketCount, feedbackCount, notificationCount] =
+      await Promise.all([
+        client.room.count(),
+        client.user.count(),
+        client.invoice.count(),
+        client.payment.count(),
+        client.ticket.count(),
+        client.feedback.count(),
+        client.notification.count(),
+      ]);
+
+    const existingTotal =
+      roomCount + userCount + invoiceCount + paymentCount + ticketCount + feedbackCount + notificationCount;
+
+    if (existingTotal > 0) {
+      throw new Error(
+        `[FATAL DATABASE SAFETY ERROR] Phát hiện dữ liệu hiện hữu trên database target (` +
+          `Room: ${roomCount}, User: ${userCount}, Invoice: ${invoiceCount}, Payment: ${paymentCount}, ` +
+          `Ticket: ${ticketCount}, Feedback: ${feedbackCount}, Notification: ${notificationCount}). ` +
+          `Do Prisma schema hiện tại không có trường định danh dataset (như datasetBatchId hoặc isDataset), ` +
+          `hệ thống TUYỆT ĐỐI KHÔNG dùng upsert/update hoặc xóa dữ liệu để tránh làm hỏng hoặc ghi đè dữ liệu ứng dụng. ` +
+          `Hệ thống từ chối seed theo chính sách Fail-Closed. Vui lòng chạy trên database rỗng chuyên dụng hoặc đề xuất bổ sung dataset identity marker.`
+      );
+    }
+
+    // 6. Ghi dữ liệu vào database trong một transaction an toàn
+    logger('[Seed] Khởi tạo transaction ghi dữ liệu vào database (Timeout: 60s)...');
+    let currentStage = 'INIT';
+
     await client.$transaction(
       async (tx: any) => {
         // Giai đoạn 1: Room (Master Data)
@@ -500,20 +628,13 @@ export async function executeSeed(options: SeedOrchestrationOptions = {}): Promi
         const roomIdMap = new Map<number, number>();
 
         for (const r of dataset.rooms) {
-          const dbRoom = await tx.room.upsert({
-            where: { roomNumber: r.roomNumber },
-            create: {
+          const dbRoom = await tx.room.create({
+            data: {
               roomNumber: r.roomNumber,
               floor: r.floor,
               area: r.area,
               status: r.status,
               createdAt: r.createdAt,
-              updatedAt: r.updatedAt,
-            },
-            update: {
-              floor: r.floor,
-              area: r.area,
-              status: r.status,
               updatedAt: r.updatedAt,
             },
           });
@@ -526,9 +647,8 @@ export async function executeSeed(options: SeedOrchestrationOptions = {}): Promi
 
         for (const u of dataset.users) {
           const mappedRoomId = u.roomId ? roomIdMap.get(u.roomId) ?? null : null;
-          const dbUser = await tx.user.upsert({
-            where: { username: u.username },
-            create: {
+          const dbUser = await tx.user.create({
+            data: {
               username: u.username,
               password: u.password,
               fullName: u.fullName,
@@ -540,34 +660,18 @@ export async function executeSeed(options: SeedOrchestrationOptions = {}): Promi
               createdAt: u.createdAt,
               updatedAt: u.updatedAt,
             },
-            update: {
-              password: u.password,
-              fullName: u.fullName,
-              phone: u.phone,
-              email: u.email,
-              role: u.role,
-              roomId: mappedRoomId,
-              isApproved: u.isApproved,
-              updatedAt: u.updatedAt,
-            },
           });
           userIdMap.set(u.id, dbUser.id);
         }
 
-        // Giai đoạn 3: Invoice (Ánh xạ roomId thực tế; unique [roomId, month])
+        // Giai đoạn 3: Invoice (Ánh xạ roomId thực tế từ database)
         currentStage = 'INVOICE';
         const invoiceIdMap = new Map<number, number>();
 
         for (const inv of dataset.invoices) {
           const mappedRoomId = roomIdMap.get(inv.roomId)!;
-          const dbInvoice = await tx.invoice.upsert({
-            where: {
-              roomId_month: {
-                roomId: mappedRoomId,
-                month: inv.month,
-              },
-            },
-            create: {
+          const dbInvoice = await tx.invoice.create({
+            data: {
               roomId: mappedRoomId,
               month: inv.month,
               managementFee: inv.managementFee,
@@ -581,67 +685,24 @@ export async function executeSeed(options: SeedOrchestrationOptions = {}): Promi
               createdAt: inv.createdAt,
               updatedAt: inv.updatedAt,
             },
-            update: {
-              managementFee: inv.managementFee,
-              parkingFee: inv.parkingFee,
-              waterFee: inv.waterFee,
-              otherFee: inv.otherFee,
-              totalAmount: inv.totalAmount,
-              paidAmount: inv.paidAmount,
-              dueDate: inv.dueDate,
-              status: inv.status,
-              updatedAt: inv.updatedAt,
-            },
           });
           invoiceIdMap.set(inv.id, dbInvoice.id);
         }
 
-        // Giai đoạn 4: Payment (Ánh xạ invoiceId thực tế; nhận diện bằng transactionCode hoặc note + amount)
+        // Giai đoạn 4: Payment (Ánh xạ invoiceId thực tế từ database)
         currentStage = 'PAYMENT';
         for (const p of dataset.payments) {
           const mappedInvoiceId = invoiceIdMap.get(p.invoiceId)!;
-
-          let existingPayment: any = null;
-          if (p.transactionCode) {
-            existingPayment = await tx.payment.findFirst({
-              where: {
-                invoiceId: mappedInvoiceId,
-                transactionCode: p.transactionCode,
-              },
-            });
-          } else {
-            existingPayment = await tx.payment.findFirst({
-              where: {
-                invoiceId: mappedInvoiceId,
-                amount: p.amount,
-                note: p.note,
-              },
-            });
-          }
-
-          if (existingPayment) {
-            await tx.payment.update({
-              where: { id: existingPayment.id },
-              data: {
-                amount: p.amount,
-                paymentMethod: p.paymentMethod,
-                transactionCode: p.transactionCode,
-                note: p.note,
-                paidAt: p.paidAt,
-              },
-            });
-          } else {
-            await tx.payment.create({
-              data: {
-                invoiceId: mappedInvoiceId,
-                amount: p.amount,
-                paymentMethod: p.paymentMethod,
-                transactionCode: p.transactionCode,
-                note: p.note,
-                paidAt: p.paidAt,
-              },
-            });
-          }
+          await tx.payment.create({
+            data: {
+              invoiceId: mappedInvoiceId,
+              amount: p.amount,
+              paymentMethod: p.paymentMethod,
+              transactionCode: p.transactionCode,
+              note: p.note,
+              paidAt: p.paidAt,
+            },
+          });
         }
 
         // Giai đoạn 5: Ticket (Ánh xạ residentId, technicianId, roomId thực tế)
@@ -651,53 +712,25 @@ export async function executeSeed(options: SeedOrchestrationOptions = {}): Promi
           const mappedTechnicianId = t.technicianId ? userIdMap.get(t.technicianId) ?? null : null;
           const mappedRoomId = t.roomId ? roomIdMap.get(t.roomId) ?? null : null;
 
-          const existingTicket = await tx.ticket.findFirst({
-            where: {
-              residentId: mappedResidentId,
+          await tx.ticket.create({
+            data: {
+              title: t.title,
               category: t.category,
+              description: t.description,
+              mediaUrl: t.mediaUrl,
+              status: t.status,
+              roomId: mappedRoomId,
+              residentId: mappedResidentId,
+              technicianId: mappedTechnicianId,
+              materials: t.materials,
+              completedMediaUrl: t.completedMediaUrl,
+              rating: t.rating,
+              ratingComment: t.ratingComment,
+              isDuplicate: t.isDuplicate,
               createdAt: t.createdAt,
+              updatedAt: t.updatedAt,
             },
           });
-
-          if (existingTicket) {
-            await tx.ticket.update({
-              where: { id: existingTicket.id },
-              data: {
-                title: t.title,
-                description: t.description,
-                mediaUrl: t.mediaUrl,
-                status: t.status,
-                roomId: mappedRoomId,
-                technicianId: mappedTechnicianId,
-                materials: t.materials,
-                completedMediaUrl: t.completedMediaUrl,
-                rating: t.rating,
-                ratingComment: t.ratingComment,
-                isDuplicate: t.isDuplicate,
-                updatedAt: t.updatedAt,
-              },
-            });
-          } else {
-            await tx.ticket.create({
-              data: {
-                title: t.title,
-                category: t.category,
-                description: t.description,
-                mediaUrl: t.mediaUrl,
-                status: t.status,
-                roomId: mappedRoomId,
-                residentId: mappedResidentId,
-                technicianId: mappedTechnicianId,
-                materials: t.materials,
-                completedMediaUrl: t.completedMediaUrl,
-                rating: t.rating,
-                ratingComment: t.ratingComment,
-                isDuplicate: t.isDuplicate,
-                createdAt: t.createdAt,
-                updatedAt: t.updatedAt,
-              },
-            });
-          }
         }
 
         // Giai đoạn 6: Feedback (Ánh xạ residentId, roomId thực tế)
@@ -706,75 +739,35 @@ export async function executeSeed(options: SeedOrchestrationOptions = {}): Promi
           const mappedResidentId = userIdMap.get(f.residentId)!;
           const mappedRoomId = f.roomId ? roomIdMap.get(f.roomId) ?? null : null;
 
-          const existingFeedback = await tx.feedback.findFirst({
-            where: {
+          await tx.feedback.create({
+            data: {
               residentId: mappedResidentId,
+              roomId: mappedRoomId,
               title: f.title,
+              content: f.content,
+              reply: f.reply,
+              isResolved: f.isResolved,
+              repliedAt: f.repliedAt,
               createdAt: f.createdAt,
+              updatedAt: f.updatedAt,
             },
           });
-
-          if (existingFeedback) {
-            await tx.feedback.update({
-              where: { id: existingFeedback.id },
-              data: {
-                roomId: mappedRoomId,
-                content: f.content,
-                reply: f.reply,
-                isResolved: f.isResolved,
-                repliedAt: f.repliedAt,
-                updatedAt: f.updatedAt,
-              },
-            });
-          } else {
-            await tx.feedback.create({
-              data: {
-                residentId: mappedResidentId,
-                roomId: mappedRoomId,
-                title: f.title,
-                content: f.content,
-                reply: f.reply,
-                isResolved: f.isResolved,
-                repliedAt: f.repliedAt,
-                createdAt: f.createdAt,
-                updatedAt: f.updatedAt,
-              },
-            });
-          }
         }
 
-        // Giai đoạn 7: Notification (Ánh xạ authorId thực tế; targetRoom giữ nguyên chuỗi roomNumber)
+        // Giai đoạn 7: Notification (Ánh xạ authorId thực tế; targetRoom giữ chuỗi roomNumber)
         currentStage = 'NOTIFICATION';
         for (const n of dataset.notifications) {
           const mappedAuthorId = n.authorId ? userIdMap.get(n.authorId) ?? null : null;
 
-          const existingNotif = await tx.notification.findFirst({
-            where: {
+          await tx.notification.create({
+            data: {
               title: n.title,
+              content: n.content,
+              targetRoom: n.targetRoom,
+              authorId: mappedAuthorId,
               createdAt: n.createdAt,
             },
           });
-
-          if (existingNotif) {
-            await tx.notification.update({
-              where: { id: existingNotif.id },
-              data: {
-                content: n.content,
-                targetRoom: n.targetRoom,
-                authorId: mappedAuthorId,
-              },
-            });
-          } else {
-            await tx.notification.create({
-              data: {
-                title: n.title,
-                content: n.content,
-                targetRoom: n.targetRoom,
-                authorId: mappedAuthorId,
-                createdAt: n.createdAt,
-              },
-            });
-          }
         }
 
         // Giai đoạn 8: MediaAsset (Bảo toàn Zero-Asset: 0 record)
@@ -786,7 +779,7 @@ export async function executeSeed(options: SeedOrchestrationOptions = {}): Promi
       { timeout: 60000, maxWait: 10000 }
     );
   } catch (err: any) {
-    logger(`[Seed Error] Ghi dữ liệu thất bại tại giai đoạn [${currentStage}]: ${err.message}`);
+    logger(`[Seed Error] Ghi dữ liệu thất bại: ${err.message}`);
     throw err;
   } finally {
     if (!options.skipPrismaDisconnect && typeof client.$disconnect === 'function') {
@@ -816,12 +809,17 @@ export async function executeSeed(options: SeedOrchestrationOptions = {}): Promi
 /**
  * Lấy kế hoạch tiến trình nạp dữ liệu (Tương thích Milestone 2)
  */
-export function getSeedPipelinePlan(): SeedPipelineSummary {
-  assertSafeDatabaseEnvironment();
+export function getSeedPipelinePlan(
+  options: {
+    databaseUrl?: string;
+    databaseAllowlist?: string | (string | DatabaseTarget)[];
+  } = {}
+): SeedPipelineSummary {
+  assertSafeDatabaseEnvironment(options.databaseUrl, options.databaseAllowlist);
 
   return {
     status: 'READY',
-    milestone: 'Milestone 9 - Seed Orchestration Complete',
+    milestone: 'Milestone 9.1 - Safe Non-Destructive Seed Orchestration',
     config: DATASET_CONFIG,
   };
 }
@@ -829,7 +827,7 @@ export function getSeedPipelinePlan(): SeedPipelineSummary {
 // Thực thi CLI trực tiếp khi được gọi bằng `npx ts-node dataset/seed/index.ts`
 if (require.main === module) {
   console.log('======================================================');
-  console.log('🚀  KHỞI ĐỘNG TIẾN TRÌNH SEED DATASET (MILESTONE 9)');
+  console.log('🚀  KHỞI ĐỘNG TIẾN TRÌNH SEED DATASET (MILESTONE 9.1)');
   console.log('======================================================');
   executeSeed()
     .then((result) => {

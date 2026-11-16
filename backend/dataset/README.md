@@ -115,23 +115,31 @@ backend/dataset/
 
 ---
 
-5. **Điều phối Seed & Đảm bảo Toàn vẹn (Milestone 9 - Prisma Seed Orchestration)**:
-   - **Fail-Closed Safety Guard**: Kiểm tra đa tầng an toàn môi trường cơ sở dữ liệu:
-     - Từ chối tuyệt đối khi `NODE_ENV === 'production'`.
-     - Bắt buộc cờ xác nhận `ALLOW_DATASET_SEED === 'true'`.
-     - Phân tích `DATABASE_URL`: Từ chối nếu hostname hoặc database name chứa các từ khóa production (`prod`, `production`, `live`, `main`, `master`, `release`).
-     - Đối với cloud database providers (Neon, Supabase, RDS, v.v.), bắt buộc tên database phải chứa nhãn an toàn (`dev`, `test`, `local`, `seed`, `sandbox`).
-     - Không bao giờ mặc định ngầm hiểu `localhost` là môi trường phát triển nếu thiếu cấu hình tường minh.
-   - **Interactive Transaction & Timeout**:
-     - Toàn bộ 8 models được ghi trong một Prisma Interactive Transaction (`prisma.$transaction(..., { timeout: 60000 })`).
-     - Tự động rollback 100% nếu có bất kỳ lỗi nào xảy ra ở bất kỳ bước nào.
-   - **Dynamic Database ID Mapping**:
-     - Không bao giờ giả định ID bộ nhớ trùng với ID tự tăng của cơ sở dữ liệu.
-     - Xây dựng bản đồ ánh xạ thực tế (`roomIdMap`, `userIdMap`, `invoiceIdMap`) để tham chiếu chính xác toàn bộ quan hệ khóa ngoại (`residentId`, `technicianId`, `roomId`, `invoiceId`).
-   - **Pre-write In-Memory Validation**:
-     - Thẩm tra cấu trúc dữ liệu toàn diện trước khi mở transaction ghi DB: số lượng, Zero-Asset, tính duy nhất khóa, vai trò người tạo Ticket/Feedback, và tính nhất quán tài chính (tổng tiền các phí = tổng hóa đơn, trạng thái hóa đơn = tổng tiền thanh toán).
-   - **Guaranteed Cleanup**:
-     - Đảm bảo đóng kết nối Prisma (`prisma.$disconnect()`) trong khối `finally` ở mọi trường hợp thành công hoặc thất bại.
+5. **Điều phối Seed & Bảo vệ An toàn Cơ sở Dữ liệu (Milestone 9.1 - Database Safety & Non-Destructive Seed)**:
+   - **Khai báo Database Target Allowlist bắt buộc**:
+     - Cấu hình qua biến môi trường `DATASET_DB_ALLOWLIST` (chuỗi phân tách dấu phẩy `host:port/dbname` hoặc JSON array `[{"host":"...","port":5432,"database":"..."}]`).
+     - Tuyệt đối không hardcode allowlist mặc định trong source code.
+     - So sánh mục tiêu thực tế trích xuất từ `DATABASE_URL` (host, port, dbName) với allowlist. Mọi trường hợp thiếu allowlist hoặc mismatch target đều bị từ chối (Fail-Closed) trước khi kết nối DB.
+     - Không bao giờ mặc định ngầm hiểu `localhost`, `postgres`, hay `apartment_db` là môi trường an toàn.
+   - **Bật Opt-in & Chặn Production**:
+     - Bắt buộc `NODE_ENV !== 'production'`.
+     - Bắt buộc cờ xác nhận rõ ràng `ALLOW_DATASET_SEED=true`.
+     - Quét từ khóa Production (`prod`, `production`, `live`, `main`, `master`, `release`) trong cả hostname và tên database, chặn đứng kể cả khi được đưa vào allowlist.
+     - Che giấu thông tin nhạy cảm: Tuyệt đối không log username/password hay raw DATABASE_URL.
+   - **Bảo vệ Không Phá Hủy (Non-Destructive Safety Strategy)**:
+     - Trước khi mở transaction ghi dữ liệu, seed engine thẩm tra số lượng bản ghi hiện hữu (`count()`) trên toàn bộ 7 models (Room, User, Invoice, Payment, Ticket, Feedback, Notification).
+     - **Điều kiện từ chối seed**: Nếu phát hiện bất kỳ bảng nào có dữ liệu hiện hữu, seed engine lập tức ngắt tiến trình và ném lỗi từ chối (Fail-Closed).
+     - **Không ghi đè dữ liệu ứng dụng**: Tuyệt đối không dùng `upsert`, `update`, hoặc `findFirst` với các trường nghiệp vụ để tránh sửa nhầm dữ liệu ứng dụng. Mọi thao tác ghi mới chỉ sử dụng `create` thuần túy.
+     - Tuyệt đối không sử dụng `deleteMany`, `delete`, `TRUNCATE` hay raw SQL để dọn dẹp dữ liệu.
+   - **Giới hạn Rerun & Đề xuất Kiến trúc Identity Marker**:
+     - Do Prisma schema hiện tại không có trường định danh nguồn gốc dataset (như `datasetBatchId String?` hoặc `isDataset Boolean @default(false)`), hệ thống không thể phân biệt bản ghi dataset với bản ghi người dùng thực tế.
+     - Do đó, **hệ thống từ chối rerun trên database đã có dữ liệu**. Muốn seed lại, cần chạy trên database rỗng chuyên dụng được chỉ định trong allowlist.
+     - Để hỗ trợ rerun an toàn và idempotency thực thụ trong tương lai, kiến trúc khuyến nghị bổ sung trường `datasetBatchId` vào schema thông qua migration chính thức.
+   - **Giao dịch Interactive Transaction (Atomicity Guard)**:
+     - Toàn bộ quá trình tạo bản ghi được thực thi trong Prisma Interactive Transaction với `timeout: 60000` (60 giây).
+     - **Lưu ý quan trọng**: Transaction rollback là cơ chế bảo vệ tính nguyên tử (Atomicity - All or Nothing) khi có lỗi phát sinh trong quá trình nạp, **không phải** cơ chế bảo vệ khỏi việc ghi đè dữ liệu ứng dụng (việc này được đảm bảo bởi Non-Destructive Check ở trên).
+   - **Ánh xạ ID Động (Dynamic ID Mapping)**:
+     - Ghi nhận ID thực tế do database tự sinh cho Room, User, Invoice để ánh xạ chính xác 100% vào các quan hệ khóa ngoại (User.roomId, Invoice.roomId, Payment.invoiceId, Ticket.residentId/technicianId/roomId, Feedback.residentId/roomId, Notification.authorId).
 
 ---
 
@@ -143,17 +151,16 @@ Seed script chạy độc lập với kiểm soát an toàn nghiêm ngặt:
 # Di chuyển vào thư mục backend
 cd backend
 
-# Chạy seed dữ liệu giả lập (yêu cầu cờ ALLOW_DATASET_SEED=true)
-ALLOW_DATASET_SEED=true npx ts-node dataset/seed/index.ts
+# Chạy seed dữ liệu giả lập (bắt buộc chỉ định ALLOW_DATASET_SEED=true và DATASET_DB_ALLOWLIST)
+ALLOW_DATASET_SEED=true DATASET_DB_ALLOWLIST="localhost:5432/apartment_demo" npx ts-node dataset/seed/index.ts
 ```
 
 ### 5.2. Chạy bộ kiểm thử (Unit & Regression Tests)
 ```bash
-# Chạy kiểm thử điều phối seed M9
+# Chạy kiểm thử điều phối seed & an toàn database M9.1
 npx ts-node -T dataset/validation/seed-orchestration.test.ts
 
-# Chạy kiểm định toàn bộ các bộ generator (M3 - M9)
-npx ts-node -T dataset/validation/debug.test.ts
+# Chạy kiểm định toàn bộ các bộ generator (M3 - M9.1)
 npx ts-node -T dataset/validation/reference-data.test.ts
 npx ts-node -T dataset/validation/room-user-generator.test.ts
 npx ts-node -T dataset/validation/invoice-payment-generator.test.ts

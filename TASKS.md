@@ -134,13 +134,13 @@ Expected output:
 
 - [x] Implement deterministic seed orchestration.
 - [x] Respect foreign key dependencies.
-- [x] Use safe idempotent operations.
+- [ ] Use safe idempotent operations.
 - [x] Protect production databases.
 - [x] Require explicit opt-in before writing.
 - [x] Avoid destructive cleanup.
 - [x] Keep unit/integration fixtures separate.
 - [x] Add a dataset-specific execution command if needed.
-- [x] Confirm successful execution on an explicitly designated demo database.
+- [ ] Confirm successful execution on an explicitly designated demo database.
 
 Expected output:
 - `backend/dataset/seed/index.ts`

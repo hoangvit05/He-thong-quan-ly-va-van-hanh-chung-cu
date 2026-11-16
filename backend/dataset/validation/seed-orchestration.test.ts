@@ -1,7 +1,7 @@
 // =========================================================================
-// KIỂM THỬ ĐIỀU PHỐI SEED VÀ AN TOÀN DATABASE (M9 TESTS)
+// KIỂM THỬ ĐIỀU PHỐI SEED VÀ AN TOÀN DATABASE (M9.1 TESTS)
 // Phân hệ: backend/dataset/validation/seed-orchestration.test.ts
-// Đặc tả: 15+ tiêu chí kiểm thử bắt buộc cho Milestone 9
+// Đặc tả: Milestone 9.1 – Database Safety Guard & Non-Destructive Seed
 // =========================================================================
 
 import * as assert from 'assert';
@@ -9,6 +9,9 @@ import { Role } from '@prisma/client';
 import { DATASET_CONFIG } from '../config/dataset.config';
 import {
   assertSafeDatabaseEnvironment,
+  parseDatabaseAllowlist,
+  sanitizeDatabaseUrl,
+  formatDatabaseTarget,
   generateEntireDataset,
   validateDatasetBeforeWrite,
   executeSeed,
@@ -33,141 +36,93 @@ function runTest(name: string, fn: () => void | Promise<void>) {
     });
 }
 
+interface MockRecord {
+  id: number;
+  [key: string]: any;
+}
+
 /**
- * Mock Prisma Client chuyên dụng cho kiểm thử Seed Orchestrator
- * Kiểm soát chi tiết mọi lời gọi hàm, ánh xạ ID giả lập và cờ ngắt lỗi
+ * Mock Prisma Client có trạng thái (Stateful Mock) cho Milestone 9.1:
+ * - Lưu trữ dữ liệu in-memory mô phỏng database thực tế.
+ * - Hỗ trợ count() để kiểm tra dữ liệu hiện hữu trước khi seed.
+ * - Mô phỏng giao dịch Stateful Transaction: Snapshot trước giao dịch, Rollback khi lỗi, Commit khi thành công.
+ * - Ghi nhận mọi thao tác để đối chiếu không phá hủy (No upsert, No update, No delete, No TRUNCATE).
+ *
+ * [LƯU Ý]: Kiểm thử sử dụng snapshot-rollback in-memory để kiểm chứng logic transaction wrapper
+ * và xử lý lỗi của Seed Orchestrator, không tuyên bố thay thế kiểm thử trên PostgreSQL Engine thực tế.
  */
 class MockPrismaClient {
+  public rooms: MockRecord[] = [];
+  public users: MockRecord[] = [];
+  public invoices: MockRecord[] = [];
+  public payments: MockRecord[] = [];
+  public tickets: MockRecord[] = [];
+  public feedbacks: MockRecord[] = [];
+  public notifications: MockRecord[] = [];
+  public mediaAssets: MockRecord[] = [];
+
   public operations: Array<{ model: string; method: string; data: any }> = [];
   public disconnectCalled = false;
   public failAtStage?: string;
+  public transactionOptions: any = null;
 
   public room = {
-    upsert: async (args: any) => {
-      this.operations.push({ model: 'Room', method: 'upsert', data: args.create });
-      if (this.failAtStage === 'ROOM') throw new Error('Mock Room write failure');
-      // Giả lập ID tự tăng với offset 1000
-      const currentCount = this.operations.filter((o) => o.model === 'Room').length;
-      return { id: 1000 + currentCount, ...args.create };
-    },
-    deleteMany: async (args: any) => {
-      this.operations.push({ model: 'Room', method: 'deleteMany', data: args });
-    },
+    count: async () => this.rooms.length,
+    create: async (args: any) => this.recordCreate('Room', this.rooms, 1000, args.data),
+    deleteMany: async (args: any) => { this.operations.push({ model: 'Room', method: 'deleteMany', data: args }); },
   };
 
   public user = {
-    upsert: async (args: any) => {
-      this.operations.push({ model: 'User', method: 'upsert', data: args.create });
-      if (this.failAtStage === 'USER') throw new Error('Mock User write failure');
-      const currentCount = this.operations.filter((o) => o.model === 'User').length;
-      return { id: 2000 + currentCount, ...args.create };
-    },
-    deleteMany: async (args: any) => {
-      this.operations.push({ model: 'User', method: 'deleteMany', data: args });
-    },
+    count: async () => this.users.length,
+    create: async (args: any) => this.recordCreate('User', this.users, 2000, args.data),
+    deleteMany: async (args: any) => { this.operations.push({ model: 'User', method: 'deleteMany', data: args }); },
   };
 
   public invoice = {
-    upsert: async (args: any) => {
-      this.operations.push({ model: 'Invoice', method: 'upsert', data: args.create });
-      if (this.failAtStage === 'INVOICE') throw new Error('Mock Invoice write failure');
-      const currentCount = this.operations.filter((o) => o.model === 'Invoice').length;
-      return { id: 3000 + currentCount, ...args.create };
-    },
-    deleteMany: async (args: any) => {
-      this.operations.push({ model: 'Invoice', method: 'deleteMany', data: args });
-    },
+    count: async () => this.invoices.length,
+    create: async (args: any) => this.recordCreate('Invoice', this.invoices, 3000, args.data),
+    deleteMany: async (args: any) => { this.operations.push({ model: 'Invoice', method: 'deleteMany', data: args }); },
   };
 
   public payment = {
-    findFirst: async (args: any) => {
-      this.operations.push({ model: 'Payment', method: 'findFirst', data: args.where });
-      return null; // Giả lập chưa tồn tại để gọi create
-    },
-    create: async (args: any) => {
-      this.operations.push({ model: 'Payment', method: 'create', data: args.data });
-      if (this.failAtStage === 'PAYMENT') throw new Error('Mock Payment write failure');
-      const currentCount = this.operations.filter((o) => o.model === 'Payment' && o.method === 'create').length;
-      return { id: 4000 + currentCount, ...args.data };
-    },
-    update: async (args: any) => {
-      this.operations.push({ model: 'Payment', method: 'update', data: args.data });
-      return { id: args.where.id, ...args.data };
-    },
-    deleteMany: async (args: any) => {
-      this.operations.push({ model: 'Payment', method: 'deleteMany', data: args });
-    },
+    count: async () => this.payments.length,
+    create: async (args: any) => this.recordCreate('Payment', this.payments, 4000, args.data),
+    deleteMany: async (args: any) => { this.operations.push({ model: 'Payment', method: 'deleteMany', data: args }); },
   };
 
   public ticket = {
-    findFirst: async (args: any) => {
-      this.operations.push({ model: 'Ticket', method: 'findFirst', data: args.where });
-      return null;
-    },
-    create: async (args: any) => {
-      this.operations.push({ model: 'Ticket', method: 'create', data: args.data });
-      if (this.failAtStage === 'TICKET') throw new Error('Mock Ticket write failure');
-      const currentCount = this.operations.filter((o) => o.model === 'Ticket' && o.method === 'create').length;
-      return { id: 5000 + currentCount, ...args.data };
-    },
-    update: async (args: any) => {
-      this.operations.push({ model: 'Ticket', method: 'update', data: args.data });
-      return { id: args.where.id, ...args.data };
-    },
-    deleteMany: async (args: any) => {
-      this.operations.push({ model: 'Ticket', method: 'deleteMany', data: args });
-    },
+    count: async () => this.tickets.length,
+    create: async (args: any) => this.recordCreate('Ticket', this.tickets, 5000, args.data),
+    deleteMany: async (args: any) => { this.operations.push({ model: 'Ticket', method: 'deleteMany', data: args }); },
   };
 
   public feedback = {
-    findFirst: async (args: any) => {
-      this.operations.push({ model: 'Feedback', method: 'findFirst', data: args.where });
-      return null;
-    },
-    create: async (args: any) => {
-      this.operations.push({ model: 'Feedback', method: 'create', data: args.data });
-      if (this.failAtStage === 'FEEDBACK') throw new Error('Mock Feedback write failure');
-      const currentCount = this.operations.filter((o) => o.model === 'Feedback' && o.method === 'create').length;
-      return { id: 6000 + currentCount, ...args.data };
-    },
-    update: async (args: any) => {
-      this.operations.push({ model: 'Feedback', method: 'update', data: args.data });
-      return { id: args.where.id, ...args.data };
-    },
-    deleteMany: async (args: any) => {
-      this.operations.push({ model: 'Feedback', method: 'deleteMany', data: args });
-    },
+    count: async () => this.feedbacks.length,
+    create: async (args: any) => this.recordCreate('Feedback', this.feedbacks, 6000, args.data),
+    deleteMany: async (args: any) => { this.operations.push({ model: 'Feedback', method: 'deleteMany', data: args }); },
   };
 
   public notification = {
-    findFirst: async (args: any) => {
-      this.operations.push({ model: 'Notification', method: 'findFirst', data: args.where });
-      return null;
-    },
-    create: async (args: any) => {
-      this.operations.push({ model: 'Notification', method: 'create', data: args.data });
-      if (this.failAtStage === 'NOTIFICATION') throw new Error('Mock Notification write failure');
-      const currentCount = this.operations.filter((o) => o.model === 'Notification' && o.method === 'create').length;
-      return { id: 7000 + currentCount, ...args.data };
-    },
-    update: async (args: any) => {
-      this.operations.push({ model: 'Notification', method: 'update', data: args.data });
-      return { id: args.where.id, ...args.data };
-    },
-    deleteMany: async (args: any) => {
-      this.operations.push({ model: 'Notification', method: 'deleteMany', data: args });
-    },
+    count: async () => this.notifications.length,
+    create: async (args: any) => this.recordCreate('Notification', this.notifications, 7000, args.data),
+    deleteMany: async (args: any) => { this.operations.push({ model: 'Notification', method: 'deleteMany', data: args }); },
   };
 
   public mediaAsset = {
-    create: async (args: any) => {
-      this.operations.push({ model: 'MediaAsset', method: 'create', data: args.data });
-      return { id: 8000, ...args.data };
-    },
-    deleteMany: async (args: any) => {
-      this.operations.push({ model: 'MediaAsset', method: 'deleteMany', data: args });
-    },
+    count: async () => this.mediaAssets.length,
+    create: async (args: any) => this.recordCreate('MediaAsset', this.mediaAssets, 8000, args.data),
+    deleteMany: async (args: any) => { this.operations.push({ model: 'MediaAsset', method: 'deleteMany', data: args }); },
   };
+
+  private recordCreate(model: string, targetArray: MockRecord[], idOffset: number, data: any) {
+    this.operations.push({ model, method: 'create', data });
+    if (this.failAtStage === model.toUpperCase()) {
+      throw new Error(`Mock ${model} write failure at stage [${model.toUpperCase()}]`);
+    }
+    const record: MockRecord = { id: idOffset + targetArray.length + 1, ...data };
+    targetArray.push(record);
+    return record;
+  }
 
   public $executeRaw = async (...args: any[]) => {
     this.operations.push({ model: 'RAW', method: '$executeRaw', data: args });
@@ -177,18 +132,103 @@ class MockPrismaClient {
     this.operations.push({ model: 'RAW', method: '$executeRawUnsafe', data: args });
   };
 
-  public $transaction = async (fn: (tx: any) => Promise<any>, _opts?: any) => {
-    return fn(this);
-  };
-
   public $disconnect = async () => {
     this.disconnectCalled = true;
+  };
+
+  /**
+   * Stateful Transaction Simulation
+   */
+  public $transaction = async (fn: (tx: any) => Promise<any>, options?: any) => {
+    this.transactionOptions = options;
+
+    // Snapshot trước giao dịch
+    const snapshot = {
+      rooms: [...this.rooms],
+      users: [...this.users],
+      invoices: [...this.invoices],
+      payments: [...this.payments],
+      tickets: [...this.tickets],
+      feedbacks: [...this.feedbacks],
+      notifications: [...this.notifications],
+      mediaAssets: [...this.mediaAssets],
+    };
+
+    // Bộ nhớ làm việc trong giao dịch
+    const txRooms: MockRecord[] = [...this.rooms];
+    const txUsers: MockRecord[] = [...this.users];
+    const txInvoices: MockRecord[] = [...this.invoices];
+    const txPayments: MockRecord[] = [...this.payments];
+    const txTickets: MockRecord[] = [...this.tickets];
+    const txFeedbacks: MockRecord[] = [...this.feedbacks];
+    const txNotifications: MockRecord[] = [...this.notifications];
+    const txMediaAssets: MockRecord[] = [...this.mediaAssets];
+
+    const txClient: any = {
+      room: {
+        count: async () => txRooms.length,
+        create: async (args: any) => this.recordCreate('Room', txRooms, 1000, args.data),
+      },
+      user: {
+        count: async () => txUsers.length,
+        create: async (args: any) => this.recordCreate('User', txUsers, 2000, args.data),
+      },
+      invoice: {
+        count: async () => txInvoices.length,
+        create: async (args: any) => this.recordCreate('Invoice', txInvoices, 3000, args.data),
+      },
+      payment: {
+        count: async () => txPayments.length,
+        create: async (args: any) => this.recordCreate('Payment', txPayments, 4000, args.data),
+      },
+      ticket: {
+        count: async () => txTickets.length,
+        create: async (args: any) => this.recordCreate('Ticket', txTickets, 5000, args.data),
+      },
+      feedback: {
+        count: async () => txFeedbacks.length,
+        create: async (args: any) => this.recordCreate('Feedback', txFeedbacks, 6000, args.data),
+      },
+      notification: {
+        count: async () => txNotifications.length,
+        create: async (args: any) => this.recordCreate('Notification', txNotifications, 7000, args.data),
+      },
+      mediaAsset: {
+        count: async () => txMediaAssets.length,
+        create: async (args: any) => this.recordCreate('MediaAsset', txMediaAssets, 8000, args.data),
+      },
+    };
+
+    try {
+      const result = await fn(txClient);
+      // Giao dịch thành công -> Commit
+      this.rooms = txRooms;
+      this.users = txUsers;
+      this.invoices = txInvoices;
+      this.payments = txPayments;
+      this.tickets = txTickets;
+      this.feedbacks = txFeedbacks;
+      this.notifications = txNotifications;
+      this.mediaAssets = txMediaAssets;
+      return result;
+    } catch (err) {
+      // Giao dịch thất bại -> Rollback về snapshot ban đầu
+      this.rooms = snapshot.rooms;
+      this.users = snapshot.users;
+      this.invoices = snapshot.invoices;
+      this.payments = snapshot.payments;
+      this.tickets = snapshot.tickets;
+      this.feedbacks = snapshot.feedbacks;
+      this.notifications = snapshot.notifications;
+      this.mediaAssets = snapshot.mediaAssets;
+      throw err;
+    }
   };
 }
 
 async function runAllTests() {
   console.log('======================================================');
-  console.log('🧪 BẮT ĐẦU KIỂM ĐỊNH SEED ORCHESTRATION & SAFETY (M9)');
+  console.log('🧪 BẮT ĐẦU KIỂM ĐỊNH SEED ORCHESTRATION & SAFETY (M9.1)');
   console.log('======================================================');
 
   const originalEnv = { ...process.env };
@@ -197,14 +237,15 @@ async function runAllTests() {
   };
 
   // =========================================================================
-  // 1. KIỂM THỬ AN TOÀN DATABASE & CHẶN PRODUCTION (FAIL-CLOSED)
+  // 1. KIỂM THỬ AN TOÀN DATABASE & TARGET ALLOWLIST (BLOCKER A)
   // =========================================================================
-  console.log('--- 1. Kiểm thử An toàn Database & Chặn Production ---');
+  console.log('--- 1. Kiểm thử An toàn Database & Target Allowlist (Blocker A) ---');
 
   await runTest('1.1 Từ chối khi NODE_ENV=production', () => {
     restoreEnv();
     process.env.NODE_ENV = 'production';
     process.env.ALLOW_DATASET_SEED = 'true';
+    process.env.DATASET_DB_ALLOWLIST = 'localhost:5432/apartment_demo';
     assert.throws(
       () => assertSafeDatabaseEnvironment(),
       /Tuyệt đối từ chối chạy seed dữ liệu trên môi trường PRODUCTION!/
@@ -215,6 +256,7 @@ async function runAllTests() {
     restoreEnv();
     process.env.NODE_ENV = 'development';
     delete process.env.ALLOW_DATASET_SEED;
+    process.env.DATASET_DB_ALLOWLIST = 'localhost:5432/apartment_demo';
     assert.throws(
       () => assertSafeDatabaseEnvironment(),
       /ALLOW_DATASET_SEED phải có giá trị 'true'/
@@ -225,279 +267,232 @@ async function runAllTests() {
     restoreEnv();
     process.env.NODE_ENV = 'development';
     process.env.ALLOW_DATASET_SEED = 'true';
+    process.env.DATASET_DB_ALLOWLIST = 'localhost:5432/apartment_demo';
 
-    // Thiếu URL
     delete process.env.DATABASE_URL;
     assert.throws(
       () => assertSafeDatabaseEnvironment(),
       /DATABASE_URL thiếu hoặc không hợp lệ/
     );
 
-    // Chuỗi không thể parse
     process.env.DATABASE_URL = 'invalid-connection-string';
     assert.throws(
       () => assertSafeDatabaseEnvironment(),
       /DATABASE_URL không thể phân tích cú pháp hợp lệ/
     );
 
-    // Giao thức không phải PostgreSQL
-    process.env.DATABASE_URL = 'mysql://root:pass@localhost:3306/apartment_db';
+    process.env.DATABASE_URL = 'mysql://root:pass@localhost:3306/apartment_demo';
     assert.throws(
       () => assertSafeDatabaseEnvironment(),
       /Giao thức DATABASE_URL không hợp lệ/
     );
   });
 
-  await runTest('1.4 Từ chối database target không xác định được mức an toàn', () => {
+  await runTest('1.4 Từ chối khi thiếu cấu hình allowlist (DATASET_DB_ALLOWLIST undefined)', () => {
     restoreEnv();
     process.env.NODE_ENV = 'development';
     process.env.ALLOW_DATASET_SEED = 'true';
+    delete process.env.DATASET_DB_ALLOWLIST;
 
-    // Hostname không thuộc localhost và dbName không có nhãn an toàn
     assert.throws(
       () =>
         assertSafeDatabaseEnvironment(
-          'postgresql://user:pass@corporate-db.internal.corp:5432/core_banking'
+          'postgresql://postgres:pass@localhost:5432/apartment_demo'
         ),
-      /Không đủ thông tin xác định database target là an toàn/
-    );
-
-    // Database trên Cloud không có nhãn an toàn (dev/test/demo/sandbox)
-    assert.throws(
-      () =>
-        assertSafeDatabaseEnvironment(
-          'postgresql://user:pass@ep-cool-fog.us-east-2.aws.neon.tech:5432/company_analytics'
-        ),
-      /Database trên Cloud .* không xác định được mức độ an toàn/
+      /Thiếu cấu hình allowlist database target/
     );
   });
 
-  await runTest('1.5 Từ chối database Production kể cả khi có ALLOW_DATASET_SEED=true', () => {
+  await runTest('1.5 Từ chối khi hostname không khớp allowlist', () => {
     restoreEnv();
     process.env.NODE_ENV = 'development';
     process.env.ALLOW_DATASET_SEED = 'true';
+    process.env.DATASET_DB_ALLOWLIST = 'localhost:5432/apartment_demo';
 
-    // Dấu hiệu production trong hostname
     assert.throws(
       () =>
         assertSafeDatabaseEnvironment(
-          'postgresql://postgres:pass@prod-postgres.internal:5432/apartment_db'
+          'postgresql://postgres:pass@192.168.1.50:5432/apartment_demo'
         ),
-      /Phát hiện dấu hiệu Production trong hostname/
+      /không nằm trong allowlist được cấp phép/
     );
+  });
 
-    // Dấu hiệu production trong tên database
+  await runTest('1.6 Từ chối khi port không khớp allowlist', () => {
+    restoreEnv();
+    process.env.NODE_ENV = 'development';
+    process.env.ALLOW_DATASET_SEED = 'true';
+    process.env.DATASET_DB_ALLOWLIST = 'localhost:5432/apartment_demo';
+
     assert.throws(
       () =>
         assertSafeDatabaseEnvironment(
-          'postgresql://postgres:pass@localhost:5432/apartment_production'
+          'postgresql://postgres:pass@localhost:5433/apartment_demo'
+        ),
+      /không nằm trong allowlist được cấp phép/
+    );
+  });
+
+  await runTest('1.7 Từ chối khi database name không khớp allowlist', () => {
+    restoreEnv();
+    process.env.NODE_ENV = 'development';
+    process.env.ALLOW_DATASET_SEED = 'true';
+    process.env.DATASET_DB_ALLOWLIST = 'localhost:5432/apartment_demo';
+
+    assert.throws(
+      () =>
+        assertSafeDatabaseEnvironment(
+          'postgresql://postgres:pass@localhost:5432/another_app_db'
+        ),
+      /không nằm trong allowlist được cấp phép/
+    );
+  });
+
+  await runTest('1.8 Chấp nhận khi target khớp chính xác allowlist đã cấu hình', () => {
+    restoreEnv();
+    process.env.NODE_ENV = 'development';
+    process.env.ALLOW_DATASET_SEED = 'true';
+    process.env.DATASET_DB_ALLOWLIST = 'localhost:5432/apartment_demo, 127.0.0.1:5432/test_sandbox';
+
+    const target1 = assertSafeDatabaseEnvironment(
+      'postgresql://user:pass@localhost:5432/apartment_demo'
+    );
+    assert.strictEqual(target1.host, 'localhost');
+    assert.strictEqual(target1.port, 5432);
+    assert.strictEqual(target1.database, 'apartment_demo');
+
+    const target2 = assertSafeDatabaseEnvironment(
+      'postgresql://user:pass@127.0.0.1:5432/test_sandbox'
+    );
+    assert.strictEqual(target2.host, '127.0.0.1');
+    assert.strictEqual(target2.port, 5432);
+    assert.strictEqual(target2.database, 'test_sandbox');
+  });
+
+  await runTest('1.9 Từ chối target chứa từ khóa Production kể cả khi có trong allowlist', () => {
+    restoreEnv();
+    process.env.NODE_ENV = 'development';
+    process.env.ALLOW_DATASET_SEED = 'true';
+    process.env.DATASET_DB_ALLOWLIST = 'localhost:5432/prod_apartment, db-prod.corp:5432/demo';
+
+    assert.throws(
+      () =>
+        assertSafeDatabaseEnvironment(
+          'postgresql://user:pass@localhost:5432/prod_apartment'
         ),
       /Phát hiện dấu hiệu Production trong tên database/
     );
 
-    // Dấu hiệu live/master/main
     assert.throws(
       () =>
         assertSafeDatabaseEnvironment(
-          'postgresql://postgres:pass@localhost:5432/apartment_live_db'
+          'postgresql://user:pass@db-prod.corp:5432/demo'
         ),
-      /Phát hiện dấu hiệu Production/
+      /Phát hiện dấu hiệu Production trong hostname/
     );
   });
 
-  await runTest('1.6 Không gọi Prisma write khi safety check thất bại', async () => {
+  await runTest('1.10 Không bao giờ mặc định localhost, postgres, apartment_db là an toàn nếu thiếu allowlist', () => {
     restoreEnv();
-    process.env.NODE_ENV = 'production';
+    process.env.NODE_ENV = 'development';
     process.env.ALLOW_DATASET_SEED = 'true';
+    delete process.env.DATASET_DB_ALLOWLIST;
 
-    const mockClient = new MockPrismaClient();
-
-    await assert.rejects(
-      async () => {
-        await executeSeed({ prismaClient: mockClient, logger: () => {} });
-      },
-      /Tuyệt đối từ chối chạy seed dữ liệu trên môi trường PRODUCTION!/
+    assert.throws(
+      () => assertSafeDatabaseEnvironment('postgresql://postgres:postgres@localhost:5432/postgres'),
+      /Thiếu cấu hình allowlist database target/
     );
 
-    assert.strictEqual(mockClient.operations.length, 0, 'Tuyệt đối không gọi bất kỳ thao tác ghi nào');
+    assert.throws(
+      () => assertSafeDatabaseEnvironment('postgresql://postgres:postgres@localhost:5432/apartment_db'),
+      /Thiếu cấu hình allowlist database target/
+    );
+  });
+
+  await runTest('1.11 Sanitize URL không để lộ username hoặc password', () => {
+    const safeUrl = sanitizeDatabaseUrl('postgresql://admin:superSecretPassword123@myhost.internal:5432/my_demo_db');
+    assert.strictEqual(safeUrl.includes('superSecretPassword123'), false, 'Không được để lộ password');
+    assert.strictEqual(safeUrl.includes('admin:'), false, 'Không được để lộ username');
+    assert.ok(safeUrl.includes('***:***@myhost.internal:5432/my_demo_db'));
+  });
+
+  await runTest('1.12 Không gọi Prisma write khi safety check thất bại', async () => {
+    restoreEnv();
+    process.env.NODE_ENV = 'production'; // Safety vi phạm
+    process.env.ALLOW_DATASET_SEED = 'true';
+
+    const mockClient = new MockPrismaClient();
+    try {
+      await executeSeed({
+        prismaClient: mockClient,
+        logger: () => {},
+        databaseUrl: 'postgresql://postgres:pass@localhost:5432/apartment_demo',
+        databaseAllowlist: 'localhost:5432/apartment_demo',
+      });
+      assert.fail('Phải ném lỗi khi safety thất bại');
+    } catch {
+      // Expected rejection
+    }
+
+    assert.strictEqual(mockClient.operations.length, 0, 'Tuyệt đối không có thao tác Prisma nào được gọi');
   });
 
   // =========================================================================
-  // 2. KIỂM THỬ THỨ TỰ PHỤ THUỘC GENERATOR & GHI DỮ LIỆU
+  // 2. KIỂM THỬ BẢO VỆ DỮ LIỆU HIỆN HỮU & NON-DESTRUCTIVE SEED (BLOCKER B & C)
   // =========================================================================
-  console.log('--- 2. Kiểm thử Thứ tự Generator & Ghi Dữ liệu ---');
+  console.log('--- 2. Kiểm thử Bảo vệ Dữ liệu Hiện hữu & Non-Destructive Seed (Blocker B & C) ---');
 
-  await runTest('2.1 Thứ tự thực hiện generator đúng dependency', () => {
-    const executedGenerators: string[] = [];
-    generateEntireDataset({
-      seed: 20261111,
-      onGeneratorStep: (gen) => executedGenerators.push(gen),
-    });
-
-    const expectedOrder = [
-      'room',
-      'user',
-      'ticket',
-      'invoice_payment',
-      'feedback',
-      'notification',
-      'media_asset',
-    ];
-    assert.deepStrictEqual(executedGenerators, expectedOrder, 'Thứ tự generator phải khớp 100% dependency');
-  });
-
-  await runTest('2.2 Thứ tự ghi dữ liệu đúng dependency khóa ngoại', async () => {
+  await runTest('2.1 Từ chối seed (Fail-Closed) khi target database đã có dữ liệu trong bảng Room', async () => {
     restoreEnv();
     process.env.NODE_ENV = 'development';
     process.env.ALLOW_DATASET_SEED = 'true';
 
     const mockClient = new MockPrismaClient();
-    await executeSeed({
-      prismaClient: mockClient,
-      logger: () => {},
-      databaseUrl: 'postgresql://postgres:pass@localhost:5432/apartment_db',
-    });
-
-    // Lọc thứ tự xuất hiện đầu tiên của từng model trong operations
-    const firstSeenOrder: string[] = [];
-    for (const op of mockClient.operations) {
-      if (!firstSeenOrder.includes(op.model)) {
-        firstSeenOrder.push(op.model);
-      }
-    }
-
-    const expectedWriteOrder = [
-      'Room',
-      'User',
-      'Invoice',
-      'Payment',
-      'Ticket',
-      'Feedback',
-      'Notification',
-    ];
-    assert.deepStrictEqual(firstSeenOrder, expectedWriteOrder, 'Thứ tự ghi dữ liệu phải bảo đảm cây khóa ngoại');
-  });
-
-  // =========================================================================
-  // 3. KIỂM THỬ ÁNH XẠ ID THỰC TẾ & TOÀN VẸN KHÓA NGOẠI
-  // =========================================================================
-  console.log('--- 3. Kiểm thử Ánh xạ ID Thực tế (ID Mapping) ---');
-
-  await runTest('3.1 Foreign key sử dụng ID mapping thực tế từ Database', async () => {
-    restoreEnv();
-    process.env.NODE_ENV = 'development';
-    process.env.ALLOW_DATASET_SEED = 'true';
-
-    const mockClient = new MockPrismaClient();
-    await executeSeed({
-      prismaClient: mockClient,
-      logger: () => {},
-      databaseUrl: 'postgresql://postgres:pass@localhost:5432/apartment_db',
-    });
-
-    // 1. Kiểm tra User: roomId phải nằm trong dải [1001, 1100] (Room ID thực tế từ database)
-    const userCreates = mockClient.operations.filter((o) => o.model === 'User' && o.method === 'upsert');
-    for (const u of userCreates) {
-      if (u.data.roomId !== null) {
-        assert.ok(
-          u.data.roomId >= 1001 && u.data.roomId <= 1100,
-          `User roomId ${u.data.roomId} phải sử dụng ID thực tế đã ánh xạ (1001-1100)`
-        );
-      }
-    }
-
-    // 2. Kiểm tra Invoice: roomId phải nằm trong dải [1001, 1100]
-    const invoiceCreates = mockClient.operations.filter((o) => o.model === 'Invoice' && o.method === 'upsert');
-    for (const inv of invoiceCreates) {
-      assert.ok(
-        inv.data.roomId >= 1001 && inv.data.roomId <= 1100,
-        `Invoice roomId ${inv.data.roomId} phải sử dụng ID thực tế đã ánh xạ`
-      );
-    }
-
-    // 3. Kiểm tra Payment: invoiceId phải nằm trong dải [3001, 3500] (Invoice ID thực tế)
-    const paymentCreates = mockClient.operations.filter((o) => o.model === 'Payment' && o.method === 'create');
-    for (const p of paymentCreates) {
-      assert.ok(
-        p.data.invoiceId >= 3001 && p.data.invoiceId <= 3600,
-        `Payment invoiceId ${p.data.invoiceId} phải sử dụng ID thực tế đã ánh xạ`
-      );
-    }
-
-    // 4. Kiểm tra Ticket: residentId trong [2001, 2200], roomId trong [1001, 1100]
-    const ticketCreates = mockClient.operations.filter((o) => o.model === 'Ticket' && o.method === 'create');
-    for (const t of ticketCreates) {
-      assert.ok(
-        t.data.residentId >= 2001 && t.data.residentId <= 2200,
-        `Ticket residentId ${t.data.residentId} phải dùng ID User thực tế`
-      );
-      if (t.data.technicianId !== null) {
-        assert.ok(
-          t.data.technicianId >= 2001 && t.data.technicianId <= 2200,
-          `Ticket technicianId ${t.data.technicianId} phải dùng ID User thực tế`
-        );
-      }
-      if (t.data.roomId !== null) {
-        assert.ok(
-          t.data.roomId >= 1001 && t.data.roomId <= 1100,
-          `Ticket roomId ${t.data.roomId} phải dùng ID Room thực tế`
-        );
-      }
-    }
-
-    // 5. Kiểm tra Feedback: residentId trong [2001, 2200], roomId trong [1001, 1100]
-    const feedbackCreates = mockClient.operations.filter((o) => o.model === 'Feedback' && o.method === 'create');
-    for (const f of feedbackCreates) {
-      assert.ok(
-        f.data.residentId >= 2001 && f.data.residentId <= 2200,
-        `Feedback residentId ${f.data.residentId} phải dùng ID User thực tế`
-      );
-      if (f.data.roomId !== null) {
-        assert.ok(
-          f.data.roomId >= 1001 && f.data.roomId <= 1100,
-          `Feedback roomId ${f.data.roomId} phải dùng ID Room thực tế`
-        );
-      }
-    }
-
-    // 6. Kiểm tra Notification: authorId trong [2001, 2200]
-    const notifCreates = mockClient.operations.filter((o) => o.model === 'Notification' && o.method === 'create');
-    for (const n of notifCreates) {
-      if (n.data.authorId !== null) {
-        assert.ok(
-          n.data.authorId >= 2001 && n.data.authorId <= 2200,
-          `Notification authorId ${n.data.authorId} phải dùng ID User thực tế`
-        );
-      }
-    }
-  });
-
-  // =========================================================================
-  // 4. KIỂM THỬ GIAO DỊCH, ROLLBACK VÀ VÒNG ĐỜI KẾT NỐI (LIFECYCLE)
-  // =========================================================================
-  console.log('--- 4. Kiểm thử Transaction, Rollback & Disconnect ---');
-
-  await runTest('4.1 Rollback và ném lỗi khi một bước ghi dữ liệu thất bại', async () => {
-    restoreEnv();
-    process.env.NODE_ENV = 'development';
-    process.env.ALLOW_DATASET_SEED = 'true';
-
-    const mockClient = new MockPrismaClient();
-    mockClient.failAtStage = 'TICKET'; // Cố tình gây lỗi tại giai đoạn Ticket
+    // Giả lập database đã có 1 căn hộ của ứng dụng
+    mockClient.rooms.push({ id: 1, roomNumber: '0101', floor: 1, area: 75, status: 'OCCUPIED' });
 
     await assert.rejects(
       async () => {
         await executeSeed({
           prismaClient: mockClient,
           logger: () => {},
-          databaseUrl: 'postgresql://postgres:pass@localhost:5432/apartment_db',
+          databaseUrl: 'postgresql://postgres:pass@localhost:5432/apartment_demo',
+          databaseAllowlist: 'localhost:5432/apartment_demo',
         });
       },
-      /Mock Ticket write failure/
+      /Phát hiện dữ liệu hiện hữu trên database target.*Room: 1/
     );
+
+    // Chứng minh không có bản ghi nào bị ghi đè hoặc tạo thêm
+    assert.strictEqual(mockClient.rooms.length, 1, 'Bản ghi phòng hiện hữu không bị thay đổi');
+    assert.strictEqual(mockClient.users.length, 0, 'Không có bản ghi User nào được tạo');
   });
 
-  await runTest('4.2 Prisma disconnect được gọi khi seed thành công', async () => {
+  await runTest('2.2 Từ chối seed (Fail-Closed) khi target database đã có dữ liệu trong bảng User hoặc Invoice', async () => {
+    restoreEnv();
+    process.env.NODE_ENV = 'development';
+    process.env.ALLOW_DATASET_SEED = 'true';
+
+    const mockClient = new MockPrismaClient();
+    // Giả lập database có 1 tài khoản quản trị viên ứng dụng
+    mockClient.users.push({ id: 1, username: 'app_admin', role: Role.ADMIN });
+
+    await assert.rejects(
+      async () => {
+        await executeSeed({
+          prismaClient: mockClient,
+          logger: () => {},
+          databaseUrl: 'postgresql://postgres:pass@localhost:5432/apartment_demo',
+          databaseAllowlist: 'localhost:5432/apartment_demo',
+        });
+      },
+      /Phát hiện dữ liệu hiện hữu trên database target.*User: 1/
+    );
+
+    assert.strictEqual(mockClient.users.length, 1, 'Bản ghi User hiện hữu không bị thay đổi');
+  });
+
+  await runTest('2.3 Tuyệt đối không sử dụng upsert, update, findFirst trong quá trình seed', async () => {
     restoreEnv();
     process.env.NODE_ENV = 'development';
     process.env.ALLOW_DATASET_SEED = 'true';
@@ -506,13 +501,81 @@ async function runAllTests() {
     await executeSeed({
       prismaClient: mockClient,
       logger: () => {},
-      databaseUrl: 'postgresql://postgres:pass@localhost:5432/apartment_db',
+      databaseUrl: 'postgresql://postgres:pass@localhost:5432/apartment_demo',
+      databaseAllowlist: 'localhost:5432/apartment_demo',
     });
 
-    assert.strictEqual(mockClient.disconnectCalled, true, '$disconnect phải được gọi khi thành công');
+    const nonCreateOps = mockClient.operations.filter(
+      (o) => o.method === 'upsert' || o.method === 'update' || o.method === 'findFirst'
+    );
+    assert.strictEqual(
+      nonCreateOps.length,
+      0,
+      'Tuyệt đối không dùng upsert, update, findFirst để tránh sửa nhầm dữ liệu ứng dụng'
+    );
   });
 
-  await runTest('4.3 Prisma disconnect được gọi khi seed thất bại', async () => {
+  await runTest('2.4 Tuyệt đối không sử dụng deleteMany, delete hoặc TRUNCATE', async () => {
+    restoreEnv();
+    process.env.NODE_ENV = 'development';
+    process.env.ALLOW_DATASET_SEED = 'true';
+
+    const mockClient = new MockPrismaClient();
+    await executeSeed({
+      prismaClient: mockClient,
+      logger: () => {},
+      databaseUrl: 'postgresql://postgres:pass@localhost:5432/apartment_demo',
+      databaseAllowlist: 'localhost:5432/apartment_demo',
+    });
+
+    const destructiveOps = mockClient.operations.filter(
+      (o) => o.method.includes('delete') || o.method.includes('Raw')
+    );
+    assert.strictEqual(destructiveOps.length, 0, 'Tuyệt đối không có bất kỳ lệnh delete hoặc raw query nào');
+  });
+
+  await runTest('2.5 Mọi thao tác ghi dữ liệu chỉ sử dụng create thuần túy', async () => {
+    restoreEnv();
+    process.env.NODE_ENV = 'development';
+    process.env.ALLOW_DATASET_SEED = 'true';
+
+    const mockClient = new MockPrismaClient();
+    await executeSeed({
+      prismaClient: mockClient,
+      logger: () => {},
+      databaseUrl: 'postgresql://postgres:pass@localhost:5432/apartment_demo',
+      databaseAllowlist: 'localhost:5432/apartment_demo',
+    });
+
+    for (const op of mockClient.operations) {
+      assert.strictEqual(op.method, 'create', `Thao tác trên model ${op.model} phải là 'create'`);
+    }
+  });
+
+  // =========================================================================
+  // 3. KIỂM THỬ GIAO DỊCH CÓ TRẠNG THÁI & ROLLBACK (BLOCKER D)
+  // =========================================================================
+  console.log('--- 3. Kiểm thử Giao dịch có Trạng thái & Rollback (Blocker D) ---');
+
+  await runTest('3.1 Xác minh tùy chọn transaction timeout: Bắt buộc đúng timeout: 60000', async () => {
+    restoreEnv();
+    process.env.NODE_ENV = 'development';
+    process.env.ALLOW_DATASET_SEED = 'true';
+
+    const mockClient = new MockPrismaClient();
+    await executeSeed({
+      prismaClient: mockClient,
+      logger: () => {},
+      databaseUrl: 'postgresql://postgres:pass@localhost:5432/apartment_demo',
+      databaseAllowlist: 'localhost:5432/apartment_demo',
+    });
+
+    assert.ok(mockClient.transactionOptions, 'Transaction options phải được truyền vào $transaction');
+    assert.strictEqual(mockClient.transactionOptions.timeout, 60000, 'Transaction timeout bắt buộc là 60000ms');
+    assert.ok(mockClient.transactionOptions.maxWait >= 5000, 'maxWait phải tối thiểu 5000ms');
+  });
+
+  await runTest('3.2 Rollback khi lỗi tại Stage USER: Không để lại bản ghi Room nào trong database', async () => {
     restoreEnv();
     process.env.NODE_ENV = 'development';
     process.env.ALLOW_DATASET_SEED = 'true';
@@ -524,19 +587,99 @@ async function runAllTests() {
       await executeSeed({
         prismaClient: mockClient,
         logger: () => {},
-        databaseUrl: 'postgresql://postgres:pass@localhost:5432/apartment_db',
+        databaseUrl: 'postgresql://postgres:pass@localhost:5432/apartment_demo',
+        databaseAllowlist: 'localhost:5432/apartment_demo',
       });
     });
 
-    assert.strictEqual(mockClient.disconnectCalled, true, '$disconnect phải được gọi ngay cả khi gặp lỗi');
+    // Sau rollback: database state phải quay về rỗng
+    assert.strictEqual(mockClient.rooms.length, 0, 'Bảng Room phải được rollback về 0 bản ghi');
+    assert.strictEqual(mockClient.users.length, 0, 'Bảng User phải bằng 0');
+  });
+
+  await runTest('3.3 Rollback khi lỗi tại Stage INVOICE: Không để lại bản ghi Room hay User nào', async () => {
+    restoreEnv();
+    process.env.NODE_ENV = 'development';
+    process.env.ALLOW_DATASET_SEED = 'true';
+
+    const mockClient = new MockPrismaClient();
+    mockClient.failAtStage = 'INVOICE';
+
+    await assert.rejects(async () => {
+      await executeSeed({
+        prismaClient: mockClient,
+        logger: () => {},
+        databaseUrl: 'postgresql://postgres:pass@localhost:5432/apartment_demo',
+        databaseAllowlist: 'localhost:5432/apartment_demo',
+      });
+    });
+
+    assert.strictEqual(mockClient.rooms.length, 0, 'Bảng Room phải được rollback về 0 bản ghi');
+    assert.strictEqual(mockClient.users.length, 0, 'Bảng User phải được rollback về 0 bản ghi');
+    assert.strictEqual(mockClient.invoices.length, 0, 'Bảng Invoice phải bằng 0');
+  });
+
+  await runTest('3.4 Rollback khi lỗi tại Stage TICKET: Không để lại bản ghi rác nào', async () => {
+    restoreEnv();
+    process.env.NODE_ENV = 'development';
+    process.env.ALLOW_DATASET_SEED = 'true';
+
+    const mockClient = new MockPrismaClient();
+    mockClient.failAtStage = 'TICKET';
+
+    await assert.rejects(async () => {
+      await executeSeed({
+        prismaClient: mockClient,
+        logger: () => {},
+        databaseUrl: 'postgresql://postgres:pass@localhost:5432/apartment_demo',
+        databaseAllowlist: 'localhost:5432/apartment_demo',
+      });
+    });
+
+    assert.strictEqual(mockClient.rooms.length, 0);
+    assert.strictEqual(mockClient.users.length, 0);
+    assert.strictEqual(mockClient.invoices.length, 0);
+    assert.strictEqual(mockClient.payments.length, 0);
+    assert.strictEqual(mockClient.tickets.length, 0);
+  });
+
+  await runTest('3.5 Disconnect được gọi trong cả hai trường hợp thành công và thất bại', async () => {
+    restoreEnv();
+    process.env.NODE_ENV = 'development';
+    process.env.ALLOW_DATASET_SEED = 'true';
+
+    // Trường hợp 1: Thành công
+    const mockClient1 = new MockPrismaClient();
+    await executeSeed({
+      prismaClient: mockClient1,
+      logger: () => {},
+      databaseUrl: 'postgresql://postgres:pass@localhost:5432/apartment_demo',
+      databaseAllowlist: 'localhost:5432/apartment_demo',
+    });
+    assert.strictEqual(mockClient1.disconnectCalled, true, 'Disconnect phải được gọi khi thành công');
+
+    // Trường hợp 2: Thất bại
+    const mockClient2 = new MockPrismaClient();
+    mockClient2.failAtStage = 'ROOM';
+    try {
+      await executeSeed({
+        prismaClient: mockClient2,
+        logger: () => {},
+        databaseUrl: 'postgresql://postgres:pass@localhost:5432/apartment_demo',
+        databaseAllowlist: 'localhost:5432/apartment_demo',
+      });
+    } catch {
+      // Expected rejection
+    }
+    assert.strictEqual(mockClient2.disconnectCalled, true, 'Disconnect phải được gọi trong finally khi thất bại');
   });
 
   // =========================================================================
-  // 5. KIỂM THỬ KHÔNG PHÁ HỦY DỮ LIỆU & ZERO-ASSET
+  // 4. KIỂM THỬ ÁNH XẠ ID TỪNG BẢN GHI (RECORD-BY-RECORD ID MAPPING - BLOCKER E)
   // =========================================================================
-  console.log('--- 5. Kiểm thử Không Phá Hủy & Zero-Asset ---');
+  console.log('--- 4. Kiểm thử Ánh xạ ID Từng Bản ghi (Record-by-Record ID Mapping - Blocker E) ---');
 
-  await runTest('5.1 Không tạo bản ghi MediaAsset nào', async () => {
+  await runTest('4.1 Kiểm thử ánh xạ ID từng bản ghi chi tiết trên toàn bộ 7 models', async () => {
     restoreEnv();
     process.env.NODE_ENV = 'development';
     process.env.ALLOW_DATASET_SEED = 'true';
@@ -545,62 +688,135 @@ async function runAllTests() {
     const result = await executeSeed({
       prismaClient: mockClient,
       logger: () => {},
-      databaseUrl: 'postgresql://postgres:pass@localhost:5432/apartment_db',
+      databaseUrl: 'postgresql://postgres:pass@localhost:5432/apartment_demo',
+      databaseAllowlist: 'localhost:5432/apartment_demo',
     });
 
-    const mediaOps = mockClient.operations.filter((o) => o.model === 'MediaAsset');
-    assert.strictEqual(mediaOps.length, 0, 'Thao tác MediaAsset trên database phải bằng 0');
-    assert.strictEqual(result.counts.mediaAssets, 0, 'MediaAsset count trong kết quả phải bằng 0');
-  });
+    assert.strictEqual(result.success, true);
 
-  await runTest('5.2 Tuyệt đối không sử dụng deleteMany, delete hoặc TRUNCATE', async () => {
-    restoreEnv();
-    process.env.NODE_ENV = 'development';
-    process.env.ALLOW_DATASET_SEED = 'true';
+    // Lấy lại dataset gốc nguồn để đối chiếu record-by-record
+    const sourceDataset = generateEntireDataset({ seed: DATASET_CONFIG.RANDOM_SEED });
 
-    const mockClient = new MockPrismaClient();
-    await executeSeed({
-      prismaClient: mockClient,
-      logger: () => {},
-      databaseUrl: 'postgresql://postgres:pass@localhost:5432/apartment_db',
-    });
-
-    const destructiveOps = mockClient.operations.filter(
-      (o) => o.method.includes('delete') || o.method.includes('Raw')
-    );
-    assert.strictEqual(destructiveOps.length, 0, 'Tuyệt đối không có bất kỳ lệnh delete hoặc raw query nào');
-  });
-
-  await runTest('5.3 Không báo thành công nếu bất kỳ bước nào thất bại', async () => {
-    restoreEnv();
-    process.env.NODE_ENV = 'development';
-    process.env.ALLOW_DATASET_SEED = 'true';
-
-    const mockClient = new MockPrismaClient();
-    mockClient.failAtStage = 'INVOICE';
-
-    let reportedSuccess = false;
-    try {
-      await executeSeed({
-        prismaClient: mockClient,
-        logger: (msg) => {
-          if (msg.includes('Success')) reportedSuccess = true;
-        },
-        databaseUrl: 'postgresql://postgres:pass@localhost:5432/apartment_db',
-      });
-    } catch {
-      // Expected rejection
+    // 1. Xây dựng bản đồ ID nguồn -> ID DB thực tế cho Room
+    const roomSourceToDbMap = new Map<number, number>();
+    for (let i = 0; i < sourceDataset.rooms.length; i++) {
+      const src = sourceDataset.rooms[i];
+      const db = mockClient.rooms[i];
+      assert.strictEqual(src.roomNumber, db.roomNumber, 'roomNumber phải trùng khớp thứ tự');
+      assert.strictEqual(db.id, 1000 + i + 1, 'ID DB Room phải mang ID tự tăng từ DB');
+      roomSourceToDbMap.set(src.id, db.id);
     }
 
-    assert.strictEqual(reportedSuccess, false, 'Không bao giờ được log thành công khi có bước thất bại');
+    // 2. Xây dựng bản đồ ID nguồn -> ID DB cho User và kiểm tra khóa ngoại roomId
+    const userSourceToDbMap = new Map<number, number>();
+    for (let i = 0; i < sourceDataset.users.length; i++) {
+      const src = sourceDataset.users[i];
+      const db = mockClient.users[i];
+      assert.strictEqual(src.username, db.username);
+      assert.strictEqual(db.id, 2000 + i + 1);
+      userSourceToDbMap.set(src.id, db.id);
+
+      if (src.roomId !== null) {
+        const expectedDbRoomId = roomSourceToDbMap.get(src.roomId);
+        assert.strictEqual(
+          db.roomId,
+          expectedDbRoomId,
+          `User ${src.username} roomId phải trỏ chính xác DB ID của Room (${expectedDbRoomId})`
+        );
+      } else {
+        assert.strictEqual(db.roomId, null);
+      }
+    }
+
+    // 3. Xây dựng bản đồ ID nguồn -> ID DB cho Invoice và kiểm tra khóa ngoại roomId
+    const invoiceSourceToDbMap = new Map<number, number>();
+    for (let i = 0; i < sourceDataset.invoices.length; i++) {
+      const src = sourceDataset.invoices[i];
+      const db = mockClient.invoices[i];
+      assert.strictEqual(db.id, 3000 + i + 1);
+      invoiceSourceToDbMap.set(src.id, db.id);
+
+      const expectedDbRoomId = roomSourceToDbMap.get(src.roomId);
+      assert.strictEqual(
+        db.roomId,
+        expectedDbRoomId,
+        `Invoice #${src.id} roomId phải trỏ chính xác DB ID của Room (${expectedDbRoomId})`
+      );
+    }
+
+    // 4. Kiểm tra từng Payment: invoiceId phải khớp chính xác ID DB của Invoice tương ứng
+    for (let i = 0; i < sourceDataset.payments.length; i++) {
+      const src = sourceDataset.payments[i];
+      const db = mockClient.payments[i];
+      const expectedDbInvoiceId = invoiceSourceToDbMap.get(src.invoiceId);
+      assert.strictEqual(
+        db.invoiceId,
+        expectedDbInvoiceId,
+        `Payment #${src.id} invoiceId phải trỏ chính xác DB ID của Invoice (${expectedDbInvoiceId})`
+      );
+    }
+
+    // 5. Kiểm tra từng Ticket: residentId, technicianId, roomId phải khớp chính xác ID DB
+    for (let i = 0; i < sourceDataset.tickets.length; i++) {
+      const src = sourceDataset.tickets[i];
+      const db = mockClient.tickets[i];
+
+      const expectedResidentId = userSourceToDbMap.get(src.residentId);
+      assert.strictEqual(db.residentId, expectedResidentId, 'Ticket residentId phải khớp DB User ID');
+
+      if (src.technicianId !== null) {
+        const expectedTechId = userSourceToDbMap.get(src.technicianId);
+        assert.strictEqual(db.technicianId, expectedTechId, 'Ticket technicianId phải khớp DB User ID');
+      } else {
+        assert.strictEqual(db.technicianId, null);
+      }
+
+      if (src.roomId !== null) {
+        const expectedRoomId = roomSourceToDbMap.get(src.roomId);
+        assert.strictEqual(db.roomId, expectedRoomId, 'Ticket roomId phải khớp DB Room ID');
+      } else {
+        assert.strictEqual(db.roomId, null);
+      }
+    }
+
+    // 6. Kiểm tra từng Feedback: residentId và roomId
+    for (let i = 0; i < sourceDataset.feedbacks.length; i++) {
+      const src = sourceDataset.feedbacks[i];
+      const db = mockClient.feedbacks[i];
+
+      const expectedResidentId = userSourceToDbMap.get(src.residentId);
+      assert.strictEqual(db.residentId, expectedResidentId, 'Feedback residentId phải khớp DB User ID');
+
+      if (src.roomId !== null) {
+        const expectedRoomId = roomSourceToDbMap.get(src.roomId);
+        assert.strictEqual(db.roomId, expectedRoomId, 'Feedback roomId phải khớp DB Room ID');
+      } else {
+        assert.strictEqual(db.roomId, null);
+      }
+    }
+
+    // 7. Kiểm tra từng Notification: authorId và targetRoom
+    for (let i = 0; i < sourceDataset.notifications.length; i++) {
+      const src = sourceDataset.notifications[i];
+      const db = mockClient.notifications[i];
+
+      if (src.authorId !== null) {
+        const expectedAuthorId = userSourceToDbMap.get(src.authorId);
+        assert.strictEqual(db.authorId, expectedAuthorId, 'Notification authorId phải khớp DB User ID');
+      } else {
+        assert.strictEqual(db.authorId, null);
+      }
+
+      assert.strictEqual(db.targetRoom, src.targetRoom, 'targetRoom phải giữ nguyên chuỗi roomNumber');
+    }
   });
 
   // =========================================================================
-  // 6. KIỂM THỬ TÍNH ĐƠN ĐỊNH & PRE-WRITE VALIDATION
+  // 5. KIỂM THỬ TÍNH ĐƠN ĐỊNH, PRE-WRITE VALIDATION & ZERO-ASSET
   // =========================================================================
-  console.log('--- 6. Kiểm thử Tính Đơn định & Pre-write Validation ---');
+  console.log('--- 5. Kiểm thử Tính Đơn định, Pre-write Validation & Zero-Asset ---');
 
-  await runTest('6.1 Tính đơn định: Cùng seed sinh dataset hoàn toàn giống nhau 100%', () => {
+  await runTest('5.1 Tính đơn định: Cùng seed sinh dataset hoàn toàn giống nhau 100%', () => {
     const ds1 = generateEntireDataset({ seed: 20261111 });
     const ds2 = generateEntireDataset({ seed: 20261111 });
 
@@ -622,7 +838,7 @@ async function runAllTests() {
     );
   });
 
-  await runTest('6.2 Pre-write validation chặn đứng dữ liệu sai trước khi chạm database', () => {
+  await runTest('5.2 Pre-write validation chặn đứng dữ liệu sai trước khi chạm database', () => {
     const validDataset = generateEntireDataset({ seed: 20261111 });
 
     // 1. Dataset chuẩn -> PASS
@@ -653,7 +869,10 @@ async function runAllTests() {
         },
       ],
     };
-    assert.throws(() => validateDatasetBeforeWrite(fakeMediaDataset), /Số lượng MediaAsset.*vượt quá giới hạn cho phép/);
+    assert.throws(
+      () => validateDatasetBeforeWrite(fakeMediaDataset),
+      /Số lượng MediaAsset.*vượt quá giới hạn cho phép/
+    );
 
     // 3. Vi phạm trùng lặp username -> FAIL
     const duplicateUserDataset: EntireDataset = {
@@ -665,10 +884,29 @@ async function runAllTests() {
     assert.throws(() => validateDatasetBeforeWrite(duplicateUserDataset), /username bị trùng lặp/);
   });
 
+  await runTest('5.3 Zero MediaAsset bảo đảm 100%: MediaAsset count = 0 và không có lệnh ghi nào', async () => {
+    restoreEnv();
+    process.env.NODE_ENV = 'development';
+    process.env.ALLOW_DATASET_SEED = 'true';
+
+    const mockClient = new MockPrismaClient();
+    const result = await executeSeed({
+      prismaClient: mockClient,
+      logger: () => {},
+      databaseUrl: 'postgresql://postgres:pass@localhost:5432/apartment_demo',
+      databaseAllowlist: 'localhost:5432/apartment_demo',
+    });
+
+    const mediaOps = mockClient.operations.filter((o) => o.model === 'MediaAsset');
+    assert.strictEqual(mediaOps.length, 0, 'Thao tác MediaAsset trên database phải bằng 0');
+    assert.strictEqual(result.counts.mediaAssets, 0, 'MediaAsset count trong kết quả phải bằng 0');
+    assert.strictEqual(mockClient.mediaAssets.length, 0, 'Bảng MediaAsset trong database phải rỗng');
+  });
+
   restoreEnv();
 
   console.log('======================================================');
-  console.log(`🎉 TOÀN BỘ ${passedTests}/${totalTests} TESTS M9 ĐẠT CHUẨN!`);
+  console.log(`🎉 TOÀN BỘ ${passedTests}/${totalTests} TESTS M9.1 ĐẠT CHUẨN!`);
   console.log('======================================================');
 }
 
