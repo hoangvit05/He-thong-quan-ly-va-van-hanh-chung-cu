@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-11-16T12:14:11.762Z",
+  "timestamp": "2026-11-16T12:32:47.563Z",
   "mode": "IN_MEMORY",
   "totalChecks": 8,
   "passedChecks": 8,
@@ -130,7 +130,7 @@
       "violationsCount": 0,
       "errors": [],
       "details": {
-        "invalidPasswords": "[REDACTED_SENSITIVE_FIELD]",
+        "invalidPasswords": 0,
         "invalidEmails": 0,
         "piiViolations": 0,
         "totalErrors": 0

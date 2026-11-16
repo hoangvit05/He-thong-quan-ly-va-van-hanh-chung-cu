@@ -1935,10 +1935,226 @@ async function runAllTests() {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
+  // -------------------------------------------------------------------
+  // NHÓM 10: MILESTONE 10.1.4 — STRICT CALENDAR ISO VALIDATION & SAFE NUMERIC STATS
+  // -------------------------------------------------------------------
+  console.log('\n--- 10. MILESTONE 10.1.4: BẢO VỆ SỐ LIỆU THỐNG KÊ AN TOÀN & THẨM ĐỊNH LỊCH ISO 8601 NGHIÊM NGẶT ---');
+
+  await runTest('10.1 sanitizeValueForReport: invalidPasswords: 0 được giữ nguyên kiểu số và giá trị 0', () => {
+    const input = { invalidPasswords: 0 };
+    const res = sanitizeValueForReport(input);
+    assert.strictEqual(res.invalidPasswords, 0, 'invalidPasswords: 0 phải được giữ nguyên');
+    assert.strictEqual(typeof res.invalidPasswords, 'number', 'invalidPasswords phải giữ nguyên kiểu number');
+  });
+
+  await runTest('10.2 sanitizeValueForReport: invalidPasswords: 5 được giữ nguyên kiểu số và giá trị 5', () => {
+    const input = { invalidPasswords: 5 };
+    const res = sanitizeValueForReport(input);
+    assert.strictEqual(res.invalidPasswords, 5, 'invalidPasswords: 5 phải được giữ nguyên');
+    assert.strictEqual(typeof res.invalidPasswords, 'number', 'invalidPasswords phải giữ nguyên kiểu number');
+  });
+
+  await runTest('10.3 sanitizeValueForReport: invalidPasswords dạng chuỗi chứa secret phải bị che giấu thành [REDACTED_SENSITIVE_FIELD]', () => {
+    const input = { invalidPasswords: 'my_super_secret_password_123' };
+    const res = sanitizeValueForReport(input);
+    assert.strictEqual(res.invalidPasswords, '[REDACTED_SENSITIVE_FIELD]');
+    assert.strictEqual(JSON.stringify(res).includes('my_super_secret_password_123'), false, 'Không được làm lộ chuỗi secret');
+  });
+
+  await runTest('10.4 sanitizeValueForReport: passwordHash và password luôn bị che kín dù là string hay number', () => {
+    const input = {
+      passwordHash: '$2a$10$abcdefghijklmnopqrstuvwxyz1234567890abcdefghijklm',
+      password: 123456,
+    };
+    const res = sanitizeValueForReport(input);
+    assert.strictEqual(res.passwordHash, '[REDACTED_SENSITIVE_FIELD]');
+    assert.strictEqual(res.password, '[REDACTED_SENSITIVE_FIELD]');
+  });
+
+  await runTest('10.5 sanitizeValueForReport: Các trường secret, token, credential, stack luôn được bảo vệ an toàn', () => {
+    const input = {
+      secretKey: 'key_123',
+      apiToken: 'tok_456',
+      credentialInfo: 'cred_789',
+      stackTrace: 'at Object.<anonymous> (test.ts:10:5)',
+    };
+    const res = sanitizeValueForReport(input);
+    assert.strictEqual(res.secretKey, '[REDACTED_SENSITIVE_FIELD]');
+    assert.strictEqual(res.apiToken, '[REDACTED_SENSITIVE_FIELD]');
+    assert.strictEqual(res.credentialInfo, '[REDACTED_SENSITIVE_FIELD]');
+    assert.strictEqual(res.stackTrace, '[REDACTED_SENSITIVE_FIELD]');
+  });
+
+  await runTest('10.6 saveValidationReport: Kiểm tra trực tiếp tệp JSON ghi ra đĩa - invalidPasswords: 0 được bảo toàn nguyên vẹn', () => {
+    const tmpDir = path.resolve(__dirname, '../reports/test-m1014-stats');
+    if (fs.existsSync(tmpDir)) fs.rmSync(tmpDir, { recursive: true, force: true });
+
+    const report: DatasetValidationReport = {
+      timestamp: new Date().toISOString(),
+      mode: 'IN_MEMORY',
+      totalChecks: 1,
+      passedChecks: 1,
+      failedChecks: 0,
+      overallStatus: 'PASS',
+      modelCounts: {
+        rooms: 100,
+        users: { total: 128, admin: 1, bql: 2, technician: 5, resident: 120 },
+        tickets: 175,
+        invoices: 500,
+        payments: 472,
+        feedbacks: 40,
+        notifications: 25,
+        mediaAssets: 0,
+      },
+      results: [
+        {
+          name: 'Privacy & PII Integrity Check',
+          passed: true,
+          message: 'Dữ liệu không rò rỉ PII, email synthetic chuẩn và mật khẩu 100% Bcrypt hash.',
+          violationsCount: 0,
+          errors: [],
+          details: {
+            invalidPasswords: 0,
+            invalidEmails: 0,
+            piiViolations: 0,
+            totalErrors: 0,
+          },
+        },
+      ],
+    };
+
+    const savedPath = saveValidationReport(report, tmpDir);
+    const rawContent = fs.readFileSync(savedPath, 'utf-8');
+    const parsed = JSON.parse(rawContent);
+
+    assert.ok(rawContent.includes('"invalidPasswords": 0'), 'Tệp JSON phải chứa "invalidPasswords": 0 dạng số');
+    assert.strictEqual(parsed.results[0].details.invalidPasswords, 0);
+    assert.strictEqual(typeof parsed.results[0].details.invalidPasswords, 'number');
+    assert.strictEqual(parsed.results[0].details.invalidEmails, 0);
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  await runTest('10.7 isValidIsoTimestamp: Ngày hợp lệ và timezone hợp lệ được chấp nhận (PASS)', () => {
+    assert.strictEqual(isValidIsoTimestamp('2026-11-16T12:00:00.000Z'), true);
+    assert.strictEqual(isValidIsoTimestamp('2026-01-15T08:30:00+07:00'), true);
+    assert.strictEqual(isValidIsoTimestamp('2026-06-30T18:45:00-05:00'), true);
+    assert.strictEqual(isValidIsoTimestamp('2026-01-01T12:00:00+14:00'), true);
+    assert.strictEqual(isValidIsoTimestamp('2026-01-01T12:00:00-12:00'), true);
+  });
+
+  await runTest('10.8 isValidIsoTimestamp: Năm nhuận 29/02 hợp lệ (PASS)', () => {
+    assert.strictEqual(isValidIsoTimestamp('2024-02-29T12:00:00Z'), true, '2024 là năm nhuận');
+    assert.strictEqual(isValidIsoTimestamp('2028-02-29T23:59:59.999Z'), true, '2028 là năm nhuận');
+    assert.strictEqual(isValidIsoTimestamp('2000-02-29T00:00:00Z'), true, '2000 là năm nhuận chia hết cho 400');
+  });
+
+  await runTest('10.9 isValidIsoTimestamp: 29/02 ở năm không nhuận bị từ chối (FAIL)', () => {
+    assert.strictEqual(isValidIsoTimestamp('2026-02-29T12:00:00Z'), false, '2026 không phải năm nhuận');
+    assert.strictEqual(isValidIsoTimestamp('1900-02-29T12:00:00Z'), false, '1900 chia hết 100 nhưng không chia hết 400');
+    assert.strictEqual(isValidIsoTimestamp('2023-02-29T12:00:00Z'), false, '2023 không phải năm nhuận');
+  });
+
+  await runTest('10.10 isValidIsoTimestamp: 30/02 ở cả năm nhuận và không nhuận bị từ chối (FAIL)', () => {
+    assert.strictEqual(isValidIsoTimestamp('2026-02-30T12:00:00Z'), false, 'Tháng 2 không bao giờ có 30 ngày');
+    assert.strictEqual(isValidIsoTimestamp('2024-02-30T12:00:00Z'), false, 'Tháng 2 năm nhuận không bao giờ có 30 ngày');
+  });
+
+  await runTest('10.11 isValidIsoTimestamp: Tháng 13 hoặc tháng 00 bị từ chối (FAIL)', () => {
+    assert.strictEqual(isValidIsoTimestamp('2026-13-01T12:00:00Z'), false, 'Tháng 13 không tồn tại');
+    assert.strictEqual(isValidIsoTimestamp('2026-00-01T12:00:00Z'), false, 'Tháng 00 không tồn tại');
+  });
+
+  await runTest('10.12 isValidIsoTimestamp: Ngày 00 hoặc ngày vượt số ngày trong tháng bị từ chối (FAIL)', () => {
+    assert.strictEqual(isValidIsoTimestamp('2026-01-00T12:00:00Z'), false, 'Ngày 00 không tồn tại');
+    assert.strictEqual(isValidIsoTimestamp('2026-04-31T12:00:00Z'), false, 'Tháng 4 chỉ có 30 ngày');
+    assert.strictEqual(isValidIsoTimestamp('2026-06-31T12:00:00Z'), false, 'Tháng 6 chỉ có 30 ngày');
+    assert.strictEqual(isValidIsoTimestamp('2026-09-31T12:00:00Z'), false, 'Tháng 9 chỉ có 30 ngày');
+    assert.strictEqual(isValidIsoTimestamp('2026-11-31T12:00:00Z'), false, 'Tháng 11 chỉ có 30 ngày');
+  });
+
+  await runTest('10.13 isValidIsoTimestamp: Giờ 24 hoặc phút/giây vượt giới hạn bị từ chối (FAIL)', () => {
+    assert.strictEqual(isValidIsoTimestamp('2026-01-01T24:00:00Z'), false, 'Giờ 24 không hợp lệ');
+    assert.strictEqual(isValidIsoTimestamp('2026-01-01T12:60:00Z'), false, 'Phút 60 không hợp lệ');
+    assert.strictEqual(isValidIsoTimestamp('2026-01-01T12:00:60Z'), false, 'Giây 60 không hợp lệ');
+  });
+
+  await runTest('10.14 isValidIsoTimestamp: Timezone offset không hợp lệ bị từ chối (FAIL)', () => {
+    assert.strictEqual(isValidIsoTimestamp('2026-01-01T12:00:00+25:00'), false, '+25:00 vượt giới hạn timezone');
+    assert.strictEqual(isValidIsoTimestamp('2026-01-01T12:00:00+14:30'), false, '+14:30 vượt giới hạn Kiribati (+14:00)');
+    assert.strictEqual(isValidIsoTimestamp('2026-01-01T12:00:00-13:00'), false, '-13:00 vượt giới hạn âm (-12:00)');
+    assert.strictEqual(isValidIsoTimestamp('2026-01-01T12:00:00+05:60'), false, 'Phút timezone 60 không hợp lệ');
+  });
+
+  await runTest('10.15 isValidIsoTimestamp: Timestamp chứa PII, email, secret hoặc chuỗi tùy ý bị từ chối (FAIL)', () => {
+    assert.strictEqual(isValidIsoTimestamp('2026-01-01T12:00:00Z-admin@superbank.com'), false);
+    assert.strictEqual(isValidIsoTimestamp('not-an-iso-timestamp'), false);
+    assert.strictEqual(isValidIsoTimestamp('2026-11-16T12:00:00Z?token=secret123'), false);
+    assert.strictEqual(isValidIsoTimestamp(1767312000000), false);
+    assert.strictEqual(isValidIsoTimestamp(null), false);
+    assert.strictEqual(isValidIsoTimestamp(undefined), false);
+  });
+
+  await runTest('10.16 Timestamp không hợp lệ theo lịch (2026-02-29) bị thay thế an toàn trong cả JSON file và CLI output', () => {
+    const invalidReport: DatasetValidationReport = {
+      timestamp: '2026-02-29T12:00:00Z', // 2026 không phải năm nhuận
+      mode: 'IN_MEMORY',
+      totalChecks: 1,
+      passedChecks: 1,
+      failedChecks: 0,
+      overallStatus: 'PASS',
+      modelCounts: {
+        rooms: 0,
+        users: { total: 0, admin: 0, bql: 0, technician: 0, resident: 0 },
+        tickets: 0,
+        invoices: 0,
+        payments: 0,
+        feedbacks: 0,
+        notifications: 0,
+        mediaAssets: 0,
+      },
+      results: [
+        {
+          name: 'Check Calendar Fallback',
+          passed: true,
+          message: 'Kiểm tra fallback timestamp',
+          violationsCount: 0,
+          errors: [],
+        },
+      ],
+    };
+
+    // 1. Kiểm tra trong JSON file
+    const tmpDir = path.resolve(__dirname, '../reports/test-m1014-calendar');
+    if (fs.existsSync(tmpDir)) fs.rmSync(tmpDir, { recursive: true, force: true });
+
+    const savedPath = saveValidationReport(invalidReport, tmpDir);
+    const parsed = JSON.parse(fs.readFileSync(savedPath, 'utf-8'));
+
+    assert.notStrictEqual(parsed.timestamp, '2026-02-29T12:00:00Z', 'Timestamp 2026-02-29 không được xuất hiện trong JSON');
+    assert.strictEqual(isValidIsoTimestamp(parsed.timestamp), true, 'Timestamp thay thế phải là ISO 8601 hợp lệ theo lịch');
+
+    // 2. Kiểm tra trong CLI output
+    const originalLog = console.log;
+    const captured: string[] = [];
+    console.log = (...args: any[]) => captured.push(args.join(' '));
+
+    try {
+      printValidationReport(invalidReport);
+      const output = captured.join('\n');
+      assert.strictEqual(output.includes('2026-02-29T12:00:00Z'), false, 'CLI không được in timestamp 2026-02-29');
+      assert.ok(output.includes('Thời điểm kiểm toán:'), 'CLI phải in thời điểm kiểm toán an toàn');
+    } finally {
+      console.log = originalLog;
+    }
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
   restoreEnv();
 
   console.log('\n======================================================');
-  console.log(`🎉 TOÀN BỘ ${passedTests}/${totalTests} TESTS M10.1.3 ĐẠT CHUẨN!`);
+  console.log(`🎉 TOÀN BỘ ${passedTests}/${totalTests} TESTS M10.1.4 ĐẠT CHUẨN!`);
   console.log('======================================================');
 }
 

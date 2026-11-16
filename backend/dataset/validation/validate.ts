@@ -475,12 +475,50 @@ export function validateDatabase(
 }
 
 /**
- * Kiểm tra tính hợp lệ của chuỗi ISO 8601 timestamp (Milestone 10.1.3 Blocker B)
+ * Kiểm tra tính hợp lệ của chuỗi ISO 8601 timestamp theo lịch nghiêm ngặt (Milestone 10.1.4 Blocker B)
+ * - Kiểm tra định dạng ISO 8601: YYYY-MM-DDTHH:mm:ss(.sss)?(Z|[+-]HH:mm)
+ * - Kiểm tra tính hợp lệ của năm, tháng (1..12), ngày theo từng tháng thực tế (kể cả năm nhuận 29/02)
+ * - Kiểm tra giới hạn giờ (00..23), phút (00..59), giây (00..59)
+ * - Kiểm tra giới hạn timezone offset (+00..+14:00, -00..-12:00, phút 00..59)
+ * - Loại bỏ hoàn toàn timestamp chứa PII, secrets hoặc nội dung tùy ý
  */
 export function isValidIsoTimestamp(ts: any): boolean {
   if (typeof ts !== 'string') return false;
-  const isoRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})$/;
-  if (!isoRegex.test(ts)) return false;
+  const match = ts.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(Z|([+-])(\d{2}):?(\d{2}))$/);
+  if (!match) return false;
+
+  const year = parseInt(match[1], 10);
+  const month = parseInt(match[2], 10);
+  const day = parseInt(match[3], 10);
+  const hour = parseInt(match[4], 10);
+  const minute = parseInt(match[5], 10);
+  const second = parseInt(match[6], 10);
+
+  if (year < 1 || year > 9999) return false;
+  if (month < 1 || month > 12) return false;
+
+  const isLeapYear = (year % 4 === 0 && year % 100 !== 0) || (year % 400 === 0);
+  const daysInMonth = [0, 31, isLeapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month];
+  if (day < 1 || day > daysInMonth) return false;
+
+  if (hour < 0 || hour > 23) return false;
+  if (minute < 0 || minute > 59) return false;
+  if (second < 0 || second > 59) return false;
+
+  if (match[8] !== 'Z') {
+    const tzSign = match[9];
+    const tzHour = parseInt(match[10], 10);
+    const tzMin = parseInt(match[11], 10);
+    if (tzMin < 0 || tzMin > 59) return false;
+    if (tzSign === '+') {
+      if (tzHour < 0 || tzHour > 14) return false;
+      if (tzHour === 14 && tzMin > 0) return false;
+    } else {
+      if (tzHour < 0 || tzHour > 12) return false;
+      if (tzHour === 12 && tzMin > 0) return false;
+    }
+  }
+
   const parsed = Date.parse(ts);
   return !Number.isNaN(parsed);
 }
@@ -591,14 +629,21 @@ export function sanitizeTextForReport(text: string): string {
 }
 
 /**
- * Đệ quy làm sạch các giá trị trong object / array phục vụ báo cáo an toàn
+ * Đệ quy làm sạch các giá trị trong object / array phục vụ báo cáo an toàn (Milestone 10.1.4 Blocker A):
+ * - Phân biệt số liệu thống kê an toàn (invalidPasswords) với thông tin bí mật thực sự.
+ * - Bảo toàn invalidPasswords khi giá trị là number hữu hạn hợp lệ (kiểu number được giữ nguyên).
+ * - Nếu invalidPasswords là string, object hoặc non-number, che giấu an toàn thành [REDACTED_SENSITIVE_FIELD].
+ * - Các trường password, passwordHash, secret, token, credential, stack luôn được bảo vệ/che giấu.
  */
 export function sanitizeValueForReport(val: any): any {
   if (val === null || val === undefined) return val;
   if (typeof val === 'string') {
     return sanitizeTextForReport(val);
   }
-  if (typeof val === 'number' || typeof val === 'boolean') {
+  if (typeof val === 'number') {
+    return Number.isFinite(val) ? val : '[REDACTED_SENSITIVE_FIELD]';
+  }
+  if (typeof val === 'boolean') {
     return val;
   }
   if (Array.isArray(val)) {
@@ -608,7 +653,13 @@ export function sanitizeValueForReport(val: any): any {
     const res: Record<string, any> = {};
     for (const [k, v] of Object.entries(val)) {
       const lowerKey = k.toLowerCase();
-      if (
+      if (lowerKey === 'invalidpasswords') {
+        if (typeof v === 'number' && Number.isFinite(v)) {
+          res[k] = v;
+        } else {
+          res[k] = '[REDACTED_SENSITIVE_FIELD]';
+        }
+      } else if (
         lowerKey.includes('password') ||
         lowerKey.includes('secret') ||
         lowerKey.includes('token') ||
