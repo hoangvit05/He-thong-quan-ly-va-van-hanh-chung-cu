@@ -272,8 +272,11 @@ Hệ thống kiểm định áp dụng nguyên tắc **Fail-Closed**, đối chi
    - **Username Masking**: Hàm `maskUsername` che giấu username trong error log (`ad***n`, `re***1`), loại bỏ hoàn toàn việc in username nguyên văn.
    - **Tài khoản Ngân hàng (STK)**: Quét chuỗi 8–19 chữ số đi kèm từ khóa ngữ cảnh ngân hàng. Che giấu `1903****9123`.
    - **Mật khẩu Băm**: Xác minh 100% mật khẩu User được băm Bcrypt chuẩn (`$2a$`, `$2b$`, `$2y$`).
-   - **Bảo Vệ Đường Đi Báo Cáo & Serializer Allowlist (Milestone 10.1.2 Report Sanitization)**:
+   - **Bảo Vệ Đường Đi Báo Cáo, CLI Output & Serializer Allowlist (Milestone 10.1.3 Hardening)**:
      - **Allowlist Serializer**: `saveValidationReport()` tuyệt đối không sử dụng spread operator (`{ ...report }`, `{ ...r }`). Chỉ tuần tự hóa các trường thuộc danh mục an toàn được phê duyệt (`timestamp`, `mode`, `targetDatabase`, `totalChecks`, `passedChecks`, `failedChecks`, `overallStatus`, `modelCounts`, `results`). Mọi trường lạ, raw exception, stack trace hoặc nested objects nhạy cảm ngoài allowlist đều bị triệt tiêu hoàn toàn.
+     - **Thẩm định & Chuẩn hóa Timestamp (`isValidIsoTimestamp`)**: Chỉ chấp nhận chuỗi ISO 8601 timestamp hợp lệ. Nếu timestamp chứa nội dung tùy ý hoặc dấu hiệu PII/secrets, hệ thống tự động thay thế bằng ISO timestamp hệ thống an toàn trong cả JSON report và CLI output.
+     - **Làm sạch Database Target (`sanitizeDatabaseTarget`)**: Che giấu cả username và password (`postgres://***:***@...`), loại bỏ hoàn toàn query parameters chứa token, secrets hoặc credentials, đồng thời quét sạch PII nếu vô tình nằm trong hostname hoặc database name.
+     - **Bảo vệ Toàn diện CLI Output (`printValidationReport`)**: Toàn bộ chuỗi động in ra console (`timestamp`, `targetDatabase`, `name`, `message`, `errors`) đều được làm sạch qua sanitizer. Tuyệt đối không phát tán email, SĐT, STK, username, mật khẩu, Bcrypt hash, Bearer token, database credentials hay stack trace. Trạng thái kiểm định PASS/FAIL và thống kê số lượng 8 models an toàn luôn được bảo toàn nguyên vẹn.
      - **Khử sạch PII đa tầng**: Mọi chuỗi văn bản trong `message`, `errors`, `details` và `targetDatabase` đều được khử sạch:
        - Email (che giấu cả username và domain nhạy cảm).
        - Số điện thoại Việt Nam (kể cả định dạng có dấu cách, dấu chấm, dấu gạch ngang, đầu số `+84` hay `0`).
@@ -305,7 +308,14 @@ Hệ thống kiểm định áp dụng nguyên tắc **Fail-Closed**, đối chi
 
 - **So Sánh Canonical Business Snapshot trên Cả 8 Models**:
   Hàm `compareDatasetSnapshots()` và `verifyDatasetDeterminism()` thực hiện so sánh toàn diện 100% tất cả bản ghi và mọi trường nghiệp vụ của toàn bộ 8 Prisma models (Room: 100, User: 128, Ticket: 175, Invoice: 500, Payment: 472, Feedback: 40, Notification: 25, MediaAsset: 0 — Tổng cộng **1,440 bản ghi**):
-  - **Thẩm Tra Ràng Buộc Schema & So Sánh Giá Trị Chuẩn Hóa (Milestone 10.1.2 Schema Hardening)**:
+  - **Thẩm Tra Ràng Buộc Schema & So Sánh Giá Trị Chuẩn Hóa (Milestone 10.1.2/10.1.3 Schema Hardening)**:
+    - **Thẩm tra Nghiêm ngặt Sự Hiện Diện Của 8 Model Keys (Milestone 10.1.3 Blocker C)**:
+      Bắt buộc cả hai snapshots phải chứa đầy đủ 8 canonical models: `rooms`, `users`, `tickets`, `invoices`, `payments`, `feedbacks`, `notifications`, `mediaAssets`.
+      - Thiếu model ở snapshot 1: Ghi nhận vi phạm và kết luận FAIL.
+      - Thiếu model ở snapshot 2: Ghi nhận vi phạm và kết luận FAIL.
+      - Thiếu model ở cả hai snapshots: Ghi nhận vi phạm và kết luận FAIL (tuyệt đối không tự ý gán mặc định thành mảng rỗng `[]`).
+      - Model có giá trị null, undefined hoặc kiểu dữ liệu không phải array: Ghi nhận vi phạm và kết luận FAIL.
+      - Model có mảng rỗng `[]` (ví dụ `mediaAssets` theo chính sách Zero-Asset): Hợp lệ và PASS sau khi đã xác thực đúng kiểu mảng.
     - **Tập trường mong đợi theo Prisma Schema (`PRISMA_SCHEMA_EXPECTED_FIELDS`)**:
       Đối chiếu 100% tất cả các trường vô hướng (scalar fields) của toàn bộ 8 models theo `schema.prisma`:
       - `Room` (7 trường): `id`, `roomNumber`, `floor`, `area`, `status`, `createdAt`, `updatedAt`.
@@ -334,6 +344,6 @@ Hệ thống kiểm định áp dụng nguyên tắc **Fail-Closed**, đối chi
 > [!NOTE]
 > **Hiện trạng Kiểm chứng & Giới hạn Thực thi Cơ sở Dữ liệu**:  
 > 1. **In-Memory Validation**: Đã được kiểm thử 100% và đạt kết quả PASS toàn diện trên cả 8 nhóm tiêu chuẩn nghiệp vụ.
-> 2. **Stateful Mock Transactions**: Đã được kiểm chứng 100% (56/56 tests PASS trong validation suite, 247/247 tests toàn bộ dự án PASS).
+> 2. **Stateful Mock Transactions**: Đã được kiểm chứng 100% (72/72 tests PASS trong validation suite, 263/263 tests toàn bộ dự án PASS).
 > 3. **PostgreSQL Sandbox Integration**: **Chưa được thực hiện trên cơ sở dữ liệu PostgreSQL thật**. Hệ thống tuân thủ nghiêm ngặt nguyên tắc an toàn: chỉ thực thi seed và database validation khi người dùng cung cấp và xác nhận một môi trường database sandbox chuyên dụng (tuyệt đối không chạy trên môi trường production).
 

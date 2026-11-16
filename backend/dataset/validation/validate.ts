@@ -475,9 +475,67 @@ export function validateDatabase(
 }
 
 /**
- * Làm sạch chuỗi văn bản phục vụ báo cáo kiểm toán (Milestone 10.1.2):
+ * Kiểm tra tính hợp lệ của chuỗi ISO 8601 timestamp (Milestone 10.1.3 Blocker B)
+ */
+export function isValidIsoTimestamp(ts: any): boolean {
+  if (typeof ts !== 'string') return false;
+  const isoRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})$/;
+  if (!isoRegex.test(ts)) return false;
+  const parsed = Date.parse(ts);
+  return !Number.isNaN(parsed);
+}
+
+/**
+ * Làm sạch Database Target / URL (Milestone 10.1.3 Blocker B):
+ * - Che giấu cả username và password (thành ***:***@).
+ * - Loại bỏ hoàn toàn query parameters chứa token, credentials hoặc secret.
+ * - Làm sạch PII (email, SĐT, STK) nếu vô tình nằm trong hostname hoặc database name.
+ */
+export function sanitizeDatabaseTarget(rawTarget?: string): string | undefined {
+  if (!rawTarget || typeof rawTarget !== 'string') return undefined;
+  const trimmed = rawTarget.trim();
+  if (!trimmed) return undefined;
+
+  let cleaned = trimmed;
+
+  // 1. Nếu là URL PostgreSQL (postgres:// hoặc postgresql://)
+  if (cleaned.startsWith('postgres://') || cleaned.startsWith('postgresql://')) {
+    try {
+      const parsed = new URL(cleaned);
+      // Che giấu cả username và password
+      const userPart = parsed.username ? '***' : '';
+      const passPart = parsed.password ? ':***' : '';
+      const authPart = userPart || passPart ? `${userPart}${passPart}@` : '';
+
+      // Khử query parameters (loại bỏ credentials, tokens, api keys trong query string)
+      parsed.search = '';
+      parsed.hash = '';
+
+      // Làm sạch hostname và pathname
+      const cleanHost = sanitizeTextForReport(parsed.hostname);
+      const portPart = parsed.port ? `:${parsed.port}` : '';
+      const cleanPath = sanitizeTextForReport(parsed.pathname);
+
+      cleaned = `${parsed.protocol}//${authPart}${cleanHost}${portPart}${cleanPath}`;
+    } catch {
+      // Fallback regex nếu URL parse thất bại
+      cleaned = cleaned.replace(/(postgres(?:ql)?:\/\/)[^@\s]+@/gi, '$1***:***@');
+      cleaned = cleaned.split('?')[0]; // Cắt bỏ query params
+    }
+  } else {
+    // 2. Định dạng host:port/dbname hoặc custom target string
+    cleaned = cleaned.replace(/(?:^|\/\/)[^:@\s]+(?::[^@\s]+)?@/g, '***:***@');
+    cleaned = cleaned.split('?')[0]; // Cắt bỏ query params
+  }
+
+  // 3. Quét sạch PII (email, SĐT, STK, Bcrypt, token, secret) trên toàn bộ chuỗi
+  return sanitizeTextForReport(cleaned);
+}
+
+/**
+ * Làm sạch chuỗi văn bản phục vụ báo cáo kiểm toán (Milestone 10.1.2/10.1.3):
  * Loại bỏ / che giấu PII, email, số điện thoại, STK, CCCD, Bcrypt hash,
- * credentials, database passwords, tokens, secrets, stack traces và source paths.
+ * credentials, database username/passwords, tokens, secrets, stack traces và source paths.
  */
 export function sanitizeTextForReport(text: string): string {
   if (typeof text !== 'string') return '';
@@ -486,9 +544,9 @@ export function sanitizeTextForReport(text: string): string {
   // 1. Khử chuỗi Bcrypt hash ($2a$10$..., $2b$10$...)
   sanitized = sanitized.replace(/\$2[abxy]\$\d{2}\$[./A-Za-z0-9]{53}/g, '[REDACTED_BCRYPT_HASH]');
 
-  // 2. Khử Database credentials / URL password
-  sanitized = sanitized.replace(/(postgres(?:ql)?:\/\/[^:]+:)([^@]+)(@)/gi, '$1***$3');
-  sanitized = sanitized.replace(/:[^:@]+@/, ':***@');
+  // 2. Khử Database credentials (che cả username và password trong postgres://user:pass@)
+  sanitized = sanitized.replace(/(postgres(?:ql)?:\/\/)[^@\s]+@/gi, '$1***:***@');
+  sanitized = sanitized.replace(/:[^:@\s]+@/g, ':***@');
 
   // 3. Khử secrets, tokens, credentials, passwords
   sanitized = sanitized.replace(/\b(bearer\s+)[a-zA-Z0-9._~+/-]+=*/gi, '$1[REDACTED_TOKEN]');
@@ -508,12 +566,12 @@ export function sanitizeTextForReport(text: string): string {
 
   // 6. Khử Số tài khoản ngân hàng (STK) kèm ngữ cảnh
   sanitized = sanitized.replace(
-    /(?:stk|số tài khoản|so tai khoan|tài khoản ngân hàng|tai khoan ngan hang|tk ngân hàng|tk ngan hang)[\s:=#-]*([0-9]{8,19})\b/gi,
+    /(?:stk|số tài khoản|so tai khoan|tài khoản ngân hàng|tai khoan ngan hang|tk ngân hàng|tk ngan hang)[\s:=#_-]*([0-9]{8,19})/gi,
     (match, digits) => match.replace(digits, maskBankAccount(digits))
   );
   sanitized = sanitized.replace(
-    /\b([0-9]{8,19})\b(?=[\s\S]{0,35}(?:stk|số tài khoản|so tai khoan|tài khoản ngân hàng|tai khoan ngan hang))/gi,
-    (match) => maskBankAccount(match)
+    /(?:^|[^\d])([0-9]{8,19})(?=[^\d]|$)(?=[\s\S]{0,35}(?:stk|số tài khoản|so tai khoan|tài khoản ngân hàng|tai khoan ngan hang))/gi,
+    (match, digits) => match.replace(digits, maskBankAccount(digits))
   );
 
   // 7. Khử CCCD 12 số (bắt đầu bằng 0)
@@ -521,7 +579,7 @@ export function sanitizeTextForReport(text: string): string {
 
   // 8. Khử username hoặc định danh người dùng nếu có ngữ cảnh
   sanitized = sanitized.replace(
-    /\b(?:username|user|người dùng)\s*[:=]\s*['"]?([a-zA-Z0-9_.-]+)['"]?/gi,
+    /(?:username|user|người dùng)\s*[:=]?\s*['"]?([a-zA-Z0-9_.-]+)['"]?/gi,
     (match, uname) => match.replace(uname, maskUsername(uname))
   );
 
@@ -568,7 +626,7 @@ export function sanitizeValueForReport(val: any): any {
 }
 
 /**
- * Lưu báo cáo kiểm định thành tệp JSON phục vụ nghiệm thu (Section 9 & Milestone 10.1.2)
+ * Lưu báo cáo kiểm định thành tệp JSON phục vụ nghiệm thu (Section 9 & Milestone 10.1.2/10.1.3)
  * Sử dụng Allowlist Serializer không dùng spread operator, loại bỏ hoàn toàn rò rỉ PII,
  * credentials, secrets, stack traces và nested objects nhạy cảm.
  */
@@ -580,7 +638,17 @@ export function saveValidationReport(
     fs.mkdirSync(outputDir, { recursive: true });
   }
 
-  // Allowlist serializer cho từng kết quả kiểm tra
+  // 1. Thẩm định và chuẩn hóa timestamp (Milestone 10.1.3 Blocker B)
+  const safeTimestamp = isValidIsoTimestamp(report?.timestamp)
+    ? report.timestamp
+    : new Date().toISOString();
+
+  // 2. Thẩm định và làm sạch targetDatabase (Milestone 10.1.3 Blocker B)
+  const safeTargetDatabase = report?.targetDatabase
+    ? sanitizeDatabaseTarget(report.targetDatabase)
+    : undefined;
+
+  // 3. Allowlist serializer cho từng kết quả kiểm tra
   const sanitizedResults = (Array.isArray(report?.results) ? report.results : []).map((r) => {
     const cleanName = sanitizeTextForReport(String(r?.name ?? ''));
     const cleanMessage = sanitizeTextForReport(String(r?.message ?? ''));
@@ -603,11 +671,11 @@ export function saveValidationReport(
     return resultItem;
   });
 
-  // Allowlist serializer cho báo cáo tổng thể
+  // 4. Allowlist serializer cho báo cáo tổng thể
   const sanitizedReport = {
-    timestamp: typeof report?.timestamp === 'string' ? report.timestamp : new Date().toISOString(),
+    timestamp: safeTimestamp,
     mode: report?.mode === 'DATABASE' ? 'DATABASE' : 'IN_MEMORY',
-    targetDatabase: report?.targetDatabase ? sanitizeTextForReport(report.targetDatabase) : undefined,
+    targetDatabase: safeTargetDatabase,
     totalChecks: Number(report?.totalChecks ?? sanitizedResults.length),
     passedChecks: Number(report?.passedChecks ?? sanitizedResults.filter((r) => r.passed).length),
     failedChecks: Number(report?.failedChecks ?? sanitizedResults.filter((r) => !r.passed).length),
@@ -901,8 +969,54 @@ export function compareDatasetSnapshots(
   }
 
   for (const model of CANONICAL_SNAPSHOT_MODELS) {
-    const list1 = (ds1[model] as any[]) || [];
-    const list2 = (ds2[model] as any[]) || [];
+    const hasInDs1 = Boolean(ds1 && typeof ds1 === 'object' && model in ds1);
+    const hasInDs2 = Boolean(ds2 && typeof ds2 === 'object' && model in ds2);
+
+    if (!hasInDs1 && !hasInDs2) {
+      diffs.push(`Model '${model}' bị thiếu ở cả hai snapshots.`);
+      continue;
+    }
+    if (!hasInDs1) {
+      diffs.push(`Model '${model}' bị thiếu ở snapshot 1.`);
+      continue;
+    }
+    if (!hasInDs2) {
+      diffs.push(`Model '${model}' bị thiếu ở snapshot 2.`);
+      continue;
+    }
+
+    const val1 = (ds1 as any)[model];
+    const val2 = (ds2 as any)[model];
+    const isArr1 = Array.isArray(val1);
+    const isArr2 = Array.isArray(val2);
+
+    if (!isArr1 && !isArr2) {
+      diffs.push(
+        `Model '${model}' trong cả snapshot 1 và 2 không phải là mảng hợp lệ (snapshot 1: ${
+          val1 === null ? 'null' : typeof val1
+        }, snapshot 2: ${val2 === null ? 'null' : typeof val2}).`
+      );
+      continue;
+    }
+    if (!isArr1) {
+      diffs.push(
+        `Model '${model}' trong snapshot 1 không phải là mảng hợp lệ (kiểu dữ liệu: ${
+          val1 === null ? 'null' : typeof val1
+        }).`
+      );
+      continue;
+    }
+    if (!isArr2) {
+      diffs.push(
+        `Model '${model}' trong snapshot 2 không phải là mảng hợp lệ (kiểu dữ liệu: ${
+          val2 === null ? 'null' : typeof val2
+        }).`
+      );
+      continue;
+    }
+
+    const list1 = val1 as any[];
+    const list2 = val2 as any[];
 
     if (list1.length !== list2.length) {
       diffs.push(`Model '${model}' số lượng bản ghi không khớp: ds1=${list1.length}, ds2=${list2.length}`);
@@ -999,54 +1113,78 @@ export function verifyDatasetDeterminism(options?: number | {
 }
 
 /**
- * Định dạng và in báo cáo kiểm định ra màn hình console (Sanitized Output)
+ * Định dạng và in báo cáo kiểm định ra màn hình console (Sanitized Output - Milestone 10.1.3 Blocker A)
  */
 export function printValidationReport(report: DatasetValidationReport): void {
   console.log('================================================================');
   console.log('📋  BÁO CÁO KIỂM TOÁN TÍNH TOÀN VẸN VÀ BẢO MẬT DATASET (M10.1)');
   console.log('================================================================');
-  console.log(`Thời điểm kiểm toán:  ${report.timestamp}`);
-  console.log(`Chế độ thực thi:      ${report.mode}`);
-  if (report.targetDatabase) {
-    console.log(`Database mục tiêu:    ${report.targetDatabase}`);
+
+  const safeTimestamp = isValidIsoTimestamp(report?.timestamp)
+    ? sanitizeTextForReport(report.timestamp)
+    : new Date().toISOString();
+  console.log(`Thời điểm kiểm toán:  ${safeTimestamp}`);
+  console.log(`Chế độ thực thi:      ${report?.mode === 'DATABASE' ? 'DATABASE' : 'IN_MEMORY'}`);
+
+  if (report?.targetDatabase) {
+    const safeTargetDb = sanitizeDatabaseTarget(report.targetDatabase);
+    if (safeTargetDb) {
+      console.log(`Database mục tiêu:    ${safeTargetDb}`);
+    }
   }
-  console.log(`Tổng số tiêu chuẩn:   ${report.totalChecks}`);
-  console.log(`Số tiêu chuẩn ĐẠT:    ${report.passedChecks}`);
-  console.log(`Số tiêu chuẩn LỖI:    ${report.failedChecks}`);
-  console.log(`KẾT QUẢ CHUNG:        ${report.overallStatus === 'PASS' ? '✅ PASS' : '❌ FAIL'}`);
+
+  const totalChecks = Number(report?.totalChecks ?? 0);
+  const passedChecks = Number(report?.passedChecks ?? 0);
+  const failedChecks = Number(report?.failedChecks ?? 0);
+  const overallStatus = report?.overallStatus === 'PASS' ? '✅ PASS' : '❌ FAIL';
+
+  console.log(`Tổng số tiêu chuẩn:   ${totalChecks}`);
+  console.log(`Số tiêu chuẩn ĐẠT:    ${passedChecks}`);
+  console.log(`Số tiêu chuẩn LỖI:    ${failedChecks}`);
+  console.log(`KẾT QUẢ CHUNG:        ${overallStatus}`);
   console.log('----------------------------------------------------------------');
   console.log('📊 THỐNG KÊ SỐ LƯỢNG BẢN GHI (8 PRISMA MODELS):');
-  console.log(`  - Room:             ${report.modelCounts.rooms}`);
+  console.log(`  - Room:             ${Number(report?.modelCounts?.rooms ?? 0)}`);
   console.log(
-    `  - User:             ${report.modelCounts.users.total} (Admin: ${report.modelCounts.users.admin}, BQL: ${report.modelCounts.users.bql}, Thợ: ${report.modelCounts.users.technician}, Cư dân: ${report.modelCounts.users.resident})`
+    `  - User:             ${Number(report?.modelCounts?.users?.total ?? 0)} (Admin: ${Number(
+      report?.modelCounts?.users?.admin ?? 0
+    )}, BQL: ${Number(report?.modelCounts?.users?.bql ?? 0)}, Thợ: ${Number(
+      report?.modelCounts?.users?.technician ?? 0
+    )}, Cư dân: ${Number(report?.modelCounts?.users?.resident ?? 0)})`
   );
-  console.log(`  - Ticket:           ${report.modelCounts.tickets}`);
-  console.log(`  - Invoice:          ${report.modelCounts.invoices}`);
-  console.log(`  - Payment:          ${report.modelCounts.payments}`);
-  console.log(`  - Feedback:         ${report.modelCounts.feedbacks}`);
-  console.log(`  - Notification:     ${report.modelCounts.notifications}`);
-  console.log(`  - MediaAsset:       ${report.modelCounts.mediaAssets} (Zero-Asset Policy)`);
+  console.log(`  - Ticket:           ${Number(report?.modelCounts?.tickets ?? 0)}`);
+  console.log(`  - Invoice:          ${Number(report?.modelCounts?.invoices ?? 0)}`);
+  console.log(`  - Payment:          ${Number(report?.modelCounts?.payments ?? 0)}`);
+  console.log(`  - Feedback:         ${Number(report?.modelCounts?.feedbacks ?? 0)}`);
+  console.log(`  - Notification:     ${Number(report?.modelCounts?.notifications ?? 0)}`);
+  console.log(`  - MediaAsset:       ${Number(report?.modelCounts?.mediaAssets ?? 0)} (Zero-Asset Policy)`);
   console.log('----------------------------------------------------------------');
   console.log('📝 CHI TIẾT KẾT QUẢ TỪNG TIÊU CHUẨN:');
 
-  for (let i = 0; i < report.results.length; i++) {
-    const res = report.results[i];
-    const icon = res.passed ? '✅ [PASS]' : '❌ [FAIL]';
-    console.log(`\n${i + 1}. ${icon} ${res.name}`);
-    console.log(`   Thông điệp: ${res.message}`);
-    if (!res.passed && res.errors && res.errors.length > 0) {
-      console.log(`   Chi tiết vi phạm (${res.errors.length} lỗi):`);
-      for (const err of res.errors.slice(0, 5)) {
-        console.log(`     - ${err}`);
+  const results = Array.isArray(report?.results) ? report.results : [];
+  for (let i = 0; i < results.length; i++) {
+    const res = results[i];
+    const icon = res?.passed ? '✅ [PASS]' : '❌ [FAIL]';
+    const safeName = sanitizeTextForReport(String(res?.name ?? ''));
+    const safeMsg = sanitizeTextForReport(String(res?.message ?? ''));
+    console.log(`\n${i + 1}. ${icon} ${safeName}`);
+    console.log(`   Thông điệp: ${safeMsg}`);
+
+    const errors = Array.isArray(res?.errors) ? res.errors : [];
+    if (!res?.passed && errors.length > 0) {
+      console.log(`   Chi tiết vi phạm (${errors.length} lỗi):`);
+      for (const err of errors.slice(0, 5)) {
+        const safeErr = sanitizeTextForReport(typeof err === 'string' ? err : String(err ?? ''));
+        console.log(`     - ${safeErr}`);
       }
-      if (res.errors.length > 5) {
-        console.log(`     ... và ${res.errors.length - 5} lỗi khác.`);
+      if (errors.length > 5) {
+        console.log(`     ... và ${errors.length - 5} lỗi khác.`);
       }
     }
   }
 
   console.log('\n================================================================');
-  if (report.overallStatus === 'PASS') {
+  if (report?.overallStatus === 'PASS') {
     console.log('🎉 TẤT CẢ 8 TIÊU CHUẨN ĐÃ ĐƯỢC XÁC THỰC TOÀN VẸN VÀ AN TOÀN!');
   } else {
     console.log('⚠️  CẢNH BÁO: PHÁT HIỆN LỖI TOÀN VẸN HOẶC BẢO MẬT TRONG DATASET!');
