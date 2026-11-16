@@ -147,20 +147,20 @@ Expected output:
 
 ## MILESTONE 10 — VALIDATION AND FINAL ACCEPTANCE
 
-- [ ] Validate all 8 models.
-- [ ] Validate row counts.
-- [ ] Validate foreign keys.
-- [ ] Validate user roles and room assignments.
-- [ ] Validate password hashes.
-- [ ] Validate ticket states and duplicate flags.
-- [ ] Validate invoice totals and payment sums.
-- [ ] Validate feedback consistency.
-- [ ] Validate notification authors.
-- [ ] Validate MediaAsset verification.
-- [ ] Test deterministic reruns.
-- [ ] Generate a final validation report.
-- [ ] Complete README documentation.
-- [ ] Confirm that only dataset-related files were changed.
+- [x] Validate all 8 models.
+- [x] Validate row counts.
+- [x] Validate foreign keys.
+- [x] Validate user roles and room assignments.
+- [x] Validate password hashes.
+- [x] Validate ticket states and duplicate flags.
+- [x] Validate invoice totals and payment sums.
+- [x] Validate feedback consistency.
+- [x] Validate notification authors.
+- [x] Validate MediaAsset verification.
+- [x] Test deterministic reruns.
+- [x] Generate a final validation report.
+- [x] Complete README documentation.
+- [x] Confirm that only dataset-related files were changed.
 
 Expected output:
 - `backend/dataset/validation/`

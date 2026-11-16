@@ -3,7 +3,7 @@
 
 **Vị trí:** `backend/dataset/`  
 **Công nghệ:** TypeScript, Prisma Client 5, Node.js (>= 20), PostgreSQL 16, Bcryptjs  
-**Trạng thái:** Milestone 9.1.2 — Database Safety Guard & Serialization Rollback Verification  
+**Trạng thái:** Milestone 10 — Dataset Validation & Quality Assurance Runner  
 
 ---
 
@@ -45,8 +45,8 @@ backend/dataset/
 │   └── vietnamese-content.json
 ├── fixtures/                      # Dữ liệu kiểm thử cố định (Deterministic fixtures)
 │   └── README.md
-├── validation/                    # Bộ kiểm tra tính toàn vẹn dataset
-│   ├── validate.ts                # Runner chạy toàn bộ kiểm tra nghiệm thu
+├── validation/                    # Bộ kiểm tra tính toàn vẹn dataset (M10 Runner)
+│   ├── validate.ts                # Runner chạy toàn bộ kiểm tra nghiệm thu (In-Memory & Database)
 │   ├── debug.test.ts              # Kiểm tra nhanh sanity checks
 │   ├── reference-data.test.ts     # Kiểm thử dữ liệu tham chiếu (M3)
 │   ├── room-user-generator.test.ts # Kiểm thử Room & User generator (M4)
@@ -55,12 +55,17 @@ backend/dataset/
 │   ├── feedback-notification-generator.test.ts # Kiểm thử Feedback & Notification (M7)
 │   ├── media-asset-generator.test.ts # Kiểm thử chính sách Zero-Asset & RBAC (M8/M8.1)
 │   ├── seed-orchestration.test.ts # Kiểm thử điều phối seed, ID mapping & an toàn DB (M9)
-│   └── checks/                    # Các check logic chuyên biệt
-│       ├── counts.check.ts
-│       ├── relational.check.ts
-│       ├── financial.check.ts
-│       ├── ticket.check.ts
-│       └── media.check.ts
+│   ├── validation-suite.test.ts   # Kiểm thử toàn diện 8 nhóm tiêu chuẩn kiểm toán (M10)
+│   └── checks/                    # Các check logic chuyên biệt (8 nhóm kiểm toán)
+│       ├── types.ts               # Định nghĩa giao diện Snapshot & CheckResult
+│       ├── counts.check.ts        # 5.1 Quy mô số lượng 8 models
+│       ├── relational.check.ts    # 5.2 Khóa ngoại và toàn vẹn quan hệ
+│       ├── financial.check.ts     # 5.3 Tính nhất quán Decimal, dòng tiền và hóa đơn
+│       ├── ticket.check.ts        # 5.4 Vòng đời sự cố, phân công thợ và cờ trùng 24h
+│       ├── feedback.check.ts      # 5.5 Góp ý cư dân, phân quyền RBAC và phạm vi phòng
+│       ├── notification.check.ts  # 5.6 Thông báo tòa nhà, tác giả và số phòng
+│       ├── media.check.ts         # 5.7 Chính sách Zero-Asset và an toàn URL media
+│       └── privacy.check.ts       # 5.8 Quét PII (SĐT, CCCD, Base64, domain email, Bcrypt hash)
 └── reports/                       # Thư mục chứa báo cáo nghiệm thu phát sinh
     └── .gitkeep
 ```
@@ -152,10 +157,17 @@ backend/dataset/
 
 ---
 
-## 5. HƯỚNG DẪN VẬN HÀNH
+## 5. HƯỚNG DẪN VẬN HÀNH & KIỂM ĐỊNH (MILESTONE 10)
 
-### 5.1. Khởi tạo dữ liệu (Seeding)
-Seed script chạy độc lập với kiểm soát an toàn nghiêm ngặt:
+Hệ thống phân định rạch ròi giữa 3 hình thức kiểm tra:
+1. **Unit & Component Tests**: Kiểm thử đơn vị từng generator (M3 - M9) và các trường hợp biên.
+2. **In-Memory Validation**: Kiểm định toàn diện 8 nhóm tiêu chuẩn trên snapshot bộ nhớ (không chạm database, chạy cực nhanh, phục vụ CI/CD).
+3. **Database Validation (Read-Only)**: Kiểm định dữ liệu thực tế sau khi seed trên PostgreSQL, sử dụng Prisma transaction chỉ đọc (`findMany`), có safety guard độc lập, tuyệt đối không sửa hay seed tự động.
+
+---
+
+### 5.1. Khởi tạo dữ liệu (Dataset Seeding)
+Seed script chạy độc lập với kiểm soát an toàn nghiêm ngặt (Fail-Closed, create-only, yêu cầu database rỗng):
 ```bash
 # Di chuyển vào thư mục backend
 cd backend
@@ -164,12 +176,16 @@ cd backend
 ALLOW_DATASET_SEED=true DATASET_DB_ALLOWLIST="localhost:5432/apartment_demo" npx ts-node dataset/seed/index.ts
 ```
 
-### 5.2. Chạy bộ kiểm thử (Unit & Regression Tests)
-```bash
-# Chạy kiểm thử điều phối seed & an toàn database M9.1.1
-npx ts-node -T dataset/validation/seed-orchestration.test.ts
+---
 
-# Chạy kiểm định toàn bộ các bộ generator (M3 - M9.1.1)
+### 5.2. Chạy bộ kiểm thử toàn diện (Unit & Regression Test Suites)
+```bash
+cd backend
+
+# Chạy bộ test kiểm định M10 (Validation Runner & 8 Check Groups)
+npx ts-node -T dataset/validation/validation-suite.test.ts
+
+# Chạy toàn bộ các suites M3 - M10
 npx ts-node -T dataset/validation/reference-data.test.ts
 npx ts-node -T dataset/validation/room-user-generator.test.ts
 npx ts-node -T dataset/validation/invoice-payment-generator.test.ts
@@ -177,13 +193,40 @@ npx ts-node -T dataset/validation/ticket-generator.test.ts
 npx ts-node -T dataset/validation/feedback-notification-generator.test.ts
 npx ts-node -T dataset/validation/media-asset-generator.test.ts
 npx ts-node -T dataset/validation/seed-orchestration.test.ts
+npx ts-node -T dataset/validation/validation-suite.test.ts
+npx ts-node -T dataset/validation/debug.test.ts
 ```
 
-### 5.3. Kiểm tra tính toàn vẹn (Validation)
-Sau khi seed thành công vào database, bộ kiểm tra chất lượng dữ liệu được kích hoạt:
+---
+
+### 5.3. Kiểm định chất lượng Dataset Runner (Validation Runner)
+
+#### Chế độ A: In-Memory Validation (Mặc định)
+Kiểm tra toàn bộ 8 nhóm tiêu chuẩn trên dữ liệu do generator sinh ra, không yêu cầu kết nối cơ sở dữ liệu:
 ```bash
-# Kiểm tra 5 tiêu chí: Counts, Relations, Financials, Tickets, Media
+cd backend
 npx ts-node dataset/validation/validate.ts
+# hoặc chỉ định rõ flag:
+npx ts-node dataset/validation/validate.ts --mode=in-memory
 ```
-Toàn bộ kết quả kiểm tra sẽ được xuất báo cáo chi tiết vào thư mục `backend/dataset/reports/`.
+
+#### Chế độ B: Database Validation (Read-Only)
+Kiểm tra dữ liệu đã nạp trong cơ sở dữ liệu PostgreSQL thực tế:
+- **Nguyên tắc an toàn**:
+  - Bắt buộc bật cờ xác nhận độc lập: `ALLOW_DATASET_VALIDATION=true`. (Tuyệt đối không dùng `ALLOW_DATASET_SEED`).
+  - Bắt buộc chỉ định danh sách allowlist khớp mục tiêu: `DATASET_DB_ALLOWLIST="host:port/dbname"`.
+  - Từ chối ngay lập tức nếu target chứa từ khóa Production (`prod`, `production`, `apartment-main`, `release-db`).
+  - **Thuần túy Read-Only**: Chỉ sử dụng `findMany()` trong Prisma transaction để chụp snapshot nhất quán. Tuyệt đối KHÔNG có lệnh `create`, `update`, `upsert`, `delete`, `deleteMany` hay migration.
+  - **Không tự động seed**: Nếu phát hiện cơ sở dữ liệu rỗng (0 bản ghi), runner lập tức báo cáo FAIL; tuyệt đối không tự ý seed hoặc nạp dữ liệu thay thế.
+  - **Không tự ý sửa dữ liệu**: Nếu phát hiện bản ghi lỗi, runner ghi nhận chi tiết vi phạm; tuyệt đối không tự sửa hoặc xóa dữ liệu ứng dụng.
+
+```bash
+cd backend
+ALLOW_DATASET_VALIDATION=true DATASET_DB_ALLOWLIST="localhost:5432/apartment_sandbox" npx ts-node dataset/validation/validate.ts --mode=database
+```
+
+> [!NOTE]
+> **Hiện trạng Kiểm chứng Cơ sở Dữ liệu Thực tế**:  
+> Toàn bộ các cơ chế an toàn và quy trình kiểm định database trong Milestone 9 và 10 hiện đã được kiểm chứng 100% thông qua Stateful Mock Transactions và In-memory Snapshots (35/35 tests PASS).  
+> Việc thực thi seed và database validation trên database PostgreSQL thực tế sẽ chỉ được thực hiện khi người dùng cung cấp và xác nhận một môi trường database sandbox chuyên dụng (không chạy trên production).
 

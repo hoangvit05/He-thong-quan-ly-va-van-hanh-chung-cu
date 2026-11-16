@@ -79,6 +79,8 @@ runTest('Database Safety: Development + ALLOW_DATASET_SEED="true" phải PASS', 
   restoreEnv();
   process.env.NODE_ENV = 'development';
   process.env.ALLOW_DATASET_SEED = 'true';
+  process.env.DATABASE_URL = 'postgresql://localhost:5432/apartment_dev';
+  process.env.DATASET_DB_ALLOWLIST = 'localhost:5432/apartment_dev';
 
   assert.doesNotThrow(() => {
     assertSafeDatabaseEnvironment();
