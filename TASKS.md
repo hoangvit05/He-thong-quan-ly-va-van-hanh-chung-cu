@@ -140,7 +140,7 @@ Expected output:
 - [x] Avoid destructive cleanup.
 - [x] Keep unit/integration fixtures separate.
 - [x] Add a dataset-specific execution command if needed.
-- [ ] Confirm successful execution on an explicitly designated demo database.
+- [x] Confirm successful execution on an explicitly designated demo database.
 
 Expected output:
 - `backend/dataset/seed/index.ts`
