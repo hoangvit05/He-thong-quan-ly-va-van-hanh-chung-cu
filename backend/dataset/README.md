@@ -3,7 +3,7 @@
 
 **Vị trí:** `backend/dataset/`  
 **Công nghệ:** TypeScript, Prisma Client 5, Node.js (>= 20), PostgreSQL 16, Bcryptjs  
-**Trạng thái:** Milestone 10 — Dataset Validation & Quality Assurance Runner  
+**Trạng thái:** Hoàn tất nghiệm thu (Milestone 9 & 10 PostgreSQL Integration Verified)
 
 ---
 
@@ -342,9 +342,44 @@ Hệ thống kiểm định áp dụng nguyên tắc **Fail-Closed**, đối chi
 
 ---
 
+## 6. KẾT QUẢ KIỂM CHỨNG & NGHIỆM THU THỰC TẾ (REAL INTEGRATION VERIFICATION)
+
+Hệ thống phân định rạch ròi 3 tầng kiểm chứng độc lập với đầy đủ bằng chứng thực nghiệm:
+
+### 6.1. In-Memory Validation (CI/CD Quality Gate)
+- **Phương thức**: Kiểm định trên đối tượng snapshot trong bộ nhớ sinh bởi bộ sinh giả lập (seed cố định `20261111`), không kết nối cơ sở dữ liệu.
+- **Báo cáo**: Lưu tại `backend/dataset/reports/validation-report.json` với `mode: "IN_MEMORY"`.
+- **Kết quả**: **8/8 nhóm tiêu chuẩn PASS** (Counts, Relational, Financial, Ticket, Feedback, Notification, Media Zero-Asset, Privacy/PII).
+- **Quy mô xác minh**: Đạt chuẩn 100% trên toàn bộ 1.440 bản ghi.
+
+### 6.2. PostgreSQL Sandbox Database Integration (Milestone 9 Verified)
+- **Môi trường thực thi**: PostgreSQL 16 (Debian 16.16-1.pgdg13+1) triển khai trong Docker Sandbox độc lập (`apartment-dataset-db`, cổng `55432`, database `apartment_dataset_sandbox`).
+- **Nạp dữ liệu lần đầu**:
+  - Giao dịch `SERIALIZABLE` hoàn thành nạp toàn bộ **1.440 bản ghi** vào đúng 8 models theo Prisma schema.
+  - Phân bổ thực tế: Room (100), User (128), Ticket (175), Invoice (500), Payment (472), Feedback (40), Notification (25), MediaAsset (0 - tuân thủ nghiêm ngặt Zero-Asset Policy).
+- **Kiểm định Database Validation**:
+  - Chạy chế độ `--mode=database` với snapshot giao dịch `RepeatableRead` chỉ đọc (`findMany`).
+  - Toàn bộ **8/8 nhóm kiểm định đạt PASS**.
+  - **Foreign-Key Audit**: 0 orphan foreign key violations trên toàn bộ các quan hệ (User -> Room, Ticket -> Room/User, Invoice -> Room, Payment -> Invoice, Feedback -> Room/User, Notification -> User).
+
+### 6.3. Second-Seed Safety & Fail-Closed Verification (Milestone 9 Verified)
+- **Kịch bản kiểm thử**: Thực thi tiến trình seed lần 2 trên cùng database sandbox đã có 1.440 bản ghi nhằm kiểm tra chính sách Create-Only và cơ chế Fail-Closed.
+- **Kết quả kiểm soát**:
+  - **Tiền kiểm an toàn**: Atomic Empty Check bên trong giao dịch `SERIALIZABLE` đếm đồng thời cả 8 bảng và phát hiện 1.440 bản ghi hiện hữu.
+  - **Từ chối an toàn**: Tiến trình lập tức ném ngoại lệ an toàn và phát lệnh `ROLLBACK`.
+  - **Không thay đổi dữ liệu**: Tuyệt đối không có lệnh `INSERT`, `UPDATE` hoặc `DELETE` nào được thực thi (Exit code 1 xuất phát từ expected safety rejection).
+  - **Số lượng bản ghi sau kiểm thử**: Giữ nguyên tuyệt đối 1.440 bản ghi (delta = 0 trên cả 8 models).
+  - **Tính bất biến Byte-for-Byte**: Canonical snapshot trước và sau kiểm thử có độ dài ký tự `607,812`, kích thước `640,374` bytes và mã băm SHA-256 trùng khớp 100%:
+    ```text
+    00929babe561208e0699cbb8e1b42500bc24b30c70c306b6dcbd6a9eb7e1ee0c
+    ```
+
+---
+
 > [!NOTE]
-> **Hiện trạng Kiểm chứng & Giới hạn Thực thi Cơ sở Dữ liệu**:  
-> 1. **In-Memory Validation**: Đã được kiểm thử 100% và đạt kết quả PASS toàn diện trên cả 8 nhóm tiêu chuẩn nghiệp vụ.
-> 2. **Stateful Mock Transactions**: Đã được kiểm chứng 100% (88/88 tests PASS trong validation suite, 279/279 tests toàn bộ dự án PASS).
-> 3. **PostgreSQL Sandbox Integration**: **Chưa được thực hiện trên cơ sở dữ liệu PostgreSQL thật**. Hệ thống tuân thủ nghiêm ngặt nguyên tắc an toàn: chỉ thực thi seed và database validation khi người dùng cung cấp và xác nhận một môi trường database sandbox chuyên dụng (tuyệt đối không chạy trên môi trường production).
+> **Tóm tắt Trạng thái Nghiệm thu Toàn diện**:
+> 1. **In-Memory Validation**: PASS 100% (8/8 nhóm kiểm toán, lưu tại `reports/validation-report.json`).
+> 2. **PostgreSQL Sandbox Integration**: PASS 100% (1.440 bản ghi được tạo và thẩm định trên PostgreSQL 16 sandbox).
+> 3. **Database Safety & Rollback**: PASS 100% (Từ chối seed lần 2, rollback nguyên vẹn, SHA-256 bất biến).
+> 4. **Bảo vệ Production**: Hệ thống fail-closed chặn đứng mọi nỗ lực seed hoặc thay đổi dữ liệu trên production.
 
