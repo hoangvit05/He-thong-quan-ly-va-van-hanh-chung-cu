@@ -882,4 +882,3 @@ runTest('11.4 Tái xác nhận baseline M6 (rate = 0.06 sinh 11 duplicate) và r
 console.log('======================================================');
 console.log(`🎉 TOÀN BỘ ${passedTests}/${totalTests} TESTS M6/M6.1/M6.2 ĐẠT CHUẨN!`);
 console.log('======================================================');
-

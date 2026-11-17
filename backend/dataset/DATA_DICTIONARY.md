@@ -154,4 +154,3 @@ Bảng metadata quản lý tệp tin đã xác thực từ Cloudinary Admin API.
 | `createdAt` | `DateTime` | Không | `now()` | Không | Thời điểm tạo | DateTime |
 | `updatedAt` | `DateTime` | Không | `@updatedAt` | Không | Thời điểm cập nhật cuối | DateTime |
 | **Quy tắc Dataset:** | | | | | | **Số lượng mặc định = 0** (không tạo dữ liệu giả mạo cho bảng này). |
-

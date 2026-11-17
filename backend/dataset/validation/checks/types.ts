@@ -153,4 +153,3 @@ export interface DatasetSnapshot {
   notifications: SnapshotNotification[];
   mediaAssets: SnapshotMediaAsset[];
 }
-

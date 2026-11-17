@@ -1,8 +1,8 @@
 # DATASET HỆ THỐNG QUẢN LÝ VÀ VẬN HÀNH CHUNG CƯ
 ## Phân hệ Dữ liệu Giả lập Độc lập (Independent Dataset Foundation)
 
-**Vị trí:** `backend/dataset/`  
-**Công nghệ:** TypeScript, Prisma Client 5, Node.js (>= 20), PostgreSQL 16, Bcryptjs  
+**Vị trí:** `backend/dataset/`
+**Công nghệ:** TypeScript, Prisma Client 5, Node.js (>= 20), PostgreSQL 16, Bcryptjs
 **Trạng thái:** Hoàn tất nghiệm thu (Milestone 9 & 10 PostgreSQL Integration Verified)
 
 ---
@@ -382,4 +382,3 @@ Hệ thống phân định rạch ròi 3 tầng kiểm chứng độc lập vớ
 > 2. **PostgreSQL Sandbox Integration**: PASS 100% (1.440 bản ghi được tạo và thẩm định trên PostgreSQL 16 sandbox).
 > 3. **Database Safety & Rollback**: PASS 100% (Từ chối seed lần 2, rollback nguyên vẹn, SHA-256 bất biến).
 > 4. **Bảo vệ Production**: Hệ thống fail-closed chặn đứng mọi nỗ lực seed hoặc thay đổi dữ liệu trên production.
-

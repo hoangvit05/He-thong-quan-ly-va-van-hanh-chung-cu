@@ -85,4 +85,3 @@ export function generateRooms(options: RoomGeneratorOptions = {}): GeneratedRoom
 
   return rooms;
 }
-

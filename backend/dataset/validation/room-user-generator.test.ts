@@ -292,4 +292,3 @@ runTest('Integration Test: Mọi record serialize thành công JSON và toàn v�
 console.log('======================================================');
 console.log(`🎉 TOÀN BỘ ${passedTests}/${totalTests} TESTS M4 ĐẠT CHUẨN!`);
 console.log('======================================================');
-

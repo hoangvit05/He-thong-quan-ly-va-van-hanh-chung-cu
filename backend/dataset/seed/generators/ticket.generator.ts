@@ -700,4 +700,3 @@ export function generateTickets(
 
   return result;
 }
-

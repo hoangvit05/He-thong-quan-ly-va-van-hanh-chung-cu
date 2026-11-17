@@ -1,6 +1,6 @@
 # DATASET IMPLEMENTATION TASKS
 
-Project: Apartment Management Dataset  
+Project: Apartment Management Dataset
 Target: `backend/dataset/`
 
 Only work on dataset-related files and the minimum dataset-specific execution configuration.

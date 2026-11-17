@@ -257,4 +257,3 @@ runTest('Counts Validator: Nhiều lỗi đồng thời phải FAIL và thông b
 console.log('======================================================');
 console.log(`🎉 KẾT QUẢ KIỂM THỬ: ${passedTests}/${totalTests} TESTS PASS!`);
 console.log('======================================================');
-

@@ -20,4 +20,3 @@ Thư mục `backend/dataset/fixtures/` được thiết kế để lưu trữ c�
 1. **Kiểm thử đăng nhập & RBAC**: Các tài khoản mẫu cố định với username và role xác định để CI test không phụ thuộc vào lượt sinh ngẫu nhiên.
 2. **Kiểm thử thuật toán lọc trùng 24 giờ**: Cặp ticket cố định gửi cách nhau 15 phút cùng phòng và category để khẳng định cờ `isDuplicate = true`.
 3. **Kiểm thử dòng tiền & khóa dòng**: Hóa đơn có nộp từng phần và các lần thanh toán lẻ chính xác từng đồng để kiểm tra lỗi làm tròn của `Prisma.Decimal`.
-

@@ -263,4 +263,3 @@ export function generatePayments(
 
   return payments;
 }
-

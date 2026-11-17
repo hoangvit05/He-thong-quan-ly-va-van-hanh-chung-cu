@@ -31,4 +31,3 @@ export function formatVnd(value: Prisma.Decimal | number | string): string {
   const num = typeof value === 'number' ? value : Number(value.toString());
   return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(num);
 }
-

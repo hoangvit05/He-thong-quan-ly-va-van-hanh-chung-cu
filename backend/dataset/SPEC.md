@@ -1,9 +1,9 @@
 # ĐẶC TẢ KỸ THUẬT DATASET (DATASET SPECIFICATION)
 ## Dự án Quản lý và Vận hành Chung cư
 
-**Phân hệ:** `backend/dataset/`  
-**Nguồn chân lý (Source of Truth):** `backend/src/database/schema.prisma`  
-**Tham chiếu kiểm toán:** Báo cáo kiểm toán Milestone 1  
+**Phân hệ:** `backend/dataset/`
+**Nguồn chân lý (Source of Truth):** `backend/src/database/schema.prisma`
+**Tham chiếu kiểm toán:** Báo cáo kiểm toán Milestone 1
 
 ---
 
@@ -120,4 +120,3 @@
 - Để đảm bảo tính trung thực tuyệt đối của dữ liệu:
   - **Không tạo bản ghi giả trong bảng `MediaAsset`** (`count = 0` trong dataset chuẩn).
   - Đối với các trường `Ticket.mediaUrl` hoặc `Ticket.completedMediaUrl`, dataset có thể sử dụng giá trị `null` hoặc mock URL không chứa domain `res.cloudinary.com` (theo cơ chế fallback cho phép của backend).
-

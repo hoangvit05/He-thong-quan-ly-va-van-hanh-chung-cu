@@ -1,12 +1,12 @@
 # DATASET SPECIFICATION
 ## Apartment Management & Operation System
 
-**Project:** He-thong-quan-ly-va-van-hanh-chung-cu  
-**Scope:** Dataset only  
-**Target directory:** `backend/dataset/`  
-**Database:** PostgreSQL  
-**ORM:** Prisma 5  
-**Language:** TypeScript  
+**Project:** He-thong-quan-ly-va-van-hanh-chung-cu
+**Scope:** Dataset only
+**Target directory:** `backend/dataset/`
+**Database:** PostgreSQL
+**ORM:** Prisma 5
+**Language:** TypeScript
 **Status:** Initial specification
 
 ---

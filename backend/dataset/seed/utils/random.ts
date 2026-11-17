@@ -78,4 +78,3 @@ export class PRNG {
     return result;
   }
 }
-

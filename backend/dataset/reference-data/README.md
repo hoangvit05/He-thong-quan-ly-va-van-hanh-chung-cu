@@ -1,6 +1,6 @@
 # DỮ LIỆU THAM CHIẾU VÀ NỘI DUNG TIẾNG VIỆT (REFERENCE DATA & VIETNAMESE CONTENT)
 
-Thư mục: `backend/dataset/reference-data/`  
+Thư mục: `backend/dataset/reference-data/`
 Phân hệ: Milestone 3 — Reference Data & Vietnamese Content Library
 
 ---
@@ -56,4 +56,3 @@ Thư viện mẫu nội dung động dùng để sinh ngẫu nhiên có kiểm s
 - **Nguồn gốc dữ liệu (Public Data References):**
   - Nội dung được biên soạn tổng hợp và xây dựng nội bộ (synthetic generation) dựa trên kinh nghiệm thực tế về tiêu chuẩn vận hành nhà chung cư tại Việt Nam (Thông tư 02/2016/TT-BXD, Thông tư 28/2016/TT-BXD về Quy chế quản lý sử dụng nhà chung cư).
   - Không import trực tiếp dữ liệu thô từ các tập dữ liệu mở nước ngoài (như NYC 311) để tránh sai lệch đặc thù văn hóa và hạ tầng kỹ thuật chung cư Việt Nam.
-

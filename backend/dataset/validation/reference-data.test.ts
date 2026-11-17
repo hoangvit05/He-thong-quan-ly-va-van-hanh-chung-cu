@@ -183,4 +183,3 @@ runTest('11. Không chứa placeholder (lorem ipsum) hoặc dữ liệu cá nhâ
 console.log('======================================================');
 console.log(`🎉 TOÀN BỘ ${passedTests}/${totalTests} TESTS M3 ĐẠT CHUẨN!`);
 console.log('======================================================');
-
