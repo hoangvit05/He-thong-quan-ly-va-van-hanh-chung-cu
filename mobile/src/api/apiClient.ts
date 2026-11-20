@@ -1,59 +1,48 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import { Platform } from 'react-native';
+import { createTokenStore } from './tokenStore';
+import { API_ENDPOINTS } from './endpoints';
 
 const defaultApiUrl = Platform.select({
   android: 'http://10.0.2.2:5000',
   ios: 'http://localhost:5000',
   default: 'http://localhost:5000',
 });
+export const tokenStore = createTokenStore(AsyncStorage);
+export async function getAuthToken() { return (await tokenStore.snapshot()).token; }
+export async function setAuthToken(token: string) { await tokenStore.set(token); }
+export async function clearAuthToken() { await tokenStore.clear(); }
 
-const apiUrl = process.env.EXPO_PUBLIC_API_URL?.trim() || defaultApiUrl;
-const AUTH_TOKEN_KEY = '@apartment-management/auth-token';
-
-export async function getAuthToken(): Promise<string | null> {
-  return AsyncStorage.getItem(AUTH_TOKEN_KEY);
+interface SessionRequest extends InternalAxiosRequestConfig {
+  sessionVersion?: number;
 }
-
-export async function setAuthToken(token: string): Promise<void> {
-  const normalizedToken = token.trim();
-  if (!normalizedToken) {
-    throw new Error('Không thể lưu token rỗng.');
-  }
-
-  await AsyncStorage.setItem(AUTH_TOKEN_KEY, normalizedToken);
-}
-
-export async function clearAuthToken(): Promise<void> {
-  await AsyncStorage.removeItem(AUTH_TOKEN_KEY);
-}
-
 export const apiClient = axios.create({
-  baseURL: apiUrl,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  baseURL: process.env.EXPO_PUBLIC_API_URL?.trim() || defaultApiUrl,
+  timeout: 15000,
+  headers: { 'Content-Type': 'application/json' },
 });
-
-apiClient.interceptors.request.use(
-  async (config: InternalAxiosRequestConfig) => {
-    const token = await getAuthToken();
-    if (token) {
-      config.headers.set('Authorization', `Bearer ${token}`);
-    }
-
+apiClient.interceptors.request.use(async (config: SessionRequest) => {
+  // A failed login must never revoke a different authenticated request's session.
+  if (config.url === API_ENDPOINTS.AUTH.LOGIN) {
+    config.headers.delete('Authorization');
     return config;
-  },
-  (error) => Promise.reject(error)
-);
-
-apiClient.interceptors.response.use(
-  (response) => response,
-  async (error: AxiosError) => {
-    if (error.response?.status === 401) {
-      await clearAuthToken();
-    }
-
-    return Promise.reject(error);
   }
-);
+  const snapshot = await tokenStore.snapshot();
+  if (snapshot.token) {
+    config.headers.set('Authorization', 'Bearer ' + snapshot.token);
+    config.sessionVersion = snapshot.version;
+  }
+  return config;
+});
+apiClient.interceptors.response.use(response => response, async (error: AxiosError) => {
+  const config = error.config as SessionRequest | undefined;
+  if (error.response?.status === 401 && config?.sessionVersion !== undefined) {
+    try {
+      await tokenStore.clear(config.sessionVersion);
+    } catch {
+      return Promise.reject(new Error('Phiên đã kết thúc nhưng chưa xóa được phiên lưu trên máy. Hãy thử đăng xuất lại.'));
+    }
+  }
+  return Promise.reject(error);
+});

@@ -6,6 +6,7 @@ export const API_ENDPOINTS = {
   // 1. Phân hệ Auth & Quản lý User (Phụ trách: Đặng Hoàng)
   AUTH: {
     LOGIN: '/api/auth/login',
+    ME: '/api/auth/me',
     CHANGE_PASSWORD: '/api/auth/change-password',
     ADMIN_USERS: '/api/admin/users',
     RESIDENTS: '/api/apartments/residents',
