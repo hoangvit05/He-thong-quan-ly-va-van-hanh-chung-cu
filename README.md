@@ -400,22 +400,12 @@ Nhóm cần nắm rõ trạng thái thực tế của từng API để không hi
   * Phối hợp với **Thuần** để gắn kết các màn hình sự cố và góp ý vào `AppNavigator`.
   * Cấu hình Token Request Interceptor trong `apiClient.ts` để mọi cuộc gọi API của Thuần đều tự động có header `Authorization`.
   * Phối hợp với **Hiếu** để hiển thị đúng ảnh VietQR động; hiển thị rõ ràng thông báo: việc quét mã là công cụ hỗ trợ điền thông tin chuyển khoản, không mặc nhiên là bằng chứng đã thanh toán cho đến khi BQL đối soát.
-  * Phối hợp với **Việt Hoàng**: thống nhất nhà cung cấp Push Notification di động OS (FCM vs Expo Notifications theo `[CẦN XÁC NHẬN - QUYẾT ĐỊNH 03]`), chia đều việc triển khai Mobile cùng Thuần khi có đầu việc cụ thể.
 * **Checklist nghiệm thu & Test bắt buộc:**
-  * [ ] Cấu hình `mobile/package.json` và cài đặt dependencies để chạy được lệnh `npm start`.
+  * [x] Cấu hình `mobile/package.json` và cài đặt dependencies để chạy được lệnh `npm start`.
   * [ ] Đăng nhập thành công, lưu token và tự động chuyển từ `AuthScreen` vào `AppNavigator`.
   * [ ] Màn hình hồ sơ hiển thị đúng số phòng, diện tích và thông tin cá nhân từ `GET /api/auth/me`.
   * [ ] Màn hình hóa đơn hiển thị danh sách các tháng, hiển thị ảnh VietQR quét được qua app ngân hàng.
 * **Tiêu chí hoàn thành (DoD):** App Mobile chạy được trên Android Emulator / iOS Simulator, tự động đính kèm JWT token trong request, hiển thị đầy đủ thông tin căn hộ và hóa đơn phí sinh hoạt.
-
-* **Cập nhật tiến độ phần Nguyệt — ngày 20/11/2026 (workspace local):**
-  * **Đã triển khai:** Đăng nhập cư dân đã duyệt, JWT/khôi phục phiên/đăng xuất; hồ sơ căn hộ và đổi mật khẩu; hóa đơn, lịch sử thanh toán và VietQR; bảng tin có phân trang, tải lại và xử lý lỗi.
-  * **Thay đổi mới chưa commit:** Tích hợp `AuthProvider`/`SessionGate` vào `App.tsx`; chặn phản hồi khôi phục phiên cũ xóa phiên mới; bổ sung kiểm thử entry point thực, scripts kiểm tra và workflow [Mobile checks](.github/workflows/mobile.yml).
-  * **Kiểm tra local đã ghi nhận:** TypeScript PASS; 28/28 test PASS; bundle Android PASS (734 modules). Test dùng API/native giả lập; workflow Mobile mới chưa chạy trên GitHub.
-  * **Chưa nghiệm thu:** Native trên thiết bị/máy giả lập; đăng nhập, hồ sơ, đổi mật khẩu, hóa đơn/VietQR và thông báo với Backend thật. Chưa có URL Backend demo/tài khoản RESIDENT kiểm thử; lần chạy emulator trước không phản hồi.
-  * **Phối hợp còn lại:** Nhờ Việt Hoàng/Hiếu cung cấp môi trường demo; kiểm tra luồng sự cố khi các màn hình liên quan của Thuần sẵn sàng. Push khi app đóng và upload media chưa hoàn thành trong phần này.
-  * **Tài liệu công việc:** [Hướng dẫn Mobile và checklist nghiệm thu](mobile/README.md). Các mục mô tả/phân công phía trên được giữ theo README gốc trên main; khối này ghi nhận tiến độ local, không thay thế bằng chứng nghiệm thu tích hợp.
-
 ---
 
 ### 5. 👤 THUẦN — Mobile Developer (Báo hỏng, Tiến độ sửa chữa, Đánh giá & Góp ý)
