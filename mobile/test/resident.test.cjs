@@ -25,8 +25,14 @@ Module._load = function(name, ...args) {
   if (name === '@react-native-async-storage/async-storage') return storage;
   if (name === 'react-native-safe-area-context') return { SafeAreaView: 'SafeAreaView', SafeAreaProvider: React.Fragment };
   if (name === '@react-navigation/native') return {
-    useFocusEffect: callback => React.useEffect(callback, [callback]), NavigationContainer: React.Fragment,
+    useFocusEffect: callback => React.useEffect(callback, [callback]),
+    NavigationContainer: ({ children }) => React.createElement('NavigationContainer', null, children),
   };
+  // Keep AppNavigator and its first real screen; replace only the native tab renderer.
+  if (name === '@react-navigation/bottom-tabs') return { createBottomTabNavigator: () => ({
+    Navigator: ({ children }) => React.createElement(React.Children.toArray(children)[0].props.component),
+    Screen: () => null,
+  }) };
   return load.call(this, name, ...args);
 };
 for (const extension of ['.ts', '.tsx']) require.extensions[extension] = (module, filename) => {
@@ -36,6 +42,7 @@ for (const extension of ['.ts', '.tsx']) require.extensions[extension] = (module
   });
   module._compile(output.outputText, filename);
 };
+const { default: App } = require('../App.tsx');
 const { apiClient, tokenStore, getAuthToken, setAuthToken, clearAuthToken } = require('../src/api/apiClient.ts');
 const { createTokenStore } = require('../src/api/tokenStore.ts');
 const { AuthProvider, useAuth } = require('../src/auth/AuthContext.tsx');
@@ -301,4 +308,109 @@ test('input policies match backend password bounds and reject unsafe QR schemes'
   assert.equal(validMonth('2026-12'), true);
   assert.equal(safeQrUrl('data:image/png;base64,xxx'), null);
   assert.equal(safeQrUrl('javascript:alert(1)'), null);
+});
+
+
+// Exercise the real entry point and navigation composition, not a manually wrapped screen.
+test('app entry shows login without a saved session and does not fetch private data', async () => {
+  await mount(App);
+  assert.match(text(), /Chào mừng về nhà/);
+  assert.equal(calls.length, 0);
+  assert.equal(renderer.root.findAllByType('NavigationContainer').length, 0);
+});
+
+test('app entry holds the loading gate until session restoration finishes', async () => {
+  await setAuthToken('saved');
+  let finish;
+  adapter(config => new Promise(resolve => { finish = () => resolve(ok(config, resident)); }));
+  await mount(App);
+  assert.equal(renderer.root.findAllByType('ActivityIndicator').length, 1);
+  assert.equal(renderer.root.findAllByType('TextInput').length, 0);
+  assert.equal(renderer.root.findAllByType('NavigationContainer').length, 0);
+  adapter(config => ok(config, resident));
+  await act(async () => finish());
+  assert.match(text(), /Căn hộ của tôi/);
+  assert.match(text(), /A101/);
+});
+
+test('app entry completes login and logout through the actual session gate', async () => {
+  adapter(config => ok(config, config.url.endsWith('/login')
+    ? { token: 'login-token', user: resident } : resident));
+  await mount(App);
+  await input('Tên đăng nhập, email hoặc số điện thoại', 'resident');
+  await input('Mật khẩu', 'password');
+  await press('Đăng nhập');
+  assert.match(text(), /Căn hộ của tôi/);
+  assert.equal(renderer.root.findAllByType('NavigationContainer').length, 1);
+  await press('Đăng xuất');
+  assert.match(text(), /Chào mừng về nhà/);
+  assert.equal(renderer.root.findAllByType('NavigationContainer').length, 0);
+  assert.equal(await getAuthToken(), null);
+});
+
+test('app entry returns an expired saved session to login without a retry loop', async () => {
+  await setAuthToken('expired');
+  adapter(config => fail(config, 401, 'Expired'));
+  await mount(App);
+  assert.match(text(), /Chào mừng về nhà/);
+  assert.doesNotMatch(text(), /Kết nối lại phiên đăng nhập/);
+  assert.equal(await getAuthToken(), null);
+});
+
+test('app entry retries an offline restore and opens the resident profile', async () => {
+  await setAuthToken('saved');
+  adapter(config => { throw new axios.AxiosError('Network Error', 'ERR_NETWORK', config); });
+  await mount(App);
+  assert.match(text(), /Kết nối lại phiên đăng nhập/);
+  assert.equal(await getAuthToken(), 'saved');
+  adapter(config => ok(config, resident));
+  await press('Thử lại');
+  assert.match(text(), /Căn hộ của tôi/);
+  assert.doesNotMatch(text(), /Kết nối lại phiên đăng nhập/);
+});
+
+test('app entry allows abandoning an offline session and signing in again', async () => {
+  await setAuthToken('saved');
+  adapter(config => { throw new axios.AxiosError('Network Error', 'ERR_NETWORK', config); });
+  await mount(App);
+  await press('Xóa phiên và đăng nhập lại');
+  assert.match(text(), /Chào mừng về nhà/);
+  assert.equal(await getAuthToken(), null);
+});
+
+test('app entry removes private screens when an active session receives 401', async () => {
+  await setAuthToken('saved');
+  await mount(App);
+  assert.match(text(), /Căn hộ của tôi/);
+  adapter(config => fail(config, 401, 'Expired'));
+  await act(async () => { await assert.rejects(apiClient.get('/private')); });
+  assert.match(text(), /Chào mừng về nhà/);
+  assert.equal(renderer.root.findAllByType('NavigationContainer').length, 0);
+});
+
+test('unapproved resident cannot save a login token', async () => {
+  adapter(config => ok(config, { token: 'pending-token', user: { ...resident, isApproved: false } }));
+  await mount(AuthScreen, true);
+  await input('Tên đăng nhập, email hoặc số điện thoại', 'pending');
+  await input('Mật khẩu', 'password');
+  await press('Đăng nhập');
+  assert.match(text(), /chờ Ban quản lý phê duyệt/);
+  assert.equal(auth.user, null);
+  assert.equal(await getAuthToken(), null);
+});
+
+test('late ineligible restore cannot revoke a newer valid login', async () => {
+  await setAuthToken('old-session');
+  let finishOld;
+  adapter(config => new Promise(resolve => {
+    finishOld = () => resolve(ok(config, { ...resident, isApproved: false }));
+  }));
+  await mount(() => null, true);
+  adapter(config => ok(config, { token: 'new-session', user: resident }));
+  await act(async () => auth.signIn('resident', 'password'));
+  await act(async () => finishOld());
+  assert.equal(auth.user.id, resident.id);
+  assert.equal(await getAuthToken(), 'new-session');
+  assert.equal(auth.restoreError, '');
+  assert.equal(auth.restoring, false);
 });

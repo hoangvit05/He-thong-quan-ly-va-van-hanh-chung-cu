@@ -28,8 +28,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setRestoreError('');
     try {
       const snapshot = await tokenStore.snapshot();
+      if (sequence.current !== attempt) return;
       if (!snapshot.token) { if (sequence.current === attempt) setUser(null); return; }
       const response = await apiClient.get<Envelope<Resident>>(API_ENDPOINTS.AUTH.ME);
+      // An older restore must not clear or replace a newer login.
+      if (sequence.current !== attempt) return;
       const resident = unwrap(response.data);
       try { assertResident(resident); }
       catch (cause) { await clearAuthToken(); setRestoreError(errorMessage(cause)); return; }
@@ -48,7 +51,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     assertResident(payload.user);
     if (sequence.current !== attempt) return;
     await setAuthToken(payload.token);
-    if (sequence.current === attempt) setUser(payload.user);
+    if (sequence.current === attempt) {
+      setRestoreError('');
+      setRestoring(false);
+      setUser(payload.user);
+    }
   }, []);
   useEffect(() => {
     const unsubscribe = tokenStore.subscribe(() => {

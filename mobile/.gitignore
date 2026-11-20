@@ -1,0 +1,6 @@
+.local-build/
+.local-work/
+.env
+.env.*
+!.env.example
+/đã thay đổi.md
