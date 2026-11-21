@@ -18,6 +18,7 @@ export const API_ENDPOINTS = {
     CREATE: '/api/tickets',
     LIST: '/api/tickets',
     MY_TICKETS: '/api/tickets/my-tickets',
+    DETAIL: (id: string | number) => '/api/tickets/' + id,
     ASSIGN: (id: string | number) => `/api/tickets/${id}/assign`,
     TECHNICIAN_TICKETS: '/api/technician/tickets',
     UPDATE_STATUS: (id: string | number) => `/api/technician/tickets/${id}/status`,
