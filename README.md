@@ -406,6 +406,7 @@ Nhóm cần nắm rõ trạng thái thực tế của từng API để không hi
   * [ ] Màn hình hồ sơ hiển thị đúng số phòng, diện tích và thông tin cá nhân từ `GET /api/auth/me`.
   * [ ] Màn hình hóa đơn hiển thị danh sách các tháng, hiển thị ảnh VietQR quét được qua app ngân hàng.
 * **Tiêu chí hoàn thành (DoD):** App Mobile chạy được trên Android Emulator / iOS Simulator, tự động đính kèm JWT token trong request, hiển thị đầy đủ thông tin căn hộ và hóa đơn phí sinh hoạt.
+
 ---
 
 ### 5. 👤 THUẦN — Mobile Developer (Báo hỏng, Tiến độ sửa chữa, Đánh giá & Góp ý)

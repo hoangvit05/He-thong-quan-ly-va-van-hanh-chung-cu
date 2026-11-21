@@ -4,7 +4,7 @@
 
 ## Cấu trúc và trách nhiệm
 
-Cấu trúc Mobile trong workspace của Nguyệt. Các thay đổi mới ở App.tsx, AuthContext, bộ test, scripts và workflow vẫn còn local, chưa commit. README gốc của dự án giữ nguyên nội dung main và chỉ bổ sung tiến độ trong mục Nguyệt.
+Cấu trúc Mobile trong workspace của Nguyệt. Giữ nguyên điều hướng và cơ chế xác thực hiện có; cập nhật tiến độ trên README gốc chỉ bằng checklist có sẵn.
 
 | Vị trí | Nội dung |
 | --- | --- |
@@ -18,7 +18,7 @@ Cấu trúc Mobile trong workspace của Nguyệt. Các thay đổi mới ở Ap
 | `.local-build/` | Bundle, APK và log QA phát sinh trên máy; Git bỏ qua |
 | `.local-work/` | Ghi chú lưu trữ và file phát sinh cá nhân; Git bỏ qua |
 
-Nguyệt phụ trách AuthScreen, ProfileScreen, InvoiceScreen và NotificationScreen. CreateTicketScreen, TicketTimelineScreen, RatingScreen và FeedbackScreen thuộc Thuần; các màn hình này còn scaffold tại lần đối chiếu 20/11/2026.
+Nguyệt phụ trách AuthScreen, ProfileScreen, InvoiceScreen và NotificationScreen. CreateTicketScreen, TicketTimelineScreen, RatingScreen và FeedbackScreen thuộc Thuần; ngày 21/11/2026 đã được triển khai thêm các luồng cơ bản bằng API hiện có. Chưa nghiệm thu Backend/thiết bị thật; chọn và upload ảnh/video, push notification còn lại.
 
 ## Chức năng đã triển khai
 
@@ -28,6 +28,10 @@ Nguyệt phụ trách AuthScreen, ProfileScreen, InvoiceScreen và NotificationS
 - Lọc hóa đơn theo tháng, chi tiết phí/lịch sử thanh toán, số dư và VietQR từ Backend; thử lại ảnh QR lỗi và tải lại trạng thái thanh toán.
 - Danh sách/chi tiết thông báo, phân trang và kéo để tải lại.
 - Trạng thái tải/lỗi/rỗng, chặn gửi form lặp và hủy request cũ khi đổi màn hình.
+- Báo hỏng: danh mục, tiêu đề/mô tả, căn hộ hoặc khu vực chung; hiển thị mã phiếu và cảnh báo trùng do Backend trả về. Chưa đính kèm ảnh/video.
+- Tiến độ: danh sách phiếu cá nhân có phân trang, chi tiết, thợ phụ trách, trạng thái hiện tại và nút tải lại. Backend chưa cung cấp lịch sử từng lần chuyển trạng thái; không suy diễn phiếu đóng là đã sửa xong, chưa có cập nhật realtime.
+- Nghiệm thu: chỉ mở phiếu đang COMPLETED, chọn 1–5 sao, nhập nhận xét và xác nhận trước khi gửi ratingComment/đóng phiếu.
+- Góp ý: kiểm tra dữ liệu, gửi góp ý, xem danh sách cá nhân và phản hồi/trạng thái xử lý của BQL.
 
 ## Chạy và kiểm tra
 
@@ -92,21 +96,21 @@ try {
 
 Nếu R: đã được dùng, dừng để chọn ký tự ổ trống khác; không ghi đè ổ hiện có. Nhấn Ctrl+C khi kết thúc chạy thử.
 
-## Kết quả kiểm tra ghi nhận ngày 20/11/2026
+## Kết quả kiểm tra ghi nhận ngày 21/11/2026
 
 | Kiểm tra | Kết quả |
 | --- | --- |
 | TypeScript | PASS |
-| Màn hình, phiên và khởi tạo App | 28/28 PASS |
-| Bundle Android | PASS — 734 modules |
+| Màn hình, phiên và khởi tạo App | 42/42 PASS — gồm 14 test mới cho phần Thuần |
+| Bundle Android | PASS — 737 modules |
 | Cú pháp workflow, package/lockfile | PASS |
-| CI Mobile mới trên GitHub | Chưa chạy — workflow còn local |
-| Native trên Medium_Phone | Chưa đạt nghiệm thu — System UI/Expo Go không phản hồi |
+| CI Mobile trên GitHub | Chưa xác minh kết quả cho lượt thay đổi này |
+| Native trên Medium_Phone | Lần thử 20/11 chưa đạt; chưa thử lại sau thay đổi phần Thuần |
 | Backend demo và dữ liệu thật | Chưa có môi trường/tài khoản để nghiệm thu |
 
-Lần chạy emulator ghi nhận khoảng 0,8 GB RAM trống; chưa đủ bằng chứng kết luận đây là nguyên nhân duy nhất. Expo Go 2.31.2 đã cài. Metro/emulator do phiên kiểm thử mở đã được dừng và ổ R: tạm đã được bỏ. APK, bundle và log giữ tại `.local-build/`.
+Lần chạy emulator ngày 20/11 ghi nhận khoảng 0,8 GB RAM trống; chưa đủ bằng chứng kết luận đây là nguyên nhân duy nhất. Expo Go 2.31.2 đã cài. Metro/emulator do phiên kiểm thử mở đã được dừng và ổ R: tạm đã được bỏ. APK, bundle và log giữ tại `.local-build/`.
 
-Các test bao phủ: JWT/401, phản hồi phiên cũ, lưu/xóa token, khôi phục khi mất mạng, kiểm tra tài khoản cư dân, đăng nhập/đăng xuất qua App.tsx, hồ sơ/đổi mật khẩu, hóa đơn/VietQR, phân trang thông báo và hủy request cũ. Phản hồi khôi phục cũ không được xóa hoặc thay thế phiên đăng nhập mới.
+Các test bao phủ: JWT/401, phản hồi phiên cũ, lưu/xóa token, khôi phục khi mất mạng, kiểm tra tài khoản cư dân, đăng nhập/đăng xuất qua App.tsx, hồ sơ/đổi mật khẩu, hóa đơn/VietQR, phân trang thông báo và hủy request cũ. Phản hồi khôi phục cũ không được xóa hoặc thay thế phiên đăng nhập mới. Test phần Thuần kiểm tra dữ liệu gửi đúng API, chống bấm gửi lặp, phiếu trùng/409, hủy request khi rời màn hình, phân trang, tải lại tiến độ, phiếu đóng, điều kiện nghiệm thu, lỗi API và phản hồi góp ý.
 
 ## Nghiệm thu từng bước
 
@@ -122,13 +126,13 @@ Các test bao phủ: JWT/401, phản hồi phiên cũ, lưu/xóa token, khôi ph
 - [ ] Hóa đơn rỗng/chưa trả/trả một phần/đã trả; lọc tháng, phí và lịch sử đúng căn hộ.
 - [ ] QR đọc được, đúng thông tin chuyển khoản; tải lại sau BQL đối soát trên dữ liệu demo. Không chuyển tiền thật chỉ để thử giao diện.
 - [ ] Thông báo chung và đúng phòng; không lộ thông báo phòng khác; phân trang, tải lại và xử lý lỗi.
-- [ ] Phối hợp kiểm tra luồng sự cố sau khi Thuần hoàn thiện các màn hình liên quan.
+- [ ] Với Backend demo: gửi phiếu căn hộ/khu chung, cảnh báo trùng và 409; BQL gán thợ, thợ cập nhật trạng thái, cư dân tải lại tiến độ, nghiệm thu 1–5 sao; gửi góp ý và xem phản hồi BQL.
 
-Push khi app đóng, upload media và nghiệp vụ các màn hình của Thuần cần phối hợp riêng; không tính là đã hoàn thành từ phần kiểm thử của Nguyệt.
+Push khi app đóng, chọn/upload ảnh-video và cập nhật tiến độ realtime vẫn cần hoàn thiện và nghiệm thu riêng. Bộ test API/native giả lập không thay thế kiểm thử xuyên suốt với Backend thật.
 
 ## Bàn giao
 
-Giữ cùng nhau các thay đổi liên quan: App.tsx, AuthContext, test, package/lockfile, .gitignore, tài liệu và workflow Mobile. Không đưa node_modules, .env, .local-build, .local-work hoặc ghi chú cá nhân vào PR.
+Lượt hỗ trợ Thuần gồm bốn màn hình, endpoint chi tiết phiếu, maintenance.ts, useSubmit.ts, MaintenanceUI.tsx, bộ test và tài liệu Mobile. Không đổi cấu trúc App.tsx, cơ chế xác thực hoặc dependencies. Không đưa node_modules, .env, .local-build, .local-work hoặc ghi chú cá nhân vào PR.
 
 Kiểm tra `git status --short` để thấy cả file mới và `git diff --check` trước bàn giao. Giữ thay đổi local cho người dùng review; không tự commit, push, merge hoặc rebase. Khi được cho phép xuất bản, PR của Nguyệt hướng vào main, không push trực tiếp main.
 

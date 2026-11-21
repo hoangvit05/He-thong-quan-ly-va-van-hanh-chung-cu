@@ -414,3 +414,224 @@ test('late ineligible restore cannot revoke a newer valid login', async () => {
   assert.equal(auth.restoreError, '');
   assert.equal(auth.restoring, false);
 });
+
+const { CreateTicketScreen } = require('../src/screens/CreateTicketScreen.tsx');
+const { TicketTimelineScreen } = require('../src/screens/TicketTimelineScreen.tsx');
+const { RatingScreen } = require('../src/screens/RatingScreen.tsx');
+const { FeedbackScreen } = require('../src/screens/FeedbackScreen.tsx');
+const { validateTicket, validateFeedback } = require('../src/api/maintenance.ts');
+const ticketFixture = { id: 42, title: 'Rò nước', category: 'Nước', description: 'Ống nước dưới bồn bị rò',
+  residentId: 1, roomId: 2, room: { roomNumber: 'A101' }, status: 'PENDING', isDuplicate: false,
+  createdAt: '2026-11-20T01:00:00Z', updatedAt: '2026-11-20T02:00:00Z', rating: null, ratingComment: null };
+const feedbackFixture = { id: 9, title: 'Vệ sinh hành lang', content: 'Đề nghị vệ sinh hành lang tầng một',
+  reply: 'Đã lên lịch vệ sinh.', isResolved: true, createdAt: '2026-11-20T01:00:00Z', repliedAt: '2026-11-20T02:00:00Z' };
+const pagination = (page = 1, totalPages = 1) => ({ page, totalPages, limit: 10, total: totalPages * 10 });
+async function fillTicket() {
+  await input('Danh mục sự cố', ' Nước ');
+  await input('Mô tả sự cố', ' Ống nước dưới bồn bị rò ');
+}
+function visibleButton(title) {
+  return renderer.root.findAllByType('Pressable').find(node => node.findAllByType('Text').some(child => child.props.children === title));
+}
+
+test('ticket form validates before POST and sends only resident input; duplicate remains accepted', async () => {
+  adapter(config => ok(config, { ...ticketFixture, isDuplicate: true }));
+  await mount(CreateTicketScreen);
+  await press('Gửi báo hỏng');
+  assert.equal(calls.length, 0);
+  assert.match(text(), /Danh mục cần/);
+  await fillTicket();
+  await press('Gửi báo hỏng');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, '/api/tickets');
+  assert.deepEqual(JSON.parse(calls[0].data), { category: 'Nước', description: 'Ống nước dưới bồn bị rò' });
+  assert.match(text(), /Đã tiếp nhận phiếu #42/);
+  assert.match(text(), /Phiếu vẫn được tiếp nhận/);
+  assert.equal(visibleButton('Gửi báo hỏng'), undefined);
+  await press('Tạo phiếu khác');
+  assert.equal(renderer.root.findAllByType('TextInput').find(n => n.props.accessibilityLabel === 'Danh mục sự cố').props.value, '');
+});
+
+test('ticket common area explicitly sends null and immediate double tap makes one POST', async () => {
+  let finish;
+  adapter(config => new Promise(resolve => { finish = () => resolve(ok(config, ticketFixture)); }));
+  await mount(CreateTicketScreen); await fillTicket(); await press('Chuyển sang khu vực chung');
+  const handler = visibleButton('Gửi báo hỏng').props.onPress;
+  await act(async () => { handler(); handler(); });
+  assert.equal(calls.length, 1);
+  assert.equal(JSON.parse(calls[0].data).roomId, null);
+  assert.equal(visibleButton('Đang gửi...').props.disabled, true);
+  await act(async () => finish());
+});
+
+test('ticket POST conflict keeps input and displays backend reason without auto-retry', async () => {
+  adapter(config => fail(config, 409, 'Vui lòng đợi trước khi gửi phiếu tiếp theo.'));
+  await mount(CreateTicketScreen); await fillTicket(); await press('Gửi báo hỏng');
+  assert.equal(calls.length, 1);
+  assert.match(text(), /Vui lòng đợi/);
+  assert.equal(renderer.root.findAllByType('TextInput').find(n => n.props.accessibilityLabel === 'Danh mục sự cố').props.value, ' Nước ');
+  assert.equal(visibleButton('Gửi báo hỏng').props.disabled, false);
+});
+
+test('leaving ticket form cancels the request and ignores its late success', async () => {
+  let finish;
+  adapter(config => new Promise(resolve => { finish = () => resolve(ok(config, ticketFixture)); }));
+  await mount(CreateTicketScreen); await fillTicket(); await press('Gửi báo hỏng');
+  const signal = calls[0].signal;
+  await act(async () => renderer.unmount()); renderer = null;
+  assert.equal(signal.aborted, true);
+  await act(async () => finish());
+});
+
+test('ticket list paginates only own endpoint and detail reload shows current status', async () => {
+  let detailStatus = 'ASSIGNED';
+  adapter(config => config.url === '/api/tickets/42'
+    ? ok(config, { ...ticketFixture, status: detailStatus, technician: { fullName: 'Thợ A', phone: '0900000000' } })
+    : ok(config, [ticketFixture], pagination(config.url.includes('page=2') ? 2 : 1, 2)));
+  await mount(TicketTimelineScreen); await press('Trang sau');
+  assert.equal(calls.at(-1).url, '/api/tickets/my-tickets?page=2&limit=10');
+  await press('Xem phiếu #42');
+  assert.equal(calls.at(-1).url, '/api/tickets/42');
+  assert.match(text(), /Đã gán thợ — Hiện tại/); assert.match(text(), /Thợ A/);
+  detailStatus = 'COMPLETED';
+  await press('Cập nhật tiến độ');
+  assert.match(text(), /Đã sửa xong — Hiện tại/);
+  assert.doesNotMatch(text(), /Đã gán thợ — Hiện tại/);
+  assert.ok(calls.every(c => !c.url.includes('residentId') && !c.url.includes('roomId')));
+});
+
+test('closed ticket without rating is not presented as accepted repair', async () => {
+  adapter(config => ok(config, config.url === '/api/tickets/42'
+    ? { ...ticketFixture, status: 'CLOSED' } : [ticketFixture], pagination()));
+  await mount(TicketTimelineScreen); await press('Xem phiếu #42');
+  assert.match(text(), /Đóng phiếu — Hiện tại/);
+  assert.doesNotMatch(text(), /Đã sửa xong — Hiện tại/);
+  assert.match(text(), /Phiếu đóng có thể là phiếu đã hủy/);
+  assert.doesNotMatch(text(), /null\/5/);
+});
+
+test('ticket list and detail errors are retryable and do not show private stale data', async () => {
+  adapter(config => fail(config, 500, 'Tạm thời không tải được phiếu.'));
+  await mount(TicketTimelineScreen);
+  assert.match(text(), /Tạm thời không tải được phiếu/);
+  adapter(config => ok(config, [ticketFixture], pagination()));
+  await press('Thử lại');
+  adapter(config => fail(config, 403, 'Bạn không có quyền xem phiếu này.'));
+  await press('Xem phiếu #42');
+  assert.match(text(), /Bạn không có quyền xem phiếu này/);
+  assert.doesNotMatch(text(), /Ống nước dưới bồn bị rò/);
+});
+
+test('rating requires stars and explicit acceptance, sends ratingComment and refreshes pending list', async () => {
+  let rated = false;
+  adapter(config => {
+    if (config.method === 'post') { rated = true; return ok(config, { ...ticketFixture, status: 'CLOSED', rating: 4 }); }
+    return ok(config, config.url === '/api/tickets/42'
+      ? { ...ticketFixture, status: 'COMPLETED' }
+      : rated ? [] : [{ ...ticketFixture, status: 'COMPLETED' }], pagination());
+  });
+  await mount(RatingScreen);
+  assert.equal(calls[0].url, '/api/tickets/my-tickets?page=1&limit=10&status=COMPLETED');
+  await press('Nghiệm thu phiếu #42');
+  await press('Gửi đánh giá và đóng phiếu');
+  assert.match(text(), /Chọn điểm đánh giá/);
+  await press('4 sao'); await press('Gửi đánh giá và đóng phiếu');
+  assert.match(text(), /Vui lòng xác nhận/);
+  assert.equal(calls.filter(c => c.method === 'post').length, 0);
+  await input('Nhận xét nghiệm thu (không bắt buộc)', ' Sửa tốt ');
+  await press('Xác nhận đã kiểm tra sửa chữa');
+  await press('Gửi đánh giá và đóng phiếu');
+  const post = calls.find(c => c.method === 'post');
+  assert.equal(post.url, '/api/tickets/42/rate');
+  assert.deepEqual(JSON.parse(post.data), { rating: 4, ratingComment: 'Sửa tốt' });
+  assert.match(text(), /Đã ghi nhận đánh giá/);
+  assert.match(text(), /Không có phiếu đang chờ nghiệm thu/);
+});
+
+test('rating rechecks detail and refuses a ticket that was already closed', async () => {
+  adapter(config => ok(config, config.url === '/api/tickets/42'
+    ? { ...ticketFixture, status: 'CLOSED' } : [{ ...ticketFixture, status: 'COMPLETED' }], pagination()));
+  await mount(RatingScreen); await press('Nghiệm thu phiếu #42');
+  assert.match(text(), /Phiếu không còn ở trạng thái chờ nghiệm thu/);
+  assert.equal(visibleButton('Gửi đánh giá và đóng phiếu'), undefined);
+  assert.equal(calls.filter(c => c.method === 'post').length, 0);
+});
+
+test('rating double tap sends once and backend rejection keeps the form', async () => {
+  let rejectPost;
+  adapter(config => {
+    if (config.method === 'post') return new Promise((resolve, reject) => { rejectPost = () => {
+      try { fail(config, 400, 'Phiếu đã đóng trước đó.'); } catch (error) { reject(error); }
+    }; });
+    return ok(config, config.url === '/api/tickets/42' ? { ...ticketFixture, status: 'COMPLETED' }
+      : [{ ...ticketFixture, status: 'COMPLETED' }], pagination());
+  });
+  await mount(RatingScreen); await press('Nghiệm thu phiếu #42'); await press('5 sao'); await press('Xác nhận đã kiểm tra sửa chữa');
+  const handler = visibleButton('Gửi đánh giá và đóng phiếu').props.onPress;
+  await act(async () => { handler(); handler(); });
+  assert.equal(calls.filter(c => c.method === 'post').length, 1);
+  await act(async () => rejectPost());
+  assert.match(text(), /Phiếu đã đóng trước đó/);
+  assert.equal(visibleButton('Gửi đánh giá và đóng phiếu').props.disabled, false);
+});
+
+test('feedback shows BQL reply, validates form and posts only title/content then resets to first page', async () => {
+  adapter(config => ok(config, config.method === 'post' ? feedbackFixture : [feedbackFixture],
+    pagination(config.url.includes('page=2') ? 2 : 1, 2)));
+  await mount(FeedbackScreen);
+  assert.match(text(), /Đã lên lịch vệ sinh/); assert.match(text(), /Đã giải quyết/);
+  await press('Gửi góp ý');
+  assert.equal(calls.filter(c => c.method === 'post').length, 0);
+  await press('Trang sau');
+  await input('Tiêu đề góp ý', ' Vệ sinh hành lang ');
+  await input('Nội dung góp ý', ' Đề nghị vệ sinh hành lang tầng một ');
+  await press('Gửi góp ý');
+  const post = calls.find(c => c.method === 'post');
+  assert.equal(post.url, '/api/feedback');
+  assert.deepEqual(JSON.parse(post.data), { title: 'Vệ sinh hành lang', content: 'Đề nghị vệ sinh hành lang tầng một' });
+  assert.equal(calls.at(-1).url, '/api/feedback/my-feedback?page=1&limit=10');
+  assert.match(text(), /Đã tiếp nhận góp ý #9/);
+  assert.equal(renderer.root.findAllByType('TextInput').find(n => n.props.accessibilityLabel === 'Tiêu đề góp ý').props.value, '');
+});
+
+test('feedback failure preserves content, prevents double submission and leaves retry available', async () => {
+  let finish;
+  adapter(config => config.method === 'post' ? new Promise((resolve, reject) => { finish = () => {
+    try { fail(config, 500, 'Chưa gửi được góp ý.'); } catch (error) { reject(error); }
+  }; }) : ok(config, [], pagination()));
+  await mount(FeedbackScreen);
+  assert.match(text(), /Bạn chưa gửi góp ý nào/);
+  await input('Tiêu đề góp ý', 'Vệ sinh'); await input('Nội dung góp ý', 'Cần vệ sinh hành lang');
+  const handler = visibleButton('Gửi góp ý').props.onPress;
+  await act(async () => { handler(); handler(); });
+  assert.equal(calls.filter(c => c.method === 'post').length, 1);
+  await act(async () => finish());
+  assert.match(text(), /Chưa gửi được góp ý/);
+  assert.equal(renderer.root.findAllByType('TextInput').find(n => n.props.accessibilityLabel === 'Nội dung góp ý').props.value, 'Cần vệ sinh hành lang');
+  assert.equal(visibleButton('Gửi góp ý').props.disabled, false);
+});
+
+test('feedback list error can retry without resending a feedback', async () => {
+  adapter(config => fail(config, 500, 'Lỗi danh sách góp ý.'));
+  await mount(FeedbackScreen); assert.match(text(), /Lỗi danh sách góp ý/);
+  adapter(config => ok(config, [{ ...feedbackFixture, reply: null, repliedAt: null, isResolved: false }], pagination()));
+  await press('Thử lại');
+  assert.match(text(), /Chưa có phản hồi/); assert.match(text(), /Đang xử lý/);
+  assert.ok(calls.every(config => config.method === 'get'));
+});
+
+test('maintenance input limits match backend contracts, including no Base64 feedback', () => {
+  assert.equal(validateTicket('a'.repeat(100), 'a'.repeat(50), 'a'.repeat(2000)), '');
+  assert.ok(validateTicket('a'.repeat(101), 'Nước', 'Rò nước'));
+  assert.ok(validateTicket('', ' ', 'Rò nước'));
+  assert.ok(validateTicket('', 'Nước', ' 1234 '));
+  assert.ok(validateTicket('', 'a'.repeat(51), 'Rò nước'));
+  assert.ok(validateTicket('', 'Nước', 'a'.repeat(2001)));
+  assert.equal(validateFeedback('abc', '12345'), '');
+  assert.equal(validateFeedback('a'.repeat(200), 'a'.repeat(2000)), '');
+  assert.ok(validateFeedback('ab', '12345'));
+  assert.ok(validateFeedback('a'.repeat(201), '12345'));
+  assert.ok(validateFeedback('abc', '1234'));
+  assert.ok(validateFeedback('abc', 'a'.repeat(2001)));
+  assert.ok(validateFeedback('abc', 'data:image/png;base64,aaaa'));
+});
