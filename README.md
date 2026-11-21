@@ -400,7 +400,6 @@ Nhóm cần nắm rõ trạng thái thực tế của từng API để không hi
   * Phối hợp với **Thuần** để gắn kết các màn hình sự cố và góp ý vào `AppNavigator`.
   * Cấu hình Token Request Interceptor trong `apiClient.ts` để mọi cuộc gọi API của Thuần đều tự động có header `Authorization`.
   * Phối hợp với **Hiếu** để hiển thị đúng ảnh VietQR động; hiển thị rõ ràng thông báo: việc quét mã là công cụ hỗ trợ điền thông tin chuyển khoản, không mặc nhiên là bằng chứng đã thanh toán cho đến khi BQL đối soát.
-  * Phối hợp với **Việt Hoàng**: thống nhất nhà cung cấp Push Notification di động OS (FCM vs Expo Notifications theo `[CẦN XÁC NHẬN - QUYẾT ĐỊNH 03]`), chia đều việc triển khai Mobile cùng Thuần khi có đầu việc cụ thể.
 * **Checklist nghiệm thu & Test bắt buộc:**
   * [x] Cấu hình `mobile/package.json` và cài đặt dependencies để chạy được lệnh `npm start`.
   * [ ] Đăng nhập thành công, lưu token và tự động chuyển từ `AuthScreen` vào `AppNavigator`.
